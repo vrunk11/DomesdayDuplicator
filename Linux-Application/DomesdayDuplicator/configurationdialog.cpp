@@ -205,6 +205,7 @@ void ConfigurationDialog::on_buttonBox_clicked(QAbstractButton *button)
         ui->saveAsTenBitRadioButton->setChecked(true);
         ui->saveAsSixteenBitRadioButton->setChecked(false);
         ui->saveAs10BitCdRadioButton->setChecked(false);
+		ui->stopOnDroppedSamples->setChecked(false);
 
         ui->vendorIdLineEdit->setText(QString::number(7504));
         ui->productIdLineEdit->setText(QString::number(24635));
