@@ -62,6 +62,9 @@ void ConfigurationDialog::loadConfiguration(Configuration *configuration)
         ui->saveAs10BitCdRadioButton->setChecked(true);
     }
 
+	// Stop on dropped samples
+	ui->stopOnDroppedSamples->setChecked(configuration->getStopOnDroppedSamples());
+
     // Amplitude
     ui->amplitudeProcessingCheckBox->setChecked(configuration->getAmplitudeEnabled());
 
@@ -131,6 +134,9 @@ void ConfigurationDialog::saveConfiguration(Configuration *configuration)
     if (ui->saveAsTenBitRadioButton->isChecked()) configuration->setCaptureFormat(Configuration::CaptureFormat::tenBitPacked);
     else if (ui->saveAsSixteenBitRadioButton->isChecked()) configuration->setCaptureFormat(Configuration::CaptureFormat::sixteenBitSigned);
     else configuration->setCaptureFormat(Configuration::CaptureFormat::tenBitCdPacked);
+
+    // Stop on dropped samples
+	configuration->setStopOnDroppedSamples((ui->stopOnDroppedSamples->isChecked()));
 
     // USB
     configuration->setUsbVid(static_cast<quint16>(ui->vendorIdLineEdit->text().toInt()));

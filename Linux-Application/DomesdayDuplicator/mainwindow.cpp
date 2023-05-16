@@ -682,13 +682,13 @@ void MainWindow::on_capturePushButton_clicked()
 
         if (configuration->getCaptureFormat() == Configuration::CaptureFormat::tenBitPacked) {
             qDebug() << "MainWindow::on_capturePushButton_clicked(): Starting transfer - 10-bit packed";
-            usbDevice->startCapture(captureFilename, true, false, isTestMode);
+            usbDevice->startCapture(captureFilename, true, false, isTestMode, configuration->getStopOnDroppedSamples());
         } else if (configuration->getCaptureFormat() == Configuration::CaptureFormat::tenBitCdPacked) {
             qDebug() << "MainWindow::on_capturePushButton_clicked(): Starting transfer - 10-bit packed 4:1 decimated";
-            usbDevice->startCapture(captureFilename, true, true, isTestMode);
+            usbDevice->startCapture(captureFilename, true, true, isTestMode, configuration->getStopOnDroppedSamples());
         } else {
             qDebug() << "MainWindow::on_capturePushButton_clicked(): Starting transfer - 16-bit";
-            usbDevice->startCapture(captureFilename, false, false, isTestMode);
+            usbDevice->startCapture(captureFilename, false, false, isTestMode, configuration->getStopOnDroppedSamples());
         }
 
         qDebug() << "MainWindow::on_capturePushButton_clicked(): Transfer started";

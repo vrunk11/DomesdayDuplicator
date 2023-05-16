@@ -62,6 +62,7 @@ void Configuration::writeConfiguration(void)
     configuration->beginGroup("capture");
     configuration->setValue("captureDirectory", settings.capture.captureDirectory);
     configuration->setValue("captureFormat", convertCaptureFormatToInt(settings.capture.captureFormat));
+	configuration->setValue("stopOnDroppedSamples", settings.capture.stopOnDroppedSamples);
     configuration->endGroup();
 
     // UI
@@ -107,6 +108,7 @@ void Configuration::readConfiguration(void)
     configuration->beginGroup("capture");
     settings.capture.captureDirectory = configuration->value("captureDirectory").toString();
     settings.capture.captureFormat = convertIntToCaptureFormat(configuration->value("captureFormat").toInt());
+	settings.capture.stopOnDroppedSamples = configuration->value("stopOnDroppedSamples").toBool();
     configuration->endGroup();
 
     // UI
@@ -146,6 +148,7 @@ void Configuration::setDefault(void)
     // Capture
     settings.capture.captureDirectory = QDir::homePath();
     settings.capture.captureFormat = CaptureFormat::tenBitPacked;
+	settings.capture.stopOnDroppedSamples = false;
 
     // UI
     settings.ui.graphType = GraphType::noGraph;
@@ -262,6 +265,16 @@ void Configuration::setCaptureFormat(CaptureFormat captureFormat)
 Configuration::CaptureFormat Configuration::getCaptureFormat(void)
 {
     return settings.capture.captureFormat;
+}
+
+void Configuration::setStopOnDroppedSamples(bool stopOnDroppedSamples)
+{
+    settings.capture.stopOnDroppedSamples = stopOnDroppedSamples;
+}
+
+bool Configuration::getStopOnDroppedSamples(void)
+{
+    return settings.capture.stopOnDroppedSamples;
 }
 
 // USB settings

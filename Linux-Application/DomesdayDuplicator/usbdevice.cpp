@@ -363,7 +363,7 @@ bool UsbDevice::sendVendorSpecificCommand(quint8 command, quint16 value)
 }
 
 // Start capturing from the USB device
-void UsbDevice::startCapture(QString filename, bool isCaptureFormat10Bit, bool isCaptureFormat10BitDecimated, bool isTestMode)
+void UsbDevice::startCapture(QString filename, bool isCaptureFormat10Bit, bool isCaptureFormat10BitDecimated, bool isTestMode, bool stopOnDroppedSamples)
 {
     qDebug() << "UsbDevice::startCapture(): Starting capture";
 
@@ -375,7 +375,7 @@ void UsbDevice::startCapture(QString filename, bool isCaptureFormat10Bit, bool i
         // Create the capture object
         qDebug() << "UsbDevice::startCapture(): Creating the capture object";
         usbCapture = new UsbCapture(this, libUsbContext, usbDeviceHandle, filename,
-                                    isCaptureFormat10Bit, isCaptureFormat10BitDecimated, isTestMode);
+                                    isCaptureFormat10Bit, isCaptureFormat10BitDecimated, isTestMode, stopOnDroppedSamples);
 
         // Did we get a valid device handle?
         if (usbDeviceHandle != nullptr) {

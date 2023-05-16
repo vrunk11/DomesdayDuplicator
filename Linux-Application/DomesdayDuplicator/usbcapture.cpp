@@ -227,7 +227,7 @@ static void LIBUSB_CALL bulkTransferCallback(struct libusb_transfer *transfer)
 UsbCapture::UsbCapture(QObject *parent, libusb_context *libUsbContextParam,
                        libusb_device_handle *usbDeviceHandleParam,
                        QString filenameParam, bool isCaptureFormat10BitParam,
-                       bool isCaptureFormat10BitDecimatedParam, bool isTestDataParam)
+                       bool isCaptureFormat10BitDecimatedParam, bool isTestDataParam, bool stopOnDroppedSamplesParam)
     : QThread(parent)
 {
     // Set the libUSB context
@@ -249,6 +249,7 @@ UsbCapture::UsbCapture(QObject *parent, libusb_context *libUsbContextParam,
     isCaptureFormat10Bit = isCaptureFormat10BitParam;
     isCaptureFormat10BitDecimated = isCaptureFormat10BitDecimatedParam;
     isTestData = isTestDataParam;
+	stopOnDroppedSamples = stopOnDroppedSamplesParam;
 
     // Set the transfer abort flag
     transferAbort = false;
@@ -663,9 +664,12 @@ void UsbCapture::checkBufferSequence(qint32 diskBufferNumber)
         const quint32 seqNum = diskBuffer[pointer + 1] >> 2;
         if (seqNum != expected) {
             qDebug() << "UsbCapture::checkBufferSequence(): Sequence number mismatch - expecting" << expected << "but got" << seqNum;
-            sequenceState = SEQUENCE_FAILED;
-            savedSequenceCounter = sequenceCounter;
-            return;
+            if(stopOnDroppedSamples)
+			{
+				sequenceState = SEQUENCE_FAILED;
+				savedSequenceCounter = sequenceCounter;
+				return;
+			}
         }
 
         // Update sequenceCounter

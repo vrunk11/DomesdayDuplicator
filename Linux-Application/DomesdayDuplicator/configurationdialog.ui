@@ -132,6 +132,19 @@
          </property>
         </spacer>
        </item>
+       <item>
+        <widget class="QCheckBox" name="stopOnDroppedSamples">
+         <property name="enabled">
+          <bool>true</bool>
+         </property>
+         <property name="text">
+          <string>Stop captures on sequence mismatch</string>
+         </property>
+         <property name="tristate">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
       </layout>
      </widget>
      <widget class="QWidget" name="usb">

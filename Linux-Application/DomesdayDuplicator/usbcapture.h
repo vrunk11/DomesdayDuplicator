@@ -36,6 +36,7 @@
 #include <QtConcurrent/QtConcurrent>
 
 #include <libusb.h>
+#include "configuration.h"
 
 class UsbCapture : public QThread
 {
@@ -44,7 +45,7 @@ public:
     explicit UsbCapture(QObject *parent = nullptr, libusb_context *libUsbContextParam = nullptr,
                         libusb_device_handle *usbDeviceHandleParam = nullptr, QString filenameParam = nullptr,
                         bool isCaptureFormat10BitParam = true, bool isCaptureFormat10BitDecimatedParam = false,
-                        bool isTestData = false);
+                        bool isTestData = false, bool stopOnDroppedSamples = false);
     ~UsbCapture() override;
 
     void startTransfer(void);
@@ -71,6 +72,7 @@ protected:
     bool isCaptureFormat10Bit;
     bool isCaptureFormat10BitDecimated;
     bool isTestData;
+	bool stopOnDroppedSamples;
 
 private:
     qint32 numberOfDiskBuffersWritten;

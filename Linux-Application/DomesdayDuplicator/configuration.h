@@ -74,6 +74,8 @@ public:
     QString getCaptureDirectory(void);
     void setCaptureFormat(CaptureFormat captureFormat);
     CaptureFormat getCaptureFormat(void);
+	void setStopOnDroppedSamples(bool);
+    bool getStopOnDroppedSamples(void);
     void setUsbVid(quint16 vid);
     quint16 getUsbVid(void);
     void setUsbPid(quint16 pid);
@@ -112,6 +114,7 @@ private:
     struct Capture {
         QString captureDirectory;
         CaptureFormat captureFormat;
+		bool stopOnDroppedSamples;
     };
 
     struct Usb {
