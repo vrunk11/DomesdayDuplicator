@@ -65,16 +65,6 @@ void ConfigurationDialog::loadConfiguration(Configuration *configuration)
 	// Stop on dropped samples
 	ui->stopOnDroppedSamples->setChecked(configuration->getStopOnDroppedSamples());
 
-    // Amplitude
-    ui->amplitudeProcessingCheckBox->setChecked(configuration->getAmplitudeEnabled());
-
-    // Graph Type
-    if(configuration->getGraphType() == Configuration::GraphType::QCPMean) {
-        ui->amplitudeGraphRadioButton->setChecked(true);
-    } else {
-        ui->noGraphButton->setChecked(true);
-    }
-
     // USB
     ui->vendorIdLineEdit->setText(QString::number(configuration->getUsbVid()));
     ui->productIdLineEdit->setText(QString::number(configuration->getUsbPid()));
@@ -121,6 +111,14 @@ void ConfigurationDialog::loadConfiguration(Configuration *configuration)
 
     // Keylock flag
     ui->keyLockCheckBox->setChecked(configuration->getKeyLock());
+
+    // Advanced naming
+    ui->perSideNotesCheckBox->setChecked(configuration->getPerSideNotesEnabled());
+    ui->perSideMintCheckBox->setChecked(configuration->getPerSideMintEnabled());
+
+    // Amplitude
+    ui->amplitudeLabelCheckBox->setChecked(configuration->getAmplitudeLabelEnabled());
+    ui->amplitudeChartCheckBox->setChecked(configuration->getAmplitudeChartEnabled());
 }
 
 // Save the configuration settings from the UI widgets
@@ -152,13 +150,13 @@ void ConfigurationDialog::saveConfiguration(Configuration *configuration)
     if (ui->keyLockCheckBox->isChecked()) configuration->setKeyLock(true);
     else configuration->setKeyLock(false);
 
-    // Amplitude
-    if (ui->amplitudeProcessingCheckBox->isChecked()) configuration->setAmplitudeEnabled(true);
-    else configuration->setAmplitudeEnabled(false);
+    // Advanced naming
+    configuration->setPerSideNotesEnabled(ui->perSideNotesCheckBox->isChecked());
+    configuration->setPerSideMintEnabled(ui->perSideMintCheckBox->isChecked());
 
-    // Graph
-    if (ui->noGraphButton->isChecked()) configuration->setGraphType(Configuration::noGraph);
-    else if (ui->amplitudeGraphRadioButton->isChecked()) configuration->setGraphType(Configuration::QCPMean);
+    // Amplitude
+    configuration->setAmplitudeLabelEnabled(ui->amplitudeLabelCheckBox->isChecked());
+    configuration->setAmplitudeChartEnabled(ui->amplitudeChartCheckBox->isChecked());
 
     // Save the configuration to disk
     configuration->writeConfiguration();
@@ -212,5 +210,11 @@ void ConfigurationDialog::on_buttonBox_clicked(QAbstractButton *button)
 
         ui->serialDeviceComboBox->setCurrentIndex(0);
         ui->serialSpeedComboBox->setCurrentIndex(ui->serialSpeedComboBox->findData(Configuration::SerialSpeeds::autoDetect));
+
+        ui->perSideNotesCheckBox->setChecked(false);
+        ui->perSideMintCheckBox->setChecked(false);
+
+        ui->amplitudeLabelCheckBox->setChecked(false);
+        ui->amplitudeChartCheckBox->setChecked(false);
     }
 }

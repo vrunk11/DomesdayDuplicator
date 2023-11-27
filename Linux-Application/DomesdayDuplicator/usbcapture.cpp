@@ -292,7 +292,7 @@ UsbCapture::~UsbCapture()
 }
 
 // Run the capture thread
-void UsbCapture::run(void)
+void UsbCapture::run()
 {
     // Set up the libusb transfers
     struct libusb_transfer **usbTransfers = nullptr;
@@ -461,7 +461,7 @@ void UsbCapture::run(void)
 
 // Allocate memory for the disk buffers
 // Note: Using vectors would be neater, but they are just too slow
-void UsbCapture::allocateDiskBuffers(void)
+void UsbCapture::allocateDiskBuffers()
 {
     qDebug() << "UsbCapture::allocateDiskBuffers(): Allocating" << (1ULL * TRANSFERSIZE * TRANSFERSPERDISKBUFFER * NUMBEROFDISKBUFFERS) / (1024 * 1024) << "MiB memory for disk buffers";
     // Allocate the disk buffers
@@ -510,7 +510,7 @@ void UsbCapture::allocateDiskBuffers(void)
 }
 
 // Free memory used for the disk buffers
-void UsbCapture::freeDiskBuffers(void)
+void UsbCapture::freeDiskBuffers()
 {
     qDebug() << "UsbCapture::freeDiskBuffers(): Freeing disk buffer memory";
     // Free up the allocated disk buffers
@@ -541,7 +541,7 @@ void UsbCapture::freeDiskBuffers(void)
 }
 
 // Thread for processing disk buffers
-void UsbCapture::runDiskBuffers(void)
+void UsbCapture::runDiskBuffers()
 {
     qDebug() << "UsbCapture::runDiskBuffers(): Thread started";
 
@@ -849,7 +849,7 @@ void UsbCapture::writeConversionBuffer(QFile *outputFile, qint32 numBytes)
 }
 
 // Start capturing
-void UsbCapture::startTransfer(void)
+void UsbCapture::startTransfer()
 {
     // Flip isOkToRename back to false; new capture
     isOkToRename = false;
@@ -860,26 +860,26 @@ void UsbCapture::startTransfer(void)
 }
 
 // Stop capturing
-void UsbCapture::stopTransfer(void)
+void UsbCapture::stopTransfer()
 {
     // Set the transfer flags to abort
     transferAbort = true;
 }
 
 // Return the current number of transfers completed
-qint32 UsbCapture::getNumberOfTransfers(void)
+qint32 UsbCapture::getNumberOfTransfers()
 {
     return statistics.transferCount;
 }
 
 // Return the current number of disk buffers written to disk
-qint32 UsbCapture::getNumberOfDiskBuffersWritten(void)
+qint32 UsbCapture::getNumberOfDiskBuffersWritten()
 {
     return numberOfDiskBuffersWritten;
 }
 
 // Return the last error text
-QString UsbCapture::getLastError(void)
+QString UsbCapture::getLastError()
 {
     return lastError;
 }
