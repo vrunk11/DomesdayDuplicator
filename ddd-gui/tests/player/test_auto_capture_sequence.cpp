@@ -19,6 +19,7 @@
 
 #include "auto_capture_sequence.h"
 #include "player_registry.h"
+#include "players/pioneer_ld_v2200.h"
 
 namespace ddd::player {
 namespace {
@@ -276,6 +277,13 @@ TEST(AutoCaptureSequence, AWholeCavSideSpinsDownBeforeItStartsWriting) {
       std::find(stages.begin(), stages.end(), AutoCaptureStage::kSpinningUp);
   EXPECT_LT(spin_down, start);
   EXPECT_LT(start, spin_up);
+
+  const auto watch =
+      std::find_if(steps.begin(), steps.end(), [](const AutoCaptureStep& step) {
+        return step.stage == AutoCaptureStage::kWatching;
+      });
+  ASSERT_NE(watch, steps.end());
+  EXPECT_EQ(watch->command, PlayerCommand::kQueryAddress);
 }
 
 TEST(AutoCaptureSequence, ACavSideIsPlayedWithItsStopCodesIgnored) {
@@ -298,7 +306,7 @@ TEST(AutoCaptureSequence, ACavSideIsPlayedWithItsStopCodesIgnored) {
   EXPECT_EQ(spin_up->command, PlayerCommand::kPlayWithoutStopCodes);
 }
 
-TEST(AutoCaptureSequence, AClvSideIsSimplyPlayed) {
+TEST(AutoCaptureSequence, ANormalClvSideIsSimplyPlayedAndWatchedByFrameAddress) {
   const DiscProfile disc = ClvDisc();
   AutoCaptureSequence sequence(LevelIIIModel(), "02", WholeSide(disc), disc);
 
@@ -325,6 +333,27 @@ TEST(AutoCaptureSequence, AClvSideIsSimplyPlayed) {
       });
   ASSERT_NE(watch, steps.end());
   EXPECT_EQ(watch->command, PlayerCommand::kQueryAddress);
+}
+
+TEST(AutoCaptureSequence, AnLdV2200ClvSideIsWatchedByTimeCode) {
+  const DiscProfile disc = ClvDisc();
+  AutoCaptureSequence sequence(pioneer::kLdV2200, "02", WholeSide(disc),
+                               disc);
+
+  Script script;
+  script.answers[AutoCaptureStage::kConfirmingDisc] = Answered("11001");
+  script.addresses = {"<00000", "05045"};
+
+  const std::vector<AutoCaptureStep> steps = Drive(sequence, script);
+
+  EXPECT_EQ(sequence.outcome(), AutoCaptureOutcome::kCompleted);
+
+  const auto watch =
+      std::find_if(steps.begin(), steps.end(), [](const AutoCaptureStep& step) {
+        return step.stage == AutoCaptureStage::kWatching;
+      });
+  ASSERT_NE(watch, steps.end());
+  EXPECT_EQ(watch->command, PlayerCommand::kQueryTimeCode);
 }
 
 // --- The stop that opens the tray ------------------------------------------

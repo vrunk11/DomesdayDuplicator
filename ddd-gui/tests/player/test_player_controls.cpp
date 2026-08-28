@@ -179,7 +179,7 @@ TEST(PlayerControlsTest, EveryRegisteredModelOffersWhatTheApplicationNeeds) {
          {PlayerCommand::kPlay, PlayerCommand::kPause, PlayerCommand::kStop,
           PlayerCommand::kSeekFrame, PlayerCommand::kSeekTimeCode,
           PlayerCommand::kQueryActiveMode, PlayerCommand::kQueryAddress,
-          PlayerCommand::kQueryDiscStatus}) {
+          PlayerCommand::kQueryTimeCode, PlayerCommand::kQueryDiscStatus}) {
       EXPECT_TRUE(controls.Has(command))
           << definition->name << " cannot be asked for command index "
           << Index(command);

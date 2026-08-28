@@ -94,7 +94,7 @@ AutoCaptureStep AutoCaptureSequence::StepFor(AutoCaptureStage stage) const {
       step.command = PlayCommand();
       break;
     case AutoCaptureStage::kWatching:
-      step.command = PlayerCommand::kQueryAddress;
+      step.command = AddressQueryFor(*definition_, plan_.addressing);
       step.delay = kWatchInterval;
       break;
     case AutoCaptureStage::kCheckingStall:
@@ -558,7 +558,8 @@ void AutoCaptureSequence::ApplyWatching(const Reply& reply) {
     return;
   }
 
-  const DiscAddress address = ParseAddress(reply.text, plan_.addressing);
+  const DiscAddress address =
+      ParseAddress(reply.text, plan_.addressing, definition_->time_code_format);
 
   if (address.in_lead_out) {
     // Past the end of the programme. The measured end may be a frame or two

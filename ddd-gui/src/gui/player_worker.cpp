@@ -506,20 +506,21 @@ void PlayerWorker::Poll() {
 
   status.disc_type = last_disc_type_;
 
-  // The address is read in the mode the disc implies. A disc whose type is not
-  // known yet is read as frames, which is what a CAV disc uses and what the
-  // parser will refuse outright if the reply turns out to be a time code — a
-  // refusal being much better than a number that is wrong by a factor of a
-  // hundred.
+  // The address is read from the register this definition uses for the disc's
+  // addressing mode. A disc whose type is not known yet falls back to the
+  // Frame Register: it is the CAV register and the parser will refuse an
+  // unexpected time code rather than turn it into a plausible, wrong frame.
   const player::Reply address =
-      session_->Execute(player::PlayerCommand::kQueryAddress);
+      session_->Execute(player::AddressQueryFor(
+          definition, player::AddressModeFor(status.disc_type)));
   if (address.status == player::ReplyStatus::kLinkFailed) {
     ReportLinkLost();
     return;
   }
   if (address.ok()) {
     status.address = player::ParseAddress(
-        address.text, player::AddressModeFor(status.disc_type));
+        address.text, player::AddressModeFor(status.disc_type),
+        definition.time_code_format);
   }
 
   if (session_->SupportsPhysicalPosition()) {

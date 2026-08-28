@@ -695,15 +695,18 @@ void PlayerRemoteDialog::ApplyControls() {
   headline_->setText(PlayerStatusBarText(connection_, status_));
 
   for (const GatedButton& gated : command_buttons_) {
-    const bool available = live && controls.Has(gated.command);
+    const bool clv_still = status_.disc_type == player::DiscType::kClv &&
+                           gated.command == player::PlayerCommand::kStillFrame;
+    const bool available = live && controls.Has(gated.command) && !clv_still;
     gated.button->setEnabled(available);
 
     // A control that is not offered says why. The old application's silence
     // here is what made a capability the player lacked look like a fault in the
     // cable.
     gated.button->setToolTip(
-        available ? gated.help
-                  : UnsupportedControlNote(connection_, gated.command));
+        available   ? gated.help
+        : clv_still ? tr("Still frames are available only on CAV discs.")
+                    : UnsupportedControlNote(connection_, gated.command));
   }
 
   // The two parameterised commands. Their lists are rebuilt rather than merely

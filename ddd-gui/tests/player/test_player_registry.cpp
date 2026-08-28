@@ -140,6 +140,7 @@ TEST(PlayerRegistryTest, TheGenericPlayerIsUsableButDoesNotClaimToBeAModel) {
   // it: an unrecognised player can still be driven.
   EXPECT_TRUE(Spec(generic, PlayerCommand::kPlay).present());
   EXPECT_TRUE(Spec(generic, PlayerCommand::kQueryAddress).present());
+  EXPECT_TRUE(Spec(generic, PlayerCommand::kQueryTimeCode).present());
 }
 
 TEST(PlayerRegistryTest, NoDefinitionClaimsEvidenceItDoesNotHave) {
@@ -184,6 +185,13 @@ TEST(PlayerRegistryTest, AnInconsistentDefinitionIsRejected) {
   // a model genuinely lacking frame search would look like.
   missing_command.capabilities.frame_search = false;
   EXPECT_TRUE(IsConsistent(missing_command));
+
+  // Both address queries are required even though neither is a user-facing
+  // control: the application selects one after it learns the disc's type.
+  PlayerDefinition missing_time_query = pioneer::kLdV4300D;
+  missing_time_query.commands[Index(PlayerCommand::kQueryTimeCode)] =
+      CommandSpec{};
+  EXPECT_FALSE(IsConsistent(missing_time_query));
 
   // Takes an argument without saying how wide it may be.
   PlayerDefinition widthless = pioneer::kLdV4300D;

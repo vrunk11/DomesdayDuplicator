@@ -33,9 +33,10 @@ using namespace std::chrono_literals;
 
 constexpr const char* kPortPath = "/dev/ttyFAKE0";
 
-// An LD-V4300D — the model on the project's own bench — and an LD-V8000, for
-// the cases that need two different players.
+// An LD-V4300D — the model on the project's own bench — an LD-V2200 and an
+// LD-V8000, for the cases that need different players.
 constexpr const char* kLdV4300DReply = "P1515A1";
+constexpr const char* kLdV2200Reply = "P1507A1";
 constexpr const char* kLdV8000Reply = "P1506A9";
 
 // Pump the event loop until a condition holds, so a test fails with a message
@@ -284,9 +285,10 @@ TEST_F(PlayerControllerTest, TheStatusIsPolledAndReadInTheDiscsOwnTerms) {
   EXPECT_EQ(status.address.value, 12345);
 }
 
-TEST_F(PlayerControllerTest, ACavAddressAndAClvAddressAreBothRead) {
-  // A CLV time code is seven digits, and reading it as a frame number would be
-  // wrong by orders of magnitude — so the mode has to follow the disc.
+TEST_F(PlayerControllerTest, ANormalClvAddressIsReadWithTheFrameQuery) {
+  // Pioneer Level III uses the Frame Register for its frame-precise CLV
+  // address. The LD-V2200's ?T/HMMSS behaviour is an exception, not a change
+  // to this documented path.
   port_.AddPioneerPlayer(9600, kLdV4300DReply);
   port_.AddStatusResponses(9600, "P04", "11011", "1234500");
   BuildController();
@@ -299,6 +301,50 @@ TEST_F(PlayerControllerTest, ACavAddressAndAClvAddressAreBothRead) {
   }));
 
   EXPECT_EQ(controller_->status().address.value, 1234500);
+
+  const std::vector<std::string> writes = port_.writes();
+  EXPECT_NE(std::find(writes.begin(), writes.end(), "?F\r"), writes.end());
+  EXPECT_EQ(std::find(writes.begin(), writes.end(), "?T\r"), writes.end());
+}
+
+TEST_F(PlayerControllerTest, AnLdV2200ClvAddressIsReadWithTheTimeQuery) {
+  // The LD-V2200 refuses ?F for a CLV disc and returns HMMSS from ?T, so this
+  // model selects the Time Register and restores its absent frame field.
+  port_.AddPioneerPlayer(9600, kLdV2200Reply);
+  port_.AddStatusResponses(9600, "P04", "11011", "00002",
+                           player::PlayerCommand::kQueryTimeCode);
+  BuildController();
+  Enable();
+
+  ASSERT_TRUE(WaitForState(PlayerConnectionState::kConnected));
+  ASSERT_TRUE(PumpUntil([this] {
+    return controller_->status().disc_type == player::DiscType::kClv &&
+           controller_->status().address.valid;
+  }));
+
+  EXPECT_EQ(controller_->status().address.value, 200);
+
+  const std::vector<std::string> writes = port_.writes();
+  EXPECT_NE(std::find(writes.begin(), writes.end(), "?T\r"), writes.end());
+  EXPECT_EQ(std::find(writes.begin(), writes.end(), "?F\r"), writes.end());
+}
+
+TEST_F(PlayerControllerTest, AnUnknownDiscTypeKeepsTheFrameQueryFallback) {
+  port_.AddPioneerPlayer(9600, kLdV4300DReply);
+  port_.AddStatusResponses(9600, "P04", "1X001", "0012345");
+  BuildController();
+  Enable();
+
+  ASSERT_TRUE(WaitForState(PlayerConnectionState::kConnected));
+  ASSERT_TRUE(
+      PumpUntil([this] { return controller_->status().address.valid; }));
+
+  EXPECT_EQ(controller_->status().disc_type, player::DiscType::kUnknown);
+  EXPECT_EQ(controller_->status().address.value, 12345);
+
+  const std::vector<std::string> writes = port_.writes();
+  EXPECT_NE(std::find(writes.begin(), writes.end(), "?F\r"), writes.end());
+  EXPECT_EQ(std::find(writes.begin(), writes.end(), "?T\r"), writes.end());
 }
 
 TEST_F(PlayerControllerTest, ALinkThatDiesIsReportedAndSearchedForAgain) {
