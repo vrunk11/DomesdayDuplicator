@@ -62,9 +62,13 @@ std::string TwoDigits(int value) {
 std::string FormatCaptureTimestamp(std::time_t when) {
   std::tm parts{};
 #ifdef _WIN32
-  localtime_s(&parts, &when);
+  if (localtime_s(&parts, &when) != 0) {
+    return {};
+  }
 #else
-  localtime_r(&when, &parts);
+  if (localtime_r(&when, &parts) == nullptr) {
+    return {};
+  }
 #endif
 
   // Built by hand rather than with strftime, because strftime's output depends

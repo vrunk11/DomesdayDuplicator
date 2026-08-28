@@ -132,8 +132,8 @@ void AutoCaptureController::Step() {
     return;
   }
 
-  const int address =
-      sequence_->last_address().has_value() ? *sequence_->last_address() : -1;
+  const std::optional<int32_t> last_address = sequence_->last_address();
+  const int address = last_address.value_or(-1);
   emit Progress(step->stage, address);
 
   // The watch's pacing, and the only place a step's delay is used. The flag is
