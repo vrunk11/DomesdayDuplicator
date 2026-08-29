@@ -1,6 +1,6 @@
 # Submitting a bug report
 
-If you find a bug in the capture application please use the Github issue reporting tool available from [this link](https://github.com/simoninns/DomesdayDuplicator/issues).
+If you find a bug in the capture application please use the Github issue reporting tool available from [this link](https://github.com/Domesday86/DomesdayDuplicator/issues).
 
 ## What to include
 

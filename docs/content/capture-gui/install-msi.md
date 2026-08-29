@@ -11,7 +11,7 @@ on it are not something the project can act on.
 ## Install
 
 Download `DomesdayDuplicator-<version>-windows-x64.msi` from the
-[releases page](https://github.com/simoninns/DomesdayDuplicator/releases), then verify it
+[releases page](https://github.com/Domesday86/DomesdayDuplicator/releases), then verify it
 in PowerShell:
 
 ```powershell

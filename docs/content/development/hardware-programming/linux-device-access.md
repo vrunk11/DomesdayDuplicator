@@ -68,7 +68,7 @@ The repository provides a NixOS module. Add the flake as an input and enable it:
 
 ```nix
 {
-  inputs.domesdayduplicator.url = "github:simoninns/DomesdayDuplicator";
+  inputs.domesdayduplicator.url = "github:Domesday86/DomesdayDuplicator";
 
   # ... in your configuration:
   imports = [ domesdayduplicator.nixosModules.udev ];

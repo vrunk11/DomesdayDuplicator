@@ -60,7 +60,7 @@ making it permanent. This mirrors the RAM-then-EEPROM order on the
 !!! tip "You may not need to build anything"
 
     Prebuilt `.sof` and `.jic` files are attached to
-    [releases](https://github.com/simoninns/DomesdayDuplicator/releases), along with a
+    [releases](https://github.com/Domesday86/DomesdayDuplicator/releases), along with a
     `bitstream-provenance.txt` recording the commit and Quartus version they came from. If you
     only want to program a board, skip to [step 2](#2-program-the-board).
 

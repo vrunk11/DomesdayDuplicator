@@ -34,7 +34,7 @@ namespace {
 
 // Where a user can find the source, which the licence entitles them to.
 constexpr const char* kProjectUrl =
-    "https://github.com/simoninns/DomesdayDuplicator";
+    "https://github.com/Domesday86/DomesdayDuplicator";
 
 // The commit, which is what "Build:" means here. It is the same kind of stamp
 // the FX3 firmware and the FPGA gateware report, so a bug report quotes three

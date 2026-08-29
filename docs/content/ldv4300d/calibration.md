@@ -21,7 +21,7 @@ In order to calibrate the player the following items are required (in addition y
 * Either a calibration breakout board (see below) or the required test-header connecting cables and components (100K resistor and 1uF unpolarised capacitor)
 * A monitor/TV capable of displaying NTSC video along with the required interconnecting cables for video and audio
 
-Nearly all calibration steps require connection between the player and an oscilloscope (some steps require connection to both the DSO and AWG). In addition, some steps also require simple filtering components in the measurement path. To make these steps easier there is a calibration board design [available on Github](https://github.com/simoninns/LD-V4300D-Service-Adaptor) including the required Gerber files for PCB production. The following schematic shows the contents of the board:
+Nearly all calibration steps require connection between the player and an oscilloscope (some steps require connection to both the DSO and AWG). In addition, some steps also require simple filtering components in the measurement path. To make these steps easier there is a calibration board design [available on Github](https://github.com/Domesday86/LD-V4300D-Service-Adaptor) including the required Gerber files for PCB production. The following schematic shows the contents of the board:
 
 ![](assets/LDV4300D-Calibration/LD-V4300D-Service-Adaptor-schematic.jpg)
 

@@ -71,7 +71,7 @@ compiler, the image builder and the SDK all come from the flake.
 
 For an editing loop rather than a one-shot build, `nix develop .#fx3` gives the same
 toolchain as a shell; the build options are in
-[`fx3/firmware/README.md`](https://github.com/simoninns/DomesdayDuplicator/blob/main/fx3/firmware/README.md).
+[`fx3/firmware/README.md`](https://github.com/Domesday86/DomesdayDuplicator/blob/main/fx3/firmware/README.md).
 
 ### Check: does the build know what it is?
 

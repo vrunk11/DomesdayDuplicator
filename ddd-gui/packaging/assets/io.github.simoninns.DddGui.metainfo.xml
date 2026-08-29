@@ -47,9 +47,9 @@
 
   <launchable type="desktop-id">io.github.simoninns.DddGui.desktop</launchable>
 
-  <url type="homepage">https://github.com/simoninns/DomesdayDuplicator</url>
-  <url type="bugtracker">https://github.com/simoninns/DomesdayDuplicator/issues</url>
-  <url type="help">https://simoninns.github.io/DomesdayDuplicator/</url>
+  <url type="homepage">https://github.com/Domesday86/DomesdayDuplicator</url>
+  <url type="bugtracker">https://github.com/Domesday86/DomesdayDuplicator/issues</url>
+  <url type="help">https://domesday86.github.io/DomesdayDuplicator/</url>
 
   <developer id="io.github.simoninns">
     <name>Simon Inns</name>

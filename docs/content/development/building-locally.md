@@ -7,7 +7,7 @@ Everything here runs from the **repository root**. Each component keeps its own 
 directory, so building one never disturbs another and `git status` stays clean.
 
 ```bash
-git clone https://github.com/simoninns/DomesdayDuplicator
+git clone https://github.com/Domesday86/DomesdayDuplicator
 cd DomesdayDuplicator
 ```
 

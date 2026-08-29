@@ -137,7 +137,7 @@ stdenv.mkDerivation (finalAttrs: {
       firmware.elf and firmware.map are for debugging. The USB product descriptor carries
       the commit the image was built from, so `lsusb -v` identifies a running device.
     '';
-    homepage = "https://github.com/simoninns/DomesdayDuplicator";
+    homepage = "https://github.com/Domesday86/DomesdayDuplicator";
     # The firmware sources are GPLv3; they link against the vendored Cypress SDK, whose
     # licensing is recorded in fx3/sdk/README.md.
     license = lib.licenses.gpl3Plus;

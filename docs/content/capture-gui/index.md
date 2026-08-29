@@ -116,4 +116,4 @@ firmware and gateware release separately under `fw-v*` tags — a fix to the app
 not mean you need to reflash anything, and a firmware release does not mean you need a new
 application.
 
-[Releases on GitHub](https://github.com/simoninns/DomesdayDuplicator/releases)
+[Releases on GitHub](https://github.com/Domesday86/DomesdayDuplicator/releases)

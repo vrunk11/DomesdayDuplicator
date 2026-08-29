@@ -420,7 +420,7 @@ differently because of it — it is a statement about evidence, and it is the ho
 somewhere, and the places it is wrong are exactly the ones nobody has looked at.
 
 If you have one of these and are willing to walk the checklist, it is in
-[`ddd-gui/src/player/players/README.md`](https://github.com/simoninns/DomesdayDuplicator/blob/main/ddd-gui/src/player/players/README.md)
+[`ddd-gui/src/player/players/README.md`](https://github.com/Domesday86/DomesdayDuplicator/blob/main/ddd-gui/src/player/players/README.md)
 and the full version is in TESTING.md §7. Adding a model is one header file and one line in
 a table.
 

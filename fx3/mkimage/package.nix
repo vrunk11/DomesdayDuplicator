@@ -62,7 +62,7 @@ stdenv.mkDerivation (finalAttrs: {
       specification. It replaces the proprietary elf2img utility that used to be
       vendored with the FX3 SDK, and it produces byte-identical output.
     '';
-    homepage = "https://github.com/simoninns/DomesdayDuplicator";
+    homepage = "https://github.com/Domesday86/DomesdayDuplicator";
     license = lib.licenses.gpl3Plus;
     mainProgram = "fx3-mkimage";
     platforms = lib.platforms.unix;

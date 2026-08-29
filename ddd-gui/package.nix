@@ -157,7 +157,7 @@ stdenv.mkDerivation (finalAttrs: {
       40 Msps with 10-bit resolution over USB 3.0. This package provides the capture
       application, built around real-time monitoring of the incoming signal.
     '';
-    homepage = "https://github.com/simoninns/DomesdayDuplicator";
+    homepage = "https://github.com/Domesday86/DomesdayDuplicator";
     license = lib.licenses.gpl3Plus;
     mainProgram = "ddd-gui";
     platforms = lib.platforms.unix;

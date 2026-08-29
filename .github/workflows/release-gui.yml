@@ -223,9 +223,9 @@ jobs:
 
             | Platform | Download |
             | --- | --- |
-            | Linux | `.flatpak` — see [Linux installation](https://simoninns.github.io/DomesdayDuplicator/capture-gui/install-flatpak/) |
-            | macOS | `.dmg` — see [macOS installation](https://simoninns.github.io/DomesdayDuplicator/capture-gui/install-dmg/) |
-            | Windows | `.msi` — see [Windows installation](https://simoninns.github.io/DomesdayDuplicator/capture-gui/install-msi/) |
+            | Linux | `.flatpak` — see [Linux installation](https://domesday86.github.io/DomesdayDuplicator/capture-gui/install-flatpak/) |
+            | macOS | `.dmg` — see [macOS installation](https://domesday86.github.io/DomesdayDuplicator/capture-gui/install-dmg/) |
+            | Windows | `.msi` — see [Windows installation](https://domesday86.github.io/DomesdayDuplicator/capture-gui/install-msi/) |
 
             Verify a download against `SHA256SUMS`; `PROVENANCE.txt` records the commit and
             the toolchains this was built with.

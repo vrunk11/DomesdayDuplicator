@@ -3,7 +3,7 @@
 The Domesday Duplicator is a LaserDisc capture focused, USB 3.0 based DAQ capable of 40
 million samples per second acquisition of analogue RF data at 10-bits resolution.
 
-Please see the [Project Documentation](https://simoninns.github.io/DomesdayDuplicator/) for
+Please see the [Project Documentation](https://domesday86.github.io/DomesdayDuplicator/) for
 details of the project and for access to the project documentation. For contributing
 guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -19,7 +19,7 @@ so you can see the RF while it is being sampled rather than after the fact.
 
 The application also drives a Pioneer LaserDisc player over serial, runs whole-disc automatic
 captures, and updates the Duplicator's own firmware and gateware over USB. The
-[Capture Application documentation](https://simoninns.github.io/DomesdayDuplicator/capture-gui/)
+[Capture Application documentation](https://domesday86.github.io/DomesdayDuplicator/capture-gui/)
 covers every panel.
 
 ## Installing — no compilation required
@@ -30,14 +30,14 @@ activity only, and nothing you need as a user requires it.
 
 ### The capture application
 
-Download from the [releases page](https://github.com/simoninns/DomesdayDuplicator/releases)
+Download from the [releases page](https://github.com/Domesday86/DomesdayDuplicator/releases)
 and follow the installation page for your platform:
 
 | Platform | Package | Installation |
 | --- | --- | --- |
-| Linux | `DomesdayDuplicator-<version>.flatpak` | [Linux (Flatpak)](https://simoninns.github.io/DomesdayDuplicator/capture-gui/install-flatpak/) |
-| macOS (Apple Silicon) | `DomesdayDuplicator-<version>-macos-arm64.dmg` | [macOS (DMG)](https://simoninns.github.io/DomesdayDuplicator/capture-gui/install-dmg/) |
-| Windows 11 | `DomesdayDuplicator-<version>-windows-x64.msi` | [Windows (MSI)](https://simoninns.github.io/DomesdayDuplicator/capture-gui/install-msi/) |
+| Linux | `DomesdayDuplicator-<version>.flatpak` | [Linux (Flatpak)](https://domesday86.github.io/DomesdayDuplicator/capture-gui/install-flatpak/) |
+| macOS (Apple Silicon) | `DomesdayDuplicator-<version>-macos-arm64.dmg` | [macOS (DMG)](https://domesday86.github.io/DomesdayDuplicator/capture-gui/install-dmg/) |
+| Windows 11 | `DomesdayDuplicator-<version>-windows-x64.msi` | [Windows (MSI)](https://domesday86.github.io/DomesdayDuplicator/capture-gui/install-msi/) |
 
 Every release also carries `SHA256SUMS` and a `PROVENANCE.txt` recording the commit each
 asset was built from. Verify your download against `SHA256SUMS`.
@@ -49,16 +49,16 @@ You do not build these either. Firmware releases publish a single signed update 
 **Tools → Firmware → Update firmware…**. The application verifies the bundle's signature and
 every payload digest before it writes anything, and reports the version it reads back off the
 live device afterwards. See
-[Updating your Domesday Duplicator](https://simoninns.github.io/DomesdayDuplicator/capture-gui/updating-your-domesday-duplicator/).
+[Updating your Domesday Duplicator](https://domesday86.github.io/DomesdayDuplicator/capture-gui/updating-your-domesday-duplicator/).
 
 A board that has never been programmed is handled the same way, with no jumper and no shell —
-see [Bringing up a new or legacy board](https://simoninns.github.io/DomesdayDuplicator/capture-gui/bringing-up-a-board/).
+see [Bringing up a new or legacy board](https://domesday86.github.io/DomesdayDuplicator/capture-gui/bringing-up-a-board/).
 Firmware releases also publish the raw images (`firmware.img`, the provisioning `.jic` and the
 factory `.svf`) for bench recovery, but the bundle is the supported route.
 
 Every released artefact is built by CI from the tagged commit; nothing is built on a
 maintainer's machine or attached by hand
-([release pipeline](https://simoninns.github.io/DomesdayDuplicator/development/release-pipeline/)).
+([release pipeline](https://domesday86.github.io/DomesdayDuplicator/development/release-pipeline/)).
 
 ## Cloning the repository
 
@@ -66,7 +66,7 @@ Everything is in this one repository. There are no git submodules, so a plain cl
 you the complete project:
 
 ```
-git clone https://github.com/simoninns/DomesdayDuplicator.git
+git clone https://github.com/Domesday86/DomesdayDuplicator.git
 ```
 
 ### Repository layout
@@ -146,7 +146,7 @@ every compile.
 On NixOS, device permissions come from the flake's module — set
 `hardware.domesdayDuplicator.enable = true;`, which covers the Duplicator, the FX3 and the
 on-board USB-Blaster together. Elsewhere, see
-[Linux device access](https://simoninns.github.io/DomesdayDuplicator/development/hardware-programming/linux-device-access/).
+[Linux device access](https://domesday86.github.io/DomesdayDuplicator/development/hardware-programming/linux-device-access/).
 
 [AGENTS.md](AGENTS.md) records the project conventions and [TESTING.md](TESTING.md) the test
 tiers, including the hardware-in-the-loop capture-integrity procedure that is the most
@@ -160,11 +160,11 @@ archival workflow ready to use today.
 The original design was for the wide bandwidth of LaserDisc RF — making it suitable for all of
 the more bandwidth restricted mediums too (that have a single stream of RF).
 
-[Please see the documentation for more details](https://simoninns.github.io/DomesdayDuplicator/general/overview/)
+[Please see the documentation for more details](https://domesday86.github.io/DomesdayDuplicator/general/overview/)
 
 ## 3D Printed Case
 
-The Domesday Duplicator also has [3D models](https://github.com/simoninns/DomesdayDuplicator-Case)
+The Domesday Duplicator also has [3D models](https://github.com/Domesday86/DomesdayDuplicator-Case)
 and ready to use STL files for producing 3D printed cases, to protect from dust or line with
 copper tape for affordable EMI shielding for example.
 

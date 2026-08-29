@@ -171,7 +171,7 @@ There are two keys and no unsigned path at all.
 
 The **release key**'s secret half lives as a CI secret and signs release manifests only, in a tag-triggered workflow. Its public half is committed to this repository and compiled into the application.
 
-The **development key**'s secret half is [committed to this repository](https://github.com/simoninns/DomesdayDuplicator/blob/main/tools/keys/development.key) and is therefore public. A development signature proves a bundle is well formed and proves nothing whatever about where it came from. That is exactly why it is a separate key *and* a separate channel: a release build of the application pins the release key and accepts nothing else, and a build that accepts the development key does so only on an explicit per-invocation opt-in and banners every development-signed bundle prominently.
+The **development key**'s secret half is [committed to this repository](https://github.com/Domesday86/DomesdayDuplicator/blob/main/tools/keys/development.key) and is therefore public. A development signature proves a bundle is well formed and proves nothing whatever about where it came from. That is exactly why it is a separate key *and* a separate channel: a release build of the application pins the release key and accepts nothing else, and a build that accepts the development key does so only on an explicit per-invocation opt-in and banners every development-signed bundle prominently.
 
 The development key **is** the unsigned path, made explicit and impossible to confuse with a release. An actually-unsigned bundle format would have needed a second code path through verification, and a second code path through verification is where the bugs live.
 

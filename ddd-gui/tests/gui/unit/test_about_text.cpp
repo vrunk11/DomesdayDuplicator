@@ -86,7 +86,7 @@ TEST(AboutTextTest, CarriesTheNoticesTheLicenceAsksFor) {
 TEST(AboutTextTest, PointsAtTheSource) {
   // The licence entitles a user to the source. A licence notice that does not
   // say where it is leaves them to guess.
-  EXPECT_TRUE(AboutText().contains(QStringLiteral("github.com/simoninns")));
+  EXPECT_TRUE(AboutText().contains(QStringLiteral("github.com/Domesday86")));
 }
 
 TEST(AboutTextTest, IsStable) {

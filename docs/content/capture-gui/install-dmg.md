@@ -11,7 +11,7 @@ that path is tested.
 ## Install
 
 Download `DomesdayDuplicator-<version>-macos-arm64.dmg` from the
-[releases page](https://github.com/simoninns/DomesdayDuplicator/releases), then:
+[releases page](https://github.com/Domesday86/DomesdayDuplicator/releases), then:
 
 ```bash
 # Verify the download first

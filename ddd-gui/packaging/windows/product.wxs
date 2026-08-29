@@ -43,8 +43,8 @@
 
     <Icon Id="AppIcon.exe" SourceFile="$(var.IconFile)" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon.exe" />
-    <Property Id="ARPHELPLINK" Value="https://github.com/simoninns/DomesdayDuplicator" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/simoninns/DomesdayDuplicator" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Domesday86/DomesdayDuplicator" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Domesday86/DomesdayDuplicator" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">

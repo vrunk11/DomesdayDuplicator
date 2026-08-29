@@ -81,7 +81,7 @@ stdenv.mkDerivation (finalAttrs: {
       NixOS users should enable hardware.domesdayDuplicator.enable from the repository's
       nixosModules.udev to get the device permissions.
     '';
-    homepage = "https://github.com/simoninns/DomesdayDuplicator";
+    homepage = "https://github.com/Domesday86/DomesdayDuplicator";
     # The tool derives from cyusb_linux (LGPL-2.1) and ships in a GPLv3 project.
     # fx3/programmer/VENDOR.md records the analysis.
     license = lib.licenses.gpl3Plus;

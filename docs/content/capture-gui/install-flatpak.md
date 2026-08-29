@@ -6,7 +6,7 @@ care which distribution you run it on.
 ## Install
 
 Download `DomesdayDuplicator-<version>.flatpak` from the
-[releases page](https://github.com/simoninns/DomesdayDuplicator/releases), then:
+[releases page](https://github.com/Domesday86/DomesdayDuplicator/releases), then:
 
 ```bash
 # Verify the download first
@@ -35,7 +35,7 @@ Install the rules once, on the host:
 
 ```bash
 sudo curl -o /etc/udev/rules.d/70-domesday-duplicator.rules \
-  https://raw.githubusercontent.com/simoninns/DomesdayDuplicator/main/fx3/programmer/configs/70-domesday-duplicator.rules
+  https://raw.githubusercontent.com/Domesday86/DomesdayDuplicator/main/fx3/programmer/configs/70-domesday-duplicator.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```

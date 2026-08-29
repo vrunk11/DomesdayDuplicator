@@ -8,7 +8,7 @@ The Domesday Duplicator is a completely open-source and open-hardware solution.�
 * FX3 firmware for the Cypress FX3 board
 * Qt 6 GUI capture application for Linux, Windows and macOS
 
-The Github repository is accessible via the following link: [Domesday Duplicator Github](https://github.com/simoninns/DomesdayDuplicator) 
+The Github repository is accessible via the following link: [Domesday Duplicator Github](https://github.com/Domesday86/DomesdayDuplicator) 
 
 Every component builds with ordinary, distribution-packaged tools, and the repository provides a Nix flake that supplies them all — see [Building locally](building-locally.md). The one exception is Cypress GPIF II Designer, which produces the FX3's parallel-interface state machine and is Windows-only. Its output is committed to the repository, so it is only needed in order to change the state machine.
 
@@ -271,7 +271,7 @@ The build runs `clang-format` and `clang-tidy` as gates, so compiling is what en
 
 ## Source code modules
 
-The application lives in [`ddd-gui/`](https://github.com/simoninns/DomesdayDuplicator/tree/main/ddd-gui). Its defining rule is that the parts which handle sample data link no Qt at all, so they can be unit tested without Qt, libusb or hardware — and if one of them ever grows a Qt dependency, its test binary stops linking.
+The application lives in [`ddd-gui/`](https://github.com/Domesday86/DomesdayDuplicator/tree/main/ddd-gui). Its defining rule is that the parts which handle sample data link no Qt at all, so they can be unit tested without Qt, libusb or hardware — and if one of them ever grows a Qt dependency, its test binary stops linking.
 
 | Directory | Contents |
 | --- | --- |
@@ -281,9 +281,9 @@ The application lives in [`ddd-gui/`](https://github.com/simoninns/DomesdayDupli
 | `src/gui/` | `ddd::gui` — the Qt layer, built as a static library, plus `main()` |
 | `src/update-cli/` | `ddd-update` — a `main()` over the engine that links no Qt, deliberately: it stops linking the moment a Qt dependency reaches the update path |
 | `src/jtag-cli/` | `ddd-jtag` — the same, for the JTAG programming path |
-| `src/vendor/` | The only third-party sources here: SHA-256 and Ed25519. Never edited in place — see [`src/vendor/VENDOR.md`](https://github.com/simoninns/DomesdayDuplicator/blob/main/ddd-gui/src/vendor/VENDOR.md) |
+| `src/vendor/` | The only third-party sources here: SHA-256 and Ed25519. Never edited in place — see [`src/vendor/VENDOR.md`](https://github.com/Domesday86/DomesdayDuplicator/blob/main/ddd-gui/src/vendor/VENDOR.md) |
 
-The full layout, including the test binaries and what each of them is allowed to link, is in [`ddd-gui/README.md`](https://github.com/simoninns/DomesdayDuplicator/blob/main/ddd-gui/README.md).
+The full layout, including the test binaries and what each of them is allowed to link, is in [`ddd-gui/README.md`](https://github.com/Domesday86/DomesdayDuplicator/blob/main/ddd-gui/README.md).
 
 ## Multi-threaded USB transfer architecture
 The following diagram shows the approximate structure of the multi-threaded architecture used by the capture application to achieve the required USB and disk bandwidth:

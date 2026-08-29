@@ -188,7 +188,7 @@ The rule that matters, everywhere except `fpga/`: **do not reformat code you are
 otherwise changing.** Whitespace-only diffs bury the actual change and break `git blame`.
 
 Paths that must never be reformatted at all — vendored or generated — are listed in
-[AGENTS.md](https://github.com/simoninns/DomesdayDuplicator/blob/main/AGENTS.md) §3 and
+[AGENTS.md](https://github.com/Domesday86/DomesdayDuplicator/blob/main/AGENTS.md) §3 and
 marked `unset` in `.editorconfig` so a format-on-save cannot touch them.
 
 ## When the language server misbehaves

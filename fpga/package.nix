@@ -237,7 +237,7 @@ stdenvNoCC.mkDerivation {
       place in the check every contributor runs. It is built by the dedicated
       bitstream and release workflows instead.
     '';
-    homepage = "https://github.com/simoninns/DomesdayDuplicator";
+    homepage = "https://github.com/Domesday86/DomesdayDuplicator";
     # The gateware is GPLv3. The toolchain that compiles it is not free
     # software, which is why this attribute is reachable only through the
     # flake's separate allowUnfree import of the same locked nixpkgs.
