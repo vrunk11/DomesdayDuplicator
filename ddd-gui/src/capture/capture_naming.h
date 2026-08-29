@@ -15,6 +15,7 @@
 #include <ctime>
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 #include "capture_format.h"
 
@@ -40,6 +41,13 @@ inline constexpr const char* kTestCaptureNamePrefix = "TestData_";
 // standing. Dashes rather than colons because a colon is not a legal filename
 // character on Windows and is a path separator on classic macOS-era tooling.
 std::string FormatCaptureTimestamp(std::time_t when);
+
+// What a timestamp reads when the clock cannot be broken down at all, which is
+// not something a time_t from std::time() can do. Shaped like a real timestamp
+// so that the callers slicing a date out of one stay right, and plainly not a
+// date so that nothing writes it down as one.
+inline constexpr std::string_view kUnknownCaptureTimestamp =
+    "0000-00-00_00-00-00";
 
 // The name a capture gets when the user has not typed one.
 //

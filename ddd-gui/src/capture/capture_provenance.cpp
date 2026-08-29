@@ -22,6 +22,14 @@ std::string FormatProvenanceDate(std::time_t when) {
   // YYYY-MM-DD, and reusing them is what guarantees the DATE tag and the
   // filename can never disagree about which day a capture was taken.
   const std::string timestamp = FormatCaptureTimestamp(when);
+
+  // A DATE tag that is present but is not a date reads as a fact and is not
+  // one, so where the clock could not be broken down the tag says nothing at
+  // all — the same rule the disc fields below are written under.
+  if (timestamp == kUnknownCaptureTimestamp) {
+    return {};
+  }
+
   return timestamp.substr(0, timestamp.find('_'));
 }
 
@@ -32,7 +40,10 @@ std::vector<FlacWriter::Tag> BuildProvenanceTags(
 
   tags.push_back({kTagTitle, provenance.title});
   tags.push_back({kTagEncoder, "ddd-gui " + provenance.application_version});
-  tags.push_back({kTagDate, FormatProvenanceDate(provenance.started)});
+  const std::string date = FormatProvenanceDate(provenance.started);
+  if (!date.empty()) {
+    tags.push_back({kTagDate, date});
+  }
   tags.push_back({kTagVersion, provenance.application_version});
 
   if (!provenance.firmware_version.empty()) {
