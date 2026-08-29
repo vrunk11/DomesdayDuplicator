@@ -48,6 +48,21 @@ TEST_F(CaptureNamingTest, ATimestampSortsAsATextString) {
   EXPECT_EQ(FormatCaptureTimestamp(0), "1970-01-01_00-00-00");
 }
 
+TEST_F(CaptureNamingTest, TheUnknownTimestampIsShapedLikeARealOne) {
+  // The stand-in for a clock that could not be read is never reached by a
+  // time_t that came from std::time(), but everything that takes a timestamp
+  // apart is written against the shape rather than against the value: the date
+  // is what precedes the underscore, and the name's uniqueness is the whole
+  // string. If the two ever drifted apart, the code that slices one would
+  // quietly slice the other wrongly.
+  const std::string real = FormatCaptureTimestamp(kFixedTime);
+  EXPECT_EQ(kUnknownCaptureTimestamp.size(), real.size());
+  EXPECT_EQ(kUnknownCaptureTimestamp.find('_'), real.find('_'));
+
+  // And it is not a date, so nothing is tempted to write it down as one.
+  EXPECT_NE(kUnknownCaptureTimestamp, real);
+}
+
 TEST_F(CaptureNamingTest, ATimestampCarriesNoCharacterAFilesystemRefuses) {
   const std::string stamp = FormatCaptureTimestamp(kFixedTime);
   EXPECT_EQ(stamp.find_first_of("<>:\"/\\|?* "), std::string::npos) << stamp;

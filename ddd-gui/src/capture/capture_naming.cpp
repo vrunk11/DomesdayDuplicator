@@ -49,6 +49,22 @@ bool IsReservedName(const std::string& text) {
          kReservedNames.end();
 }
 
+// The clock broken down into fields: local time where the platform can manage
+// it, UTC where it cannot.
+bool BreakDownTime(std::time_t when, std::tm& parts) {
+#ifdef _WIN32
+  if (localtime_s(&parts, &when) == 0) {
+    return true;
+  }
+  return gmtime_s(&parts, &when) == 0;
+#else
+  if (localtime_r(&when, &parts) != nullptr) {
+    return true;
+  }
+  return gmtime_r(&when, &parts) != nullptr;
+#endif
+}
+
 std::string TwoDigits(int value) {
   std::string digits = std::to_string(value);
   if (digits.size() < 2) {
@@ -61,11 +77,16 @@ std::string TwoDigits(int value) {
 
 std::string FormatCaptureTimestamp(std::time_t when) {
   std::tm parts{};
-#ifdef _WIN32
-  localtime_s(&parts, &when);
-#else
-  localtime_r(&when, &parts);
-#endif
+
+  // Falling back rather than returning nothing, because the timestamp is the
+  // whole of what keeps one capture's name from being the next one's: an empty
+  // one leaves DefaultCaptureStem returning a bare prefix, and every capture
+  // of the session then collides and is told apart only by a " (1)" suffix.
+  // UTC first, an hour or so wrong being a far smaller problem than that, and
+  // the unknown timestamp only where even that fails.
+  if (!BreakDownTime(when, parts)) {
+    return std::string(kUnknownCaptureTimestamp);
+  }
 
   // Built by hand rather than with strftime, because strftime's output depends
   // on the C locale and a capture's name should not: a machine set to a

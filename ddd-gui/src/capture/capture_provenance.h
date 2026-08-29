@@ -145,7 +145,8 @@ struct CaptureProvenance {
 std::vector<FlacWriter::Tag> BuildProvenanceTags(
     const CaptureProvenance& provenance);
 
-// An ISO 8601 date, which is what DATE is defined to hold.
+// An ISO 8601 date, which is what DATE is defined to hold, or empty where the
+// clock could not be read and there is therefore no date to state.
 std::string FormatProvenanceDate(std::time_t when);
 
 }  // namespace ddd::capture
