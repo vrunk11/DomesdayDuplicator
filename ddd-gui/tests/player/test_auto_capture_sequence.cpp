@@ -306,7 +306,8 @@ TEST(AutoCaptureSequence, ACavSideIsPlayedWithItsStopCodesIgnored) {
   EXPECT_EQ(spin_up->command, PlayerCommand::kPlayWithoutStopCodes);
 }
 
-TEST(AutoCaptureSequence, ANormalClvSideIsSimplyPlayedAndWatchedByFrameAddress) {
+TEST(AutoCaptureSequence,
+     ANormalClvSideIsSimplyPlayedAndWatchedByFrameAddress) {
   const DiscProfile disc = ClvDisc();
   AutoCaptureSequence sequence(LevelIIIModel(), "02", WholeSide(disc), disc);
 
@@ -337,8 +338,7 @@ TEST(AutoCaptureSequence, ANormalClvSideIsSimplyPlayedAndWatchedByFrameAddress) 
 
 TEST(AutoCaptureSequence, AnLdV2200ClvSideIsWatchedByTimeCode) {
   const DiscProfile disc = ClvDisc();
-  AutoCaptureSequence sequence(pioneer::kLdV2200, "02", WholeSide(disc),
-                               disc);
+  AutoCaptureSequence sequence(pioneer::kLdV2200, "02", WholeSide(disc), disc);
 
   Script script;
   script.answers[AutoCaptureStage::kConfirmingDisc] = Answered("11001");

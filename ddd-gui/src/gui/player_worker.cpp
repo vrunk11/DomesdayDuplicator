@@ -510,9 +510,8 @@ void PlayerWorker::Poll() {
   // addressing mode. A disc whose type is not known yet falls back to the
   // Frame Register: it is the CAV register and the parser will refuse an
   // unexpected time code rather than turn it into a plausible, wrong frame.
-  const player::Reply address =
-      session_->Execute(player::AddressQueryFor(
-          definition, player::AddressModeFor(status.disc_type)));
+  const player::Reply address = session_->Execute(player::AddressQueryFor(
+      definition, player::AddressModeFor(status.disc_type)));
   if (address.status == player::ReplyStatus::kLinkFailed) {
     ReportLinkLost();
     return;

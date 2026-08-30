@@ -76,17 +76,16 @@ class FakeSerialPort : public ISerialPort {
   // watching a disc does not have to spell out the protocol. The Frame Register
   // query is the normal Level III default; a test of an LD-V2200-style player
   // explicitly selects its Time Register query instead.
-  void AddStatusResponses(uint32_t baud_rate, const std::string& active_mode,
-                          const std::string& disc_status,
-                          const std::string& address,
-                          PlayerCommand address_query =
-                              PlayerCommand::kQueryAddress) {
+  void AddStatusResponses(
+      uint32_t baud_rate, const std::string& active_mode,
+      const std::string& disc_status, const std::string& address,
+      PlayerCommand address_query = PlayerCommand::kQueryAddress) {
     AddResponse(baud_rate, "?P\r", active_mode + "\r");
     AddResponse(baud_rate, "?D\r", disc_status + "\r");
-    AddResponse(baud_rate,
-                address_query == PlayerCommand::kQueryTimeCode ? "?T\r"
-                                                                : "?F\r",
-                address + "\r");
+    AddResponse(
+        baud_rate,
+        address_query == PlayerCommand::kQueryTimeCode ? "?T\r" : "?F\r",
+        address + "\r");
   }
 
   // Every open fails, as a busy or absent port does.
