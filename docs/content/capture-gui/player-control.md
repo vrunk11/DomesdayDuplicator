@@ -419,6 +419,16 @@ differently because of it — it is a statement about evidence, and it is the ho
 "is my player supported?". A definition that has never met its hardware will be wrong
 somewhere, and the places it is wrong are exactly the ones nobody has looked at.
 
+On normal Pioneer Level III players, `?F` reads the Frame Register: a five-digit frame address
+on CAV and a frame-precise seven-digit `HMMSSFF` address on CLV. The LD-V2200 is the observed
+CLV exception: it refuses `?F` and reports its five-digit `HMMSS` time code through `?T`.
+Its definition sends a seek such as `TM00100SE` for 0:01:00 and converts a reply such as `00002`
+into the application's normal seven-digit `HMMSSFF` form. The remote disables Still for a known
+CLV disc, while retaining it for CAV and an unidentified disc. The LD-V2200 also returns `E04`
+to both user-code requests; until its meaning is confirmed, the report preserves that reply as
+refused rather than saying the disc has no user code. The definition remains unverified until the
+full hardware checklist has been completed.
+
 If you have one of these and are willing to walk the checklist, it is in
 [`ddd-gui/src/player/players/README.md`](https://github.com/Domesday86/DomesdayDuplicator/blob/main/ddd-gui/src/player/players/README.md)
 and the full version is in TESTING.md §7. Adding a model is one header file and one line in

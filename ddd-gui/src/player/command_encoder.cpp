@@ -31,6 +31,29 @@ EncodedCommand Failure(EncodeStatus status) {
   return encoded;
 }
 
+// Turn the canonical HMMSSFF value that the application keeps into the
+// LD-V2200's HMMSS wire form. Frames are deliberately dropped: the player
+// cannot represent them in this form, and a capture plan's time bounds are
+// whole-second boundaries.
+std::optional<std::string> EncodeHMMSS(int32_t value) {
+  const int32_t hours = value / 1'000'000;
+  const int32_t minutes = (value / 10'000) % 100;
+  const int32_t seconds = (value / 100) % 100;
+
+  if (hours > 9 || minutes > 59 || seconds > 59) {
+    return std::nullopt;
+  }
+
+  std::string text;
+  text.reserve(5);
+  text.push_back(static_cast<char>('0' + hours));
+  text.push_back(static_cast<char>('0' + (minutes / 10)));
+  text.push_back(static_cast<char>('0' + (minutes % 10)));
+  text.push_back(static_cast<char>('0' + (seconds / 10)));
+  text.push_back(static_cast<char>('0' + (seconds % 10)));
+  return text;
+}
+
 // Look a parameter up in one of a definition's parameter tables and encode the
 // command it belongs to. Shared by the audio and speed entry points, which
 // differ only in which table they read.
@@ -72,7 +95,21 @@ EncodedCommand EncodeCommand(const PlayerDefinition& definition,
       return Failure(EncodeStatus::kArgumentOutOfRange);
     }
 
-    bytes += std::to_string(value);
+    switch (spec.argument) {
+      case ArgumentEncoding::kDecimal:
+        bytes += std::to_string(value);
+        break;
+      case ArgumentEncoding::kTimeCodeHMMSS: {
+        const std::optional<std::string> time_code = EncodeHMMSS(value);
+        if (!time_code.has_value()) {
+          return Failure(EncodeStatus::kArgumentOutOfRange);
+        }
+        bytes += *time_code;
+        break;
+      }
+      case ArgumentEncoding::kNone:
+        return Failure(EncodeStatus::kArgumentOutOfRange);
+    }
   }
 
   bytes += spec.suffix;

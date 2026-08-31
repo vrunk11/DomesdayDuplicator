@@ -159,6 +159,26 @@ struct TvSystemDecode {
   ReplyField external_sync{.index = 2};
 };
 
+// The representation a player uses for a CLV address on the wire. The
+// application always keeps a time code as HMMSSFF so that every model's
+// profile, plan and report use one common value; this only describes the
+// serial protocol at a player's boundary.
+enum class TimeCodeFormat : uint8_t {
+  kHMMSSFF,
+  kHMMSS,
+};
+
+// What an error reply to either user-code request establishes.
+//
+// The Level III manuals document an error as a disc with no code encoded, but
+// that is not evidence that every player uses it that way. Definitions whose
+// hardware has not established the meaning retain the reply without making a
+// claim about the disc.
+enum class UserCodeErrorPolicy : uint8_t {
+  kNotEncoded,
+  kUnsupported,
+};
+
 // One player model, entirely as data.
 //
 // No virtuals and no per-model subclass: a definition is a value a header
@@ -218,6 +238,19 @@ struct PlayerDefinition {
   StateDecode state_decode;
   DiscStatusDecode disc_status;
   TvSystemDecode tv_system;
+
+  // The CLV address form in replies. Normal Level III players return their
+  // frame-precise HMMSSFF address through the Frame Register (?F); the
+  // LD-V2200 returns HMMSS through its Time Register (?T). This records both
+  // the form ParseAddress() receives and which register AddressQueryFor()
+  // must read. The command table independently records the form used when a
+  // time-code search is sent.
+  TimeCodeFormat time_code_format = TimeCodeFormat::kHMMSSFF;
+
+  // The meaning of a user-code query's error reply. Both user-code requests
+  // share the Level III convention unless a model's observed behaviour says
+  // otherwise.
+  UserCodeErrorPolicy user_code_error_policy = UserCodeErrorPolicy::kNotEncoded;
 };
 
 // The command table entry for one command. Not present() when the model does
@@ -225,6 +258,22 @@ struct PlayerDefinition {
 constexpr const CommandSpec& Spec(const PlayerDefinition& definition,
                                   PlayerCommand command) {
   return definition.commands[Index(command)];
+}
+
+// Which register reports an address in this mode for this definition.
+//
+// Pioneer Level III's Frame Register is not CAV-only: on the usual CLV players
+// ?F returns the extended HMMSSFF address, including the frame field that a
+// capture needs. The LD-V2200 is the observed exception. Its CLV ?F request is
+// refused and its Time Register (?T) returns the shorter HMMSS form instead.
+// Keeping that distinction with the definition prevents an LD-V2200 fix from
+// silently dropping frame precision on every other Pioneer model.
+constexpr PlayerCommand AddressQueryFor(const PlayerDefinition& definition,
+                                        AddressMode mode) {
+  return mode == AddressMode::kTimeCode &&
+                 definition.time_code_format == TimeCodeFormat::kHMMSS
+             ? PlayerCommand::kQueryTimeCode
+             : PlayerCommand::kQueryAddress;
 }
 
 // Does this model, running this firmware, report a physical position?
@@ -347,10 +396,11 @@ constexpr bool IsConsistent(const PlayerDefinition& definition) {
     return false;
   }
 
-  // The three queries the application cannot work without: what the player is
-  // doing, where it is, and what disc it has.
+  // The queries the application cannot work without: what the player is doing,
+  // where it is in both address forms, and what disc it has.
   return Spec(definition, PlayerCommand::kQueryActiveMode).present() &&
          Spec(definition, PlayerCommand::kQueryAddress).present() &&
+         Spec(definition, PlayerCommand::kQueryTimeCode).present() &&
          Spec(definition, PlayerCommand::kQueryDiscStatus).present() &&
          !definition.state_decode.mappings.empty();
 }

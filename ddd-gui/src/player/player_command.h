@@ -91,7 +91,13 @@ enum class PlayerCommand : uint8_t {
 
   // Queries
   kQueryActiveMode,
+
+  // The Frame Register query. It returns five-digit CAV frame addresses and,
+  // on normal Pioneer Level III CLV players, seven-digit extended time codes.
+  // Models such as the LD-V2200 that instead expose only a Time Register use
+  // kQueryTimeCode; AddressQueryFor() chooses between the two.
   kQueryAddress,
+  kQueryTimeCode,
   kQueryDiscStatus,
   kQueryStandardUserCode,
   kQueryPioneerUserCode,
@@ -151,14 +157,18 @@ inline constexpr int8_t kParameterUnsupported = -1;
 
 // How a command's argument is written.
 //
-// One encoding, because one is what the Pioneer command set uses: the argument
-// is decimal and unpadded, so a seek to frame 1 is "FR1SE" and not "FR00001SE".
-// A model needing zero padding would be a new encoding here and a change to one
-// function in command_encoder.cpp; adding it before anything needs it would be
-// a code path nothing exercises.
+// The ordinary Pioneer argument is decimal and unpadded, so a seek to frame 1
+// is "FR1SE" and not "FR00001SE". Some models use a different wire form for
+// CLV time codes; that is an encoding rather than a special case in the
+// transport, so it belongs in a model's command definition.
 enum class ArgumentEncoding : uint8_t {
   kNone,
   kDecimal,
+
+  // The application's canonical time code is HMMSSFF. This writes the same
+  // position as a five-digit, zero-padded HMMSS address, dropping its frame
+  // field. The LD-V2200 uses this form with the TM command.
+  kTimeCodeHMMSS,
 };
 
 // What kind of answer the command produces.
@@ -258,6 +268,20 @@ constexpr CommandSpec CommandWithArgument(
   spec.suffix = suffix;
   spec.argument = ArgumentEncoding::kDecimal;
   spec.argument_digits = digits;
+  spec.timeout = timeout;
+  return spec;
+}
+
+// A time-code command whose argument enters as the application's canonical
+// seven-digit HMMSSFF form and leaves as the model's five-digit HMMSS form.
+constexpr CommandSpec CommandWithHMMSSArgument(
+    std::string_view prefix, std::string_view suffix,
+    TimeoutClass timeout = TimeoutClass::kNormal) {
+  CommandSpec spec;
+  spec.prefix = prefix;
+  spec.suffix = suffix;
+  spec.argument = ArgumentEncoding::kTimeCodeHMMSS;
+  spec.argument_digits = 7;
   spec.timeout = timeout;
   return spec;
 }

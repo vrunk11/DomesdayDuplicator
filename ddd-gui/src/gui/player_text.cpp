@@ -468,7 +468,9 @@ QString PlayerCommandName(player::PlayerCommand command) {
     case player::PlayerCommand::kQueryActiveMode:
       return QObject::tr("Ask what the player is doing");
     case player::PlayerCommand::kQueryAddress:
-      return QObject::tr("Ask where the player is");
+      return QObject::tr("Ask where the player is by frame");
+    case player::PlayerCommand::kQueryTimeCode:
+      return QObject::tr("Ask where the player is by time");
     case player::PlayerCommand::kQueryDiscStatus:
       return QObject::tr("Ask about the disc");
     case player::PlayerCommand::kQueryStandardUserCode:
