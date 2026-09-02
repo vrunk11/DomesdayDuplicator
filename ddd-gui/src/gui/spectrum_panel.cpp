@@ -25,6 +25,7 @@
 
 #include "capture_controller.h"
 #include "cursor_readout.h"
+#include "flow_layout.h"
 #include "sample_format.h"
 #include "spectrum_analyser.h"
 #include "theme_color_tokens.h"
@@ -34,6 +35,11 @@ namespace {
 
 constexpr int kAxisHeightPixels = 20;
 constexpr int kPlotMarginPixels = 6;
+
+// How many marks of the frequency axis the plot has to be able to carry before
+// it is too narrow to be a plot at all. A figure rather than a width, because
+// what a mark costs is a matter of the font it is drawn in.
+constexpr int kMinimumAxisMarks = 4;
 
 // The gap between the level scale's text and the plot it labels.
 constexpr double kScaleTextGapPixels = 6.0;
@@ -91,11 +97,16 @@ struct AveragingChoice {
   double value;
 };
 
+// One word each. These used to carry their own explanations — "None — every
+// transform", "Heavy — slow and steady" — and a combo box reserves room for its
+// widest entry whether or not that entry is the one showing, so those two words
+// of gloss were 184 pixels of the panel's minimum width at all times. The gloss
+// is in the tooltip, where the rest of this panel's explaining is done.
 constexpr AveragingChoice kAveragingChoices[] = {
-    {"None — every transform", 0.0},
+    {"None", 0.0},
     {"Light", 0.3},
-    {"Medium (default)", 0.6},
-    {"Heavy — slow and steady", 0.85},
+    {"Medium", 0.6},
+    {"Heavy", 0.85},
 };
 
 struct ContrastChoice {
@@ -137,6 +148,24 @@ double TimeAxisStepSeconds(double window_seconds) {
     }
   }
   return kLadder[(sizeof(kLadder) / sizeof(kLadder[0])) - 1];
+}
+
+// A control and the word that names it, as one thing the row can place.
+//
+// The row wraps now (FlowLayout), and a label is only a label because of what
+// follows it: left as separate items, a wrap could put "Averaging" at the end
+// of one row and its combo at the start of the next, where the word would read
+// as naming whatever came after it. Bound together, the pair either fits or
+// moves down entire.
+QWidget* Field(const QString& text, QWidget* control, QWidget* parent) {
+  auto* const field = new QWidget(parent);
+
+  auto* const layout = new QHBoxLayout(field);
+  layout->setContentsMargins(0, 0, 0, 0);
+  layout->addWidget(new QLabel(text, field));
+  layout->addWidget(control);
+
+  return field;
 }
 
 }  // namespace
@@ -353,6 +382,20 @@ double SpectrumPlot::ScaleWidth() const {
   const QFontMetrics metrics(font());
   return metrics.horizontalAdvance(FormatLevelTick(kBottomDecibels)) +
          kScaleTextGapPixels;
+}
+
+QSize SpectrumPlot::minimumSizeHint() const {
+  const QFontMetrics metrics(font());
+
+  // The scale, the margin, and enough plot for its own axis to be readable.
+  const int width =
+      static_cast<int>(std::ceil(ScaleWidth())) + kPlotMarginPixels +
+      kMinimumAxisMarks * metrics.horizontalAdvance(QLatin1String("00.0"));
+
+  // The axis and the top margin, and no plot area at all: a plot's size policy
+  // is Expanding, so a small minimum costs it nothing when there is room and is
+  // the whole of what lets it get out of the way when there is not.
+  return QSize(width, kPlotMarginPixels + kAxisHeightPixels);
 }
 
 QRectF SpectrumPlot::PlotArea() const {
@@ -975,7 +1018,11 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
   plot_->setObjectName(QLatin1String(kPlotName));
   layout->addWidget(plot_, 1);
 
-  auto* controls = new QHBoxLayout();
+  // Wrapping rather than fixed. The row's minimum was the sum of everything in
+  // it, which made it the widest thing in the window and left the Capture and
+  // Statistics panels — which have modest minimums of their own — to give up
+  // all of the space when there was not enough. Issue #181.
+  auto* controls = new FlowLayout();
 
   view_ = new QComboBox(this);
   view_->setObjectName(QLatin1String(kViewComboName));
@@ -1023,8 +1070,7 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
          "averages the most."));
   connect(resolution_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplyResolution(); });
-  controls->addWidget(new QLabel(tr("Resolution"), this));
-  controls->addWidget(resolution_);
+  controls->addWidget(Field(tr("Resolution"), resolution_, this));
 
   averaging_ = new QComboBox(this);
   averaging_->setObjectName(QLatin1String(kAveragingComboName));
@@ -1033,13 +1079,14 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
   }
   averaging_->setCurrentIndex(2);
   averaging_->setToolTip(
-      tr("How much of the previous display each new transform replaces. More "
+      tr("How much of the previous display each new transform replaces. None "
+         "draws every transform as it arrives; Heavy is slow and steady. More "
          "averaging makes a weak carrier readable against the noise; less "
-         "shows a transient that would otherwise be averaged away."));
+         "shows a transient that would otherwise be averaged away. Medium to "
+         "begin with."));
   connect(averaging_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplyAveraging(); });
-  controls->addWidget(new QLabel(tr("Averaging"), this));
-  controls->addWidget(averaging_);
+  controls->addWidget(Field(tr("Averaging"), averaging_, this));
 
   reference_ = new QComboBox(this);
   reference_->setObjectName(QLatin1String(kReferenceComboName));
@@ -1055,9 +1102,8 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
          "spends the whole ramp on levels the signal actually reaches."));
   connect(reference_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplyContrast(); });
-  reference_label_ = new QLabel(tr("Reference"), this);
-  controls->addWidget(reference_label_);
-  controls->addWidget(reference_);
+  reference_field_ = Field(tr("Reference"), reference_, this);
+  controls->addWidget(reference_field_);
 
   range_ = new QComboBox(this);
   range_->setObjectName(QLatin1String(kRangeComboName));
@@ -1075,9 +1121,8 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
          "levels, not as a picture."));
   connect(range_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplyContrast(); });
-  range_label_ = new QLabel(tr("Range"), this);
-  controls->addWidget(range_label_);
-  controls->addWidget(range_);
+  range_field_ = Field(tr("Range"), range_, this);
+  controls->addWidget(range_field_);
 
   peak_hold_ = new QCheckBox(tr("Peak hold"), this);
   peak_hold_->setObjectName(QLatin1String(kPeakHoldBoxName));
@@ -1113,13 +1158,13 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
   });
   controls->addWidget(reset_);
 
-  // No spacer before it, and the whole of the row's slack given to it: the
+  // No spacer before it, and whatever is left of the last row given to it: the
   // readout is what fills the end of the row. It asks the layout for no width
   // of its own, which is what keeps the dock from being re-laid out every time
-  // the pointer moves — see CursorReadout.
+  // the pointer moves — see CursorReadout and FlowLayout::AddTrailing.
   cursor_ = new CursorReadout(this);
   cursor_->setObjectName(QLatin1String(kCursorLabelName));
-  controls->addWidget(cursor_, 1);
+  controls->AddTrailing(cursor_);
 
   layout->addLayout(controls);
 
@@ -1190,12 +1235,13 @@ void SpectrumPanel::ApplyView() {
   reset_->setEnabled(trace);
   reset_->setVisible(trace);
 
+  // Hidden by the field rather than by the control, so the label goes with it.
+  // A hidden item takes no place in the row at all — FlowLayout skips it — so
+  // switching views narrows the panel rather than leaving a gap.
   reference_->setEnabled(!trace);
-  reference_->setVisible(!trace);
-  reference_label_->setVisible(!trace);
+  reference_field_->setVisible(!trace);
   range_->setEnabled(!trace);
-  range_->setVisible(!trace);
-  range_label_->setVisible(!trace);
+  range_field_->setVisible(!trace);
 }
 
 void SpectrumPanel::ApplyAveraging() {

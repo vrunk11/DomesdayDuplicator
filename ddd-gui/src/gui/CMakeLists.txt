@@ -39,6 +39,7 @@ add_library(ddd_gui_lib STATIC
     firmware_dialog.cpp
     firmware_text.cpp
     floating_dock_drag.cpp
+    flow_layout.cpp
     gain_choices.cpp
     headless_capture_runner.cpp
     log_message_model.cpp

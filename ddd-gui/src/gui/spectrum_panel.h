@@ -13,6 +13,7 @@
 
 #include <QElapsedTimer>
 #include <QImage>
+#include <QSize>
 #include <QWidget>
 #include <cstdint>
 #include <vector>
@@ -25,7 +26,6 @@
 
 class QCheckBox;
 class QComboBox;
-class QLabel;
 class QPushButton;
 
 namespace ddd::gui {
@@ -96,6 +96,17 @@ class SpectrumPlot : public QWidget {
   void SetSampleRate(uint32_t sample_rate_hz);
 
   void Clear();
+
+  // Wide enough for the level scale and a plot area that can still carry the
+  // frequency axis's marks, and tall enough for the axis and nothing else.
+  //
+  // Both halves are deliberate, and they are deliberately different. Without
+  // this the plot asked for no width at all, so the panel's minimum was
+  // whatever its control row happened to add up to — a figure nobody chose
+  // (issue #181). The height stays at almost nothing on purpose: three signal
+  // panels share one column, and a plot that insisted on being comfortable
+  // would take the adjustability of the other two.
+  QSize minimumSizeHint() const override;
 
   bool peak_hold_visible() const { return peak_hold_visible_; }
   SpectrumView view() const { return view_; }
@@ -335,10 +346,12 @@ class SpectrumPanel : public QWidget {
   QCheckBox* peak_hold_ = nullptr;
   QPushButton* reset_ = nullptr;
 
-  // The labels beside the two contrast combos, kept so that they can be shown
-  // and hidden with the controls they name.
-  QLabel* reference_label_ = nullptr;
-  QLabel* range_label_ = nullptr;
+  // The two contrast controls with their labels, each held as the one widget
+  // the row lays out. Kept so that they can be shown and hidden whole: a label
+  // and the combo it names have to travel together, or a wrap can leave
+  // "Reference" at the end of one row naming whatever begins the next.
+  QWidget* reference_field_ = nullptr;
+  QWidget* range_field_ = nullptr;
   CursorReadout* cursor_ = nullptr;
 };
 
