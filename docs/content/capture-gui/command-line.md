@@ -319,7 +319,7 @@ payloads a bring-up needs, each step and how long it took, and — because the J
 allowed a second attempt — what each attempt did:
 
 ```
-Bring-up: moved to page 5 of 9 — Load the gateware
+Bring-up: moved to page 4 of 8 — Load the gateware
 Bring-up: USB-Blaster probe: opened
 Bring-up: update file verified: version 1.4.0, release channel, carries firmware
   yes, factory image yes, gateware yes, JTAG vectors yes

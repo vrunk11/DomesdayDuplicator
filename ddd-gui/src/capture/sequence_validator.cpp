@@ -31,10 +31,21 @@ const char* SequenceStateName(SequenceState state) {
   return "unknown";
 }
 
+namespace {
+
+// The value that follows this one in the cycle, 0..62 and back to 0.
+constexpr uint8_t NextCounterValue(uint8_t value) {
+  const uint32_t next = static_cast<uint32_t>(value) + 1;
+  return static_cast<uint8_t>(next >= kSequenceCounterValues ? 0 : next);
+}
+
+}  // namespace
+
 void SequenceValidator::Reset() {
   state_ = SequenceState::kSynchronising;
   counter_value_ = 0;
-  samples_until_increment_ = 0;
+  run_length_ = 0;
+  samples_per_counter_ = 0;
 }
 
 SequenceValidator::Outcome SequenceValidator::Process(uint8_t* buffer,
@@ -60,14 +71,17 @@ SequenceValidator::Outcome SequenceValidator::Process(uint8_t* buffer,
   size_t validate_from = 0;
 
   if (state_ == SequenceState::kSynchronising) {
-    // Each counter value covers 65,536 consecutive samples, so a change must
-    // appear within 65,537 of them wherever the buffer happens to start. Not
-    // finding one in that span means the stream carries no markers.
+    // Each counter value covers a whole block of consecutive samples, so a
+    // change must appear within one block plus one wherever the buffer happens
+    // to start. The longest block any gateware emits is the bound to use: a
+    // search sized for the shorter one would call a legacy stream markerless
+    // whenever the buffer opened just after a boundary. Not finding a change in
+    // that span means the stream carries no markers.
     const uint8_t first_counter =
         static_cast<uint8_t>(buffer[1] >> kSequenceCounterHighByteShift);
     outcome.first_counter = first_counter;
     const size_t search_limit =
-        std::min<size_t>(sample_count, kSamplesPerSequenceCounter + 1);
+        std::min<size_t>(sample_count, kMaximumSamplesPerSequenceCounter + 1);
 
     bool found = false;
     for (size_t index = 1; index < search_limit; ++index) {
@@ -81,7 +95,7 @@ SequenceValidator::Outcome SequenceValidator::Process(uint8_t* buffer,
         // start of the buffer, is the same answer with one fewer step to get
         // wrong.
         counter_value_ = counter;
-        samples_until_increment_ = kSamplesPerSequenceCounter;
+        run_length_ = 0;
         validate_from = index;
         state_ = SequenceState::kRunning;
         outcome.synchronised_here = true;
@@ -98,6 +112,14 @@ SequenceValidator::Outcome SequenceValidator::Process(uint8_t* buffer,
 
   const bool checking = (state_ == SequenceState::kRunning);
 
+  // How long the current run may get before the missing change is itself the
+  // fault. The block length once it is known; until then the longer of the two
+  // this project has shipped, because assuming the shorter one would fail a
+  // legacy stream at its very first boundary.
+  uint32_t run_limit = samples_per_counter_ != 0
+                           ? samples_per_counter_
+                           : kMaximumSamplesPerSequenceCounter;
+
   uint16_t minimum_value = UINT16_MAX;
   uint16_t maximum_value = 0;
   uint64_t clipped_low = 0;
@@ -112,23 +134,44 @@ SequenceValidator::Outcome SequenceValidator::Process(uint8_t* buffer,
     if (checking && index >= validate_from) {
       const uint8_t counter =
           static_cast<uint8_t>(high_byte >> kSequenceCounterHighByteShift);
-      if (counter != counter_value_) {
+
+      if (counter == counter_value_) {
+        ++run_length_;
+        if (run_length_ > run_limit) {
+          // The run outlasted the block length, so the change that should have
+          // ended it never arrived. A whole number of blocks went missing,
+          // which is the direction a lost transfer usually goes.
+          state_ = SequenceState::kFailed;
+          outcome.ok = false;
+          outcome.mismatch_sample_index = index;
+          outcome.expected_counter = NextCounterValue(counter_value_);
+          outcome.actual_counter = counter;
+          outcome.samples_expected_remaining = 0;
+          break;
+        }
+      } else if (counter == NextCounterValue(counter_value_) &&
+                 (samples_per_counter_ != 0
+                      ? run_length_ == samples_per_counter_
+                      : IsKnownSamplesPerSequenceCounter(run_length_))) {
+        // A complete run, ended by the right value. The first one is also what
+        // measures the block length: from here the check is against a number
+        // this stream has demonstrated rather than one of two it might use.
+        if (samples_per_counter_ == 0) {
+          samples_per_counter_ = run_length_;
+          run_limit = run_length_;
+        }
+        counter_value_ = counter;
+        run_length_ = 1;
+      } else {
+        // Either the counter jumped, or it changed before the block was over.
+        // Both mean samples between here and the last boundary are gone.
         state_ = SequenceState::kFailed;
         outcome.ok = false;
         outcome.mismatch_sample_index = index;
         outcome.expected_counter = counter_value_;
         outcome.actual_counter = counter;
-        outcome.samples_expected_remaining = samples_until_increment_;
+        outcome.samples_expected_remaining = run_limit - run_length_;
         break;
-      }
-
-      --samples_until_increment_;
-      if (samples_until_increment_ == 0) {
-        ++counter_value_;
-        if (counter_value_ >= kSequenceCounterValues) {
-          counter_value_ = 0;
-        }
-        samples_until_increment_ = kSamplesPerSequenceCounter;
       }
     }
 

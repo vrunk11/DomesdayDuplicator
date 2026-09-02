@@ -27,18 +27,17 @@ using capture::UsbPresence;
 // --- the pages ------------------------------------------------------------
 
 TEST(BringUpText, EveryPageIsNumberedAndTitled) {
-  for (BringUpPage page :
-       {BringUpPage::kOverview, BringUpPage::kConnect, BringUpPage::kImage,
-        BringUpPage::kJumper, BringUpPage::kConfigure, BringUpPage::kProgram,
-        BringUpPage::kRemoveJumper, BringUpPage::kPowerCycle,
-        BringUpPage::kVerify}) {
+  for (BringUpPage page : {BringUpPage::kOverview, BringUpPage::kConnect,
+                           BringUpPage::kImage, BringUpPage::kConfigure,
+                           BringUpPage::kProgram, BringUpPage::kRemoveJumper,
+                           BringUpPage::kPowerCycle, BringUpPage::kVerify}) {
     EXPECT_FALSE(BringUpPageTitle(page).isEmpty());
     EXPECT_FALSE(BringUpPageHeading(page).isEmpty());
   }
 
-  // Numbered out of nine even on a run that visits seven of them, so that two
-  // runs of one procedure can be talked about in the same words.
-  EXPECT_TRUE(BringUpPageTitle(BringUpPage::kVerify).contains("9 of 9"));
+  // Numbered out of eight, so that two runs of one procedure can be talked
+  // about in the same words.
+  EXPECT_TRUE(BringUpPageTitle(BringUpPage::kVerify).contains("8 of 8"));
 }
 
 // The page that decides whether somebody does the physical job once or three
@@ -123,8 +122,7 @@ TEST(BringUpText, TheWorkingPagesOpenByNamingTheButtonToPress) {
 // are sequences where doing step one without steps two and three achieves
 // nothing at all while looking exactly as though it worked.
 TEST(BringUpText, ThePhysicalPagesAreNumberedInstructions) {
-  for (const QString& text :
-       {BringUpFitJumperText(), BringUpPowerCycleText()}) {
+  for (const QString& text : {BringUpConnectText(), BringUpPowerCycleText()}) {
     for (const char* step : {"1.", "2.", "3."}) {
       EXPECT_TRUE(text.contains(QLatin1String(step))) << text.toStdString();
     }
@@ -138,8 +136,7 @@ TEST(BringUpText, ThePhysicalPagesAreNumberedInstructions) {
 // says *both*, in those words — this is the single likeliest way for somebody
 // to get stuck, and it is invisible when it happens.
 TEST(BringUpText, EveryPowerCycleAsksForBothCables) {
-  for (const QString& text :
-       {BringUpFitJumperText(), BringUpPowerCycleText()}) {
+  for (const QString& text : {BringUpConnectText(), BringUpPowerCycleText()}) {
     EXPECT_TRUE(text.contains("both", Qt::CaseInsensitive))
         << text.toStdString();
     EXPECT_TRUE(text.contains("mini-USB", Qt::CaseInsensitive));
@@ -158,23 +155,23 @@ TEST(BringUpText, TheTimeoutLeadsWithThePartialPowerCycle) {
 // One vocabulary for one jumper. The documentation and the firmware README
 // both say fitted and removed, so the wizard does too.
 TEST(BringUpText, TheJumperIsFittedAndRemovedRatherThanClosedAndOpen) {
-  EXPECT_TRUE(BringUpFitJumperText().contains("Fit jumper J4"));
+  EXPECT_TRUE(BringUpConnectText().contains("Fit jumper J4"));
   EXPECT_TRUE(BringUpRemoveJumperText().contains("Remove jumper J4"));
 
   for (const QString& caption :
-       {BringUpPhotographCaption(BringUpPage::kJumper),
+       {BringUpPhotographCaption(BringUpPage::kConnect),
         BringUpPhotographCaption(BringUpPage::kRemoveJumper)}) {
     EXPECT_FALSE(caption.contains("closed", Qt::CaseInsensitive));
     EXPECT_FALSE(caption.contains("open", Qt::CaseInsensitive));
   }
   EXPECT_TRUE(
-      BringUpPhotographCaption(BringUpPage::kJumper).contains("fitted"));
+      BringUpPhotographCaption(BringUpPage::kConnect).contains("fitted"));
   EXPECT_TRUE(
       BringUpPhotographCaption(BringUpPage::kRemoveJumper).contains("removed"));
 }
 
 TEST(BringUpText, EveryPhotographPageHasAPictureAndACaption) {
-  for (BringUpPage page : {BringUpPage::kOverview, BringUpPage::kJumper,
+  for (BringUpPage page : {BringUpPage::kOverview, BringUpPage::kConnect,
                            BringUpPage::kRemoveJumper}) {
     EXPECT_TRUE(BringUpPhotographPath(page).startsWith(":/photographs/"));
 
@@ -213,7 +210,7 @@ capture::DeviceInfo Board(DevicePersonality personality, int protocol_version,
 // without a jumper, so "already there" is not "already arranged".
 TEST(BringUpTextFx3Row, ABoardInItsBootRomIsUsableAndStillNeedsTheJumper) {
   const BringUpStatusRow row = BringUpFx3Row(
-      Board(DevicePersonality::kRecovery, 0), UsbPresence::kAbsent);
+      Board(DevicePersonality::kRecovery, 0), UsbPresence::kAbsent, false);
 
   EXPECT_EQ(row.state, BringUpRowState::kWaiting);
   EXPECT_TRUE(row.usable());
@@ -221,11 +218,35 @@ TEST(BringUpTextFx3Row, ABoardInItsBootRomIsUsableAndStillNeedsTheJumper) {
   EXPECT_TRUE(row.detail.contains("jumper"));
 }
 
+// And what makes it green: the restart. That disappearance is the whole of
+// what this application can observe about a jumper, and the row is the thing
+// the connectivity page is gated on — so the two states have to be different
+// marks, not different words.
+TEST(BringUpTextFx3Row, TheBootRomTicksOnlyOnceTheBoardHasRestarted) {
+  const BringUpStatusRow restarted = BringUpFx3Row(
+      Board(DevicePersonality::kRecovery, 0), UsbPresence::kAbsent, true);
+
+  EXPECT_EQ(restarted.state, BringUpRowState::kReady);
+  EXPECT_TRUE(restarted.detail.contains("boot ROM"));
+  EXPECT_TRUE(restarted.detail.contains("J4"));
+
+  const BringUpStatusRow untouched = BringUpFx3Row(
+      Board(DevicePersonality::kRecovery, 0), UsbPresence::kAbsent, false);
+  EXPECT_NE(restarted.state, untouched.state);
+
+  // And a restart does not tick a board that is running firmware: the page is
+  // about one personality, not about anything having happened.
+  EXPECT_EQ(BringUpFx3Row(Board(DevicePersonality::kLegacy, 0),
+                          UsbPresence::kAbsent, true)
+                .state,
+            BringUpRowState::kWaiting);
+}
+
 // The board this wizard exists for. It is not a fault and is not reported as
 // one — it is waiting for the one thing this flow is about to do.
 TEST(BringUpTextFx3Row, ALegacyBoardIsWaitingRatherThanBroken) {
-  const BringUpStatusRow row =
-      BringUpFx3Row(Board(DevicePersonality::kLegacy, 0), UsbPresence::kAbsent);
+  const BringUpStatusRow row = BringUpFx3Row(
+      Board(DevicePersonality::kLegacy, 0), UsbPresence::kAbsent, false);
 
   EXPECT_EQ(row.state, BringUpRowState::kWaiting);
   EXPECT_TRUE(row.usable());
@@ -245,7 +266,7 @@ TEST(BringUpTextFx3Row,
   const BringUpStatusRow row =
       BringUpFx3Row(Board(DevicePersonality::kApplication, 1,
                           "Domesday Duplicator (0123abcd)"),
-                    UsbPresence::kAbsent);
+                    UsbPresence::kAbsent, false);
 
   EXPECT_EQ(row.state, BringUpRowState::kWaiting);
 
@@ -254,7 +275,7 @@ TEST(BringUpTextFx3Row,
   EXPECT_TRUE(row.detail.contains("0123abcd"));
 
   // Somebody who only wanted to update a working board is in the wrong window,
-  // and the row says so rather than letting them find out at the jumper page.
+  // and the row says so rather than letting them find out at the end.
   EXPECT_TRUE(row.detail.contains("Update firmware"));
   EXPECT_TRUE(row.detail.contains("does not need bringing up"));
   EXPECT_TRUE(row.detail.contains("jumper"));
@@ -269,7 +290,7 @@ TEST(BringUpTextFx3Row,
 // to have met one.
 TEST(BringUpTextFx3Row, AnUnknownProtocolIsDistinguishedFromCurrent) {
   const BringUpStatusRow unknown = BringUpFx3Row(
-      Board(DevicePersonality::kApplication, 0), UsbPresence::kAbsent);
+      Board(DevicePersonality::kApplication, 0), UsbPresence::kAbsent, false);
 
   EXPECT_EQ(unknown.state, BringUpRowState::kWaiting);
   EXPECT_TRUE(unknown.detail.contains("does not know", Qt::CaseInsensitive));
@@ -277,7 +298,7 @@ TEST(BringUpTextFx3Row, AnUnknownProtocolIsDistinguishedFromCurrent) {
       << "the row named a generation of firmware that was never released";
 
   const BringUpStatusRow current = BringUpFx3Row(
-      Board(DevicePersonality::kApplication, 1), UsbPresence::kAbsent);
+      Board(DevicePersonality::kApplication, 1), UsbPresence::kAbsent, false);
   EXPECT_NE(unknown.detail, current.detail)
       << "a protocol this build knows and one it does not were described the "
          "same way";
@@ -285,7 +306,7 @@ TEST(BringUpTextFx3Row, AnUnknownProtocolIsDistinguishedFromCurrent) {
 
 TEST(BringUpTextFx3Row, ABoardThatNamesNoCommitIsNotGivenAnEmptyOne) {
   const BringUpStatusRow row = BringUpFx3Row(
-      Board(DevicePersonality::kApplication, 1), UsbPresence::kAbsent);
+      Board(DevicePersonality::kApplication, 1), UsbPresence::kAbsent, false);
 
   EXPECT_FALSE(row.detail.contains("()"));
 }
@@ -295,13 +316,13 @@ TEST(BringUpTextFx3Row, ABoardThatNamesNoCommitIsNotGivenAnEmptyOne) {
 // FX3 says the board has power and the USB 3.0 link does not work.
 TEST(BringUpTextFx3Row, TheDebugBridgeSeparatesUnpoweredFromUnanswering) {
   const BringUpStatusRow powered =
-      BringUpFx3Row(std::nullopt, UsbPresence::kPresent);
+      BringUpFx3Row(std::nullopt, UsbPresence::kPresent, false);
   EXPECT_FALSE(powered.usable());
   EXPECT_TRUE(powered.detail.contains("power", Qt::CaseInsensitive));
   EXPECT_TRUE(powered.detail.contains("USB 3.0"));
 
   const BringUpStatusRow nothing =
-      BringUpFx3Row(std::nullopt, UsbPresence::kAbsent);
+      BringUpFx3Row(std::nullopt, UsbPresence::kAbsent, false);
   EXPECT_FALSE(nothing.usable());
   EXPECT_NE(nothing.detail, powered.detail)
       << "a powered board and an absent one were given the same advice";

@@ -13,7 +13,9 @@
 #include "update_orchestrator.h"
 
 #include <algorithm>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include "firmware_version.h"
@@ -55,6 +57,26 @@ constexpr double kEpcsBytesPerSecond = 2000.0;
 uint64_t AlignedChunk(uint64_t maximum) {
   const uint64_t aligned = maximum - (maximum % kUpdateChunkAlignment);
   return aligned == 0 ? kUpdateChunkAlignment : aligned;
+}
+
+// What the device said went wrong, and where it got to when it said it.
+//
+// The offset is often the whole diagnosis. A device that fails at the first
+// page and a device that fails after 128 KiB report the same error code and
+// have completely different faults: the second one is a medium that ends
+// where the writing stopped. The counters are already being read for the
+// progress bar, so this costs a sentence and nothing else — and a device
+// that wrote nothing is not given a sentence about the nothing it wrote.
+std::string DescribeRefusal(const DeviceUpdateStatus& status, uint64_t total) {
+  std::string problem = DeviceUpdateErrorText(status.error);
+
+  if (status.bytes_written > 0) {
+    problem += " It stopped after writing " +
+               std::to_string(status.bytes_written) + " of " +
+               std::to_string(total) + " bytes.";
+  }
+
+  return problem;
 }
 
 }  // namespace
@@ -231,6 +253,17 @@ void UpdateOrchestrator::Report(UpdateStage stage, UpdateTarget target,
   progress_(progress);
 }
 
+std::string UpdateOrchestrator::DeviceRefusal(uint64_t total,
+                                              std::string_view fallback) {
+  const std::optional<DeviceUpdateStatus> refused = device_.ReadStatus();
+
+  if (!refused.has_value() || refused->error == DeviceUpdateError::kNone) {
+    return std::string(fallback);
+  }
+
+  return DescribeRefusal(*refused, total);
+}
+
 bool UpdateOrchestrator::AwaitCompletion(UpdateTarget target, uint64_t total,
                                          UpdateOutcome& outcome) {
   // Written and verified separately, because they are separate stages to
@@ -260,19 +293,7 @@ bool UpdateOrchestrator::AwaitCompletion(UpdateTarget target, uint64_t total,
 
     if (status->phase == UpdatePhase::kFailed) {
       outcome.stage = UpdateStage::kFailed;
-      outcome.problem = DeviceUpdateErrorText(status->error);
-
-      // And where it got to, which is often the whole diagnosis. A device
-      // that fails at the first page and a device that fails after 128 KiB
-      // report the same error code and have completely different faults: the
-      // second one is a medium that ends where the writing stopped. The
-      // counters are already being read for the progress bar, so this costs a
-      // sentence and nothing else.
-      if (status->bytes_written > 0) {
-        outcome.problem += " It stopped after writing " +
-                           std::to_string(status->bytes_written) + " of " +
-                           std::to_string(total) + " bytes.";
-      }
+      outcome.problem = DescribeRefusal(*status, total);
       return false;
     }
 
@@ -419,11 +440,8 @@ bool UpdateOrchestrator::WriteComponent(UpdateTarget target,
     outcome.stage = UpdateStage::kFailed;
 
     // The device refused before a byte moved, and it will have said why.
-    const std::optional<DeviceUpdateStatus> refused = device_.ReadStatus();
     outcome.problem =
-        refused.has_value() && refused->error != DeviceUpdateError::kNone
-            ? DeviceUpdateErrorText(refused->error)
-            : std::string("The device would not start the update.");
+        DeviceRefusal(total, "The device would not start the update.");
     return false;
   }
 
@@ -442,13 +460,16 @@ bool UpdateOrchestrator::WriteComponent(UpdateTarget target,
     if (!device_.SendChunk(target, index, payload.subspan(sent, span))) {
       outcome.stage = UpdateStage::kFailed;
 
-      const std::optional<DeviceUpdateStatus> refused = device_.ReadStatus();
+      // The chunk that fails is usually not the chunk that broke: a device
+      // whose medium stopped taking writes refuses the *next* one, by
+      // stalling it, which is the earliest moment it is able to say so at
+      // all. So this is a first-class failure report and not a transport
+      // hiccup — the device's own reason and the offset it reached matter
+      // here exactly as much as they do at the end of the transfer.
       outcome.problem =
-          refused.has_value() && refused->error != DeviceUpdateError::kNone
-              ? DeviceUpdateErrorText(refused->error)
-              : std::string(
-                    "The device stopped accepting the update. Leave it "
-                    "plugged in, then try again.");
+          DeviceRefusal(total,
+                        "The device stopped accepting the update. Leave it "
+                        "plugged in, then try again.");
       return false;
     }
 
@@ -470,13 +491,10 @@ bool UpdateOrchestrator::WriteComponent(UpdateTarget target,
     // link 5 — so the device's own reason matters more here than anywhere
     // else in the flow, and a generic message would hide the one check that
     // stopped a corrupted image being committed.
-    const std::optional<DeviceUpdateStatus> refused = device_.ReadStatus();
     outcome.problem =
-        refused.has_value() && refused->error != DeviceUpdateError::kNone
-            ? DeviceUpdateErrorText(refused->error)
-            : std::string(
-                  "The device would not finish the update. Nothing was "
-                  "committed.");
+        DeviceRefusal(total,
+                      "The device would not finish the update. Nothing was "
+                      "committed.");
     return false;
   }
 

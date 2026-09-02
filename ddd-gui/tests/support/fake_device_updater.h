@@ -52,7 +52,11 @@ class FakeDeviceUpdater : public IDeviceUpdater {
     // UPDATE_BEGIN is refused. The reason is whatever failure_error says.
     kRefuseBegin,
 
-    // A chunk is refused, at chunk index fail_at_chunk.
+    // A chunk is refused, at chunk index fail_at_chunk. This is what a real
+    // device does when its medium has stopped taking writes: the write that
+    // failed was inside an earlier chunk, and the earliest the device can say
+    // so is by stalling the next one. fail_after_bytes is how far it had got,
+    // which the status it then answers with reports.
     kRefuseChunk,
 
     // UPDATE_FINISH is refused.
@@ -156,6 +160,7 @@ class FakeDeviceUpdater : public IDeviceUpdater {
   bool SendChunk(UpdateTarget target, uint16_t index,
                  std::span<const uint8_t> data) override {
     if (fault_ == Fault::kRefuseChunk && index == fail_at_chunk_) {
+      status_.bytes_written = fail_after_bytes_;
       status_.phase = UpdatePhase::kFailed;
       status_.error = failure_error_;
       return false;
@@ -259,6 +264,14 @@ class FakeDeviceUpdater : public IDeviceUpdater {
   void SetFault(Fault fault) { fault_ = fault; }
   void SetFailureError(DeviceUpdateError error) { failure_error_ = error; }
   void SetFailAtChunk(uint16_t index) { fail_at_chunk_ = index; }
+
+  // A device whose medium stopped taking writes `bytes` in, which refuses the
+  // chunk after the one that carried the failure.
+  void RefuseChunkAfterBytes(uint16_t index, uint32_t bytes) {
+    fault_ = Fault::kRefuseChunk;
+    fail_at_chunk_ = index;
+    fail_after_bytes_ = bytes;
+  }
 
   // Fail while writing, having written this much. The offset is what tells a
   // fault at the first page apart from a medium that ends part way through.

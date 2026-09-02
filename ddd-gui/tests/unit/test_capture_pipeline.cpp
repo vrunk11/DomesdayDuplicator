@@ -29,16 +29,17 @@ using namespace std::chrono_literals;
 
 // Small, fast slots — but not arbitrarily small.
 //
-// The floor is one sequence-counter period. The validator locks on by finding a
-// counter change, and a counter covers 65,536 samples, so a buffer shorter than
-// that may contain no change at all and the validator would sit unsynchronised
-// for as many buffers as it took for one to land inside one. Real 2 MB buffers
-// hold sixteen counter periods and always lock on immediately; a test geometry
-// that did not would be exercising a situation the application never
-// encounters, and would quietly stop detecting the sequence faults these tests
-// inject.
+// The floor is one sequence-counter block. The validator locks on by finding a
+// counter change, and a counter covers 65,535 samples — 65,536 on gateware from
+// before issue #186, which is the number to size against — so a buffer shorter
+// than that may contain no change at all and the validator would sit
+// unsynchronised for as many buffers as it took for one to land inside one.
+// Real 2 MB buffers hold sixteen counter blocks and always lock on
+// immediately; a test geometry that did not would be exercising a situation the
+// application never encounters, and would quietly stop detecting the sequence
+// faults these tests inject.
 //
-// 256 KiB is 131,072 samples: two counter periods, a fiftieth of a real buffer,
+// 256 KiB is 131,072 samples: two counter blocks, a fiftieth of a real buffer,
 // and small enough that a whole pipeline test runs in milliseconds.
 constexpr size_t kTestSlotBytes = size_t{256} << 10;
 constexpr size_t kTestSlotSamples = kTestSlotBytes / kBytesPerSample;

@@ -15,11 +15,13 @@
 #include <QApplication>
 #include <QDockWidget>
 #include <QKeySequence>
+#include <QLabel>
 #include <QList>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
 #include <QPoint>
+#include <QRect>
 #include <QSettings>
 #include <QStringList>
 #include <QTest>
@@ -290,6 +292,50 @@ TEST_F(MainWindowTest, DebugRunsRevealTheLogPanel) {
   QDockWidget* log = DockNamed(*window, QStringLiteral("log_dock"));
   ASSERT_NE(log, nullptr);
   EXPECT_FALSE(log->isHidden());
+}
+
+TEST_F(MainWindowTest, WhatAReadoutSaysCannotMoveThePanels) {
+  // Issue #180. In a window smaller than the panels would like — half a screen,
+  // which is what the Windows snap keys give you — the panels moved about as
+  // the pointer crossed a trace, and stopped only once a separator had been
+  // dragged by hand. The readout under each plot was an ordinary label, so the
+  // width it asked the layout for changed with every reading; and a dock layout
+  // that cannot give every dock its minimum has to share out what there is
+  // afresh each time one of those minimums moves.
+  const std::unique_ptr<MainWindow> window = MakeWindow();
+  window->resize(700, 500);
+  window->show();
+  QApplication::processEvents();
+
+  std::vector<QRect> before;
+  for (const QString& name : ExpectedDockNames()) {
+    QDockWidget* const dock = DockNamed(*window, name);
+    ASSERT_NE(dock, nullptr);
+    before.push_back(dock->geometry());
+  }
+
+  // The spectrum's readout, because the spectrum panel has the widest control
+  // row of the three and so is what decides the width of the column they share.
+  //
+  // Reached as the label it is, and its text set directly rather than through
+  // the panel's own readout call: what is being checked is that nothing in the
+  // window's layout depends on what a readout says, whatever kind of label a
+  // later change makes it.
+  auto* const readout =
+      window->findChild<QLabel*>(QStringLiteral("spectrum_cursor_label"));
+  ASSERT_NE(readout, nullptr);
+  readout->setText(
+      QStringLiteral("123.456 µs · code 1023 · +1023 mV — a long reading"));
+  QApplication::processEvents();
+
+  int index = 0;
+  for (const QString& name : ExpectedDockNames()) {
+    QDockWidget* const dock = DockNamed(*window, name);
+    ASSERT_NE(dock, nullptr);
+    EXPECT_EQ(dock->geometry(), before.at(index))
+        << name.toStdString() << " moved when the spectrum readout changed";
+    ++index;
+  }
 }
 
 TEST_F(MainWindowTest, PanelArrangementSurvivesRestart) {

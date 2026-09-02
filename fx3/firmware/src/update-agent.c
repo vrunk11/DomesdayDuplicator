@@ -31,11 +31,36 @@
 // address cycle, so two hundred is a long way past patient.
 #define UPDATE_I2C_ACK_RETRIES      (200u)
 
-// How many times to retry a transfer the slave did not acknowledge at all.
-// One retry, because a NAK on the address phase means the device is busy
-// with the previous write, and anything beyond that is a wiring fault that
-// retrying will not fix.
+// How many times to retry a transfer the slave did not acknowledge at all,
+// inside one attempt. One retry, because a NAK on the address phase means
+// the part is busy with the previous write and the SDK reissues the address
+// with no delay between tries; recovering from anything slower than that is
+// the outer attempt loop's job.
 #define UPDATE_I2C_NAK_RETRIES      (1u)
+
+// How many times one EEPROM access is attempted before the update gives up.
+//
+// A firmware image is a little over two thousand page writes and a few
+// hundred readback reads, and every one of them has to succeed or the whole
+// update is abandoned. That is an unreasonable thing to ask of a bus: the
+// SDK documents CY_U3P_ERROR_TIMEOUT as retryable without any recovery at
+// all, and a board whose I2C is marginal - long wiring, weak pull-ups, a
+// rail sagging under a just-configured FPGA - fails one page somewhere in
+// the middle, in a different place every run, and never completes.
+//
+// Retrying is safe because a page write is idempotent: the address is
+// recomputed identically, a write never crosses a page boundary, and what
+// finally decides whether the update commits is the readback digest, not
+// the fact that a write returned success. Four attempts turns a bus that
+// glitches occasionally into one that finishes, and leaves a bus that is
+// genuinely broken failing as it did before, only four times slower.
+#define UPDATE_I2C_ATTEMPTS         (4u)
+
+// How long to leave the bus alone before attempting an access again. Enough
+// for a slave that lost track of the transaction to time out and release
+// SDA, and short enough that four attempts cost nothing on a board that
+// never needs the second one.
+#define UPDATE_I2C_SETTLE_US        (500u)
 
 // The readback buffer. Sized to a whole number of EEPROM pages so a read
 // never straddles the boundary the write span was chosen around, and kept
@@ -134,31 +159,76 @@ static CyU3PReturnStatus_t updateEepromWaitReady(uint32_t address)
 // Write one page, or part of one. The caller guarantees the span does not
 // cross a page or a slave boundary — that is updateEepromWriteSpan()'s job,
 // and it is tested on the host.
+//
+// The whole page is rewritten on a retry rather than the part of it that
+// did not go, because a transfer that failed part way has left an unknown
+// number of bytes in the part's page buffer and the only way to know what
+// is in there is to fill it again. That is also why the unit of retry is
+// the page and not the byte: it is the smallest thing this EEPROM can be
+// made certain of.
 static CyU3PReturnStatus_t updateEepromWritePage(uint32_t address,
                                                  uint8_t *data,
                                                  uint16_t length)
 {
     CyU3PI2cPreamble_t preamble;
-    CyU3PReturnStatus_t status;
+    CyU3PReturnStatus_t status = CY_U3P_ERROR_FAILURE;
+    uint32_t attempt;
 
-    updateEepromPreamble(&preamble, address, CyFalse);
+    for (attempt = 0; attempt < UPDATE_I2C_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+            // Settle, then wait for the part rather than guessing how long
+            // it needs: if the previous attempt died mid-write the internal
+            // cycle may still be running, and the part says when it is over
+            // by acknowledging its address again.
+            CyU3PBusyWait(UPDATE_I2C_SETTLE_US);
+            (void)updateEepromWaitReady(address);
 
-    status = CyU3PI2cTransmitBytes(&preamble, data, length,
-                                   UPDATE_I2C_NAK_RETRIES);
-    if (status != CY_U3P_SUCCESS) return status;
+            CyU3PDebugPrint(4, "updateEepromWritePage(): retrying page at %d, "
+                            "attempt %d, previous error code = %d\r\n",
+                            address, attempt + 1, status);
+        }
 
-    return updateEepromWaitReady(address);
+        updateEepromPreamble(&preamble, address, CyFalse);
+
+        status = CyU3PI2cTransmitBytes(&preamble, data, length,
+                                       UPDATE_I2C_NAK_RETRIES);
+        if (status != CY_U3P_SUCCESS) continue;
+
+        status = updateEepromWaitReady(address);
+        if (status == CY_U3P_SUCCESS) return CY_U3P_SUCCESS;
+    }
+
+    return status;
 }
 
+// Read back from the EEPROM, with the same tolerance for a bus that
+// glitches. A read changes nothing on the medium, so repeating one costs
+// only the time it takes; what a failed read costs is the whole update,
+// because there is no way to verify an image that cannot be read.
 static CyU3PReturnStatus_t updateEepromRead(uint32_t address, uint8_t *data,
                                             uint16_t length)
 {
     CyU3PI2cPreamble_t preamble;
+    CyU3PReturnStatus_t status = CY_U3P_ERROR_FAILURE;
+    uint32_t attempt;
 
-    updateEepromPreamble(&preamble, address, CyTrue);
+    for (attempt = 0; attempt < UPDATE_I2C_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+            CyU3PBusyWait(UPDATE_I2C_SETTLE_US);
 
-    return CyU3PI2cReceiveBytes(&preamble, data, length,
-                                UPDATE_I2C_NAK_RETRIES);
+            CyU3PDebugPrint(4, "updateEepromRead(): retrying read at %d, "
+                            "attempt %d, previous error code = %d\r\n",
+                            address, attempt + 1, status);
+        }
+
+        updateEepromPreamble(&preamble, address, CyTrue);
+
+        status = CyU3PI2cReceiveBytes(&preamble, data, length,
+                                      UPDATE_I2C_NAK_RETRIES);
+        if (status == CY_U3P_SUCCESS) return CY_U3P_SUCCESS;
+    }
+
+    return status;
 }
 
 CyU3PReturnStatus_t updateAgentStart(void)
@@ -369,6 +439,19 @@ static CyBool_t updateAgentDataEpcs(uint8_t *data, uint16_t length)
     return CyTrue;
 }
 
+uint8_t updateAgentChunkRefusal(uint8_t target, uint16_t index,
+                                uint16_t length)
+{
+    const uint8_t refusal = updateChunkIsAllowed(&glUpdateState, target, index,
+                                                 length);
+
+    if (refusal != UPDATE_ERROR_NONE) {
+        updateStateFail(&glUpdateState, refusal);
+    }
+
+    return refusal;
+}
+
 CyBool_t updateAgentData(uint8_t target, uint16_t index, uint8_t *data,
                          uint16_t length)
 {
@@ -378,6 +461,10 @@ CyBool_t updateAgentData(uint8_t target, uint16_t index, uint8_t *data,
 
     if (data == NULL) return CyFalse;
 
+    // Asked again, on the length actually read rather than the length the
+    // request declared. The caller has already put the same question with
+    // wLength - that is what let it stall - and the two agree in every case
+    // but a short data stage, which is exactly the case worth catching.
     refusal = updateChunkIsAllowed(&glUpdateState, target, index, length);
     if (refusal != UPDATE_ERROR_NONE) {
         updateStateFail(&glUpdateState, refusal);

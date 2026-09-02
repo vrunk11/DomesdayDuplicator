@@ -463,6 +463,19 @@ static void testFailureIsSticky(void)
     // is one fault, and reporting the second would name the symptom.
     updateStateFail(&state, UPDATE_ERROR_READ);
     checkNumber(state.error, UPDATE_ERROR_WRITE, "the first error is the one reported");
+
+    // The chunk the host has already put on the wire when the write failed is
+    // refused, and refused on the phase rather than on anything about the
+    // chunk itself - which is what lets the setup callback answer it with a
+    // stall, before its data stage, and stop a host that would otherwise send
+    // the rest of an image nobody is writing. The counters stay where the
+    // failure left them so that what the host reads back is where it stopped.
+    checkNumber(updateChunkIsAllowed(&state, UPDATE_TARGET_EEPROM,
+                                     (uint16_t)state.nextChunk, 2048u),
+                UPDATE_ERROR_SEQUENCE, "the next chunk after a failure is refused");
+    checkNumber(state.error, UPDATE_ERROR_WRITE,
+                "and refusing it does not rename the failure");
+    checkNumber(state.received, 2048u, "nor move how far it got");
 }
 
 static void testImagePlausibility(void)

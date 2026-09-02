@@ -155,8 +155,8 @@ the step that uses it:
       as `04B4:00F3` (`WestBridge`).
    4. **Now run Zadig** — **Options → List All Devices** — and bind `04B4:00F3` to WinUSB.
 
-   Leave J4 fitted afterwards: this is also the state the wizard's first pages ask for, so
-   nothing is wasted, and the wizard takes the jumper back off at step 7.
+   Leave J4 fitted afterwards: this is also the state the wizard's step 2 asks for, so
+   nothing is wasted, and the wizard takes the jumper back off at step 6.
 
    If you also need `09FB:6001` bound, reconnect the mini-USB cable once the FX3 binding is
    done and bind that in the same Zadig session.
@@ -185,7 +185,7 @@ the step that uses it:
    Device Manager if you want Quartus to have it back. Only one of them can hold the cable.
 
 3. **`1209:2347` — what the board becomes.** The wizard does not merely program the FX3 and
-   stop: step 6 hands the firmware to the boot ROM, the board restarts into it, and the
+   stop: step 5 hands the firmware to the boot ROM, the board restarts into it, and the
    wizard then **reopens it as a Duplicator** to write the EEPROM and both gateware images.
    So `1209:2347` is needed part way through the wizard, not after it.
 
@@ -194,13 +194,13 @@ the step that uses it:
    binding is already there and persists, and the wizard runs straight through.
 
    On a machine that has **never** seen a working Duplicator, the board presents nothing for
-   Zadig to pick until step 6 has already programmed the FX3. Create the binding in advance
+   Zadig to pick until step 5 has already programmed the FX3. Create the binding in advance
    instead, with **Device → Create New Device** — see
    [Binding an identifier the board is not presenting yet](#binding-an-identifier-the-board-is-not-presenting-yet)
    above. Do it in the same Zadig session as the other two, before starting the wizard, and
    the bring-up runs straight through.
 
-   **If you reach step 6 without having done it**, the step stops after thirty seconds and
+   **If you reach step 5 without having done it**, the step stops after thirty seconds and
    says that the device is **attached as a Duplicator (1209:2347) but cannot be opened under
    that identifier** — it looks at the bus before it speaks, so this is what a board that
    came back and may not be opened gets, rather than the *did not come back* sentence that
@@ -213,7 +213,7 @@ the step that uses it:
    **You do not need to quit the application to do this.** Its device list is re-read five
    times a second, so a binding made while it is running is picked up as soon as Windows
    re-enumerates the device. Only the wizard is restarted, not the program — and if you have
-   Zadig already open, binding it inside the thirty seconds step 6 waits lets that step carry
+   Zadig already open, binding it inside the thirty seconds step 5 waits lets that step carry
    on by itself.
 
 The bindings survive the bring-up, so a board that later needs bringing up again — or a

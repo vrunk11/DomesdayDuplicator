@@ -101,7 +101,7 @@ TEST(SequenceValidatorTest, AMidStreamMismatchFailsAtTheExactSample) {
 
 TEST(SequenceValidatorTest, TheCounterWrapsAtSixtyTwoRatherThanSixtyThree) {
   // 63 distinct values, not 64. A validator that wrapped at 64 would report a
-  // mismatch once every 63 * 65,536 samples — about once every tenth of a
+  // mismatch once every 63 * 65,535 samples — about once every tenth of a
   // second at full rate, which is to say immediately.
   test::WireStreamBuilder builder(61, 4);
   builder.AppendConstant(512, 4);                           // counter 61
@@ -115,6 +115,146 @@ TEST(SequenceValidatorTest, TheCounterWrapsAtSixtyTwoRatherThanSixtyThree) {
 
   EXPECT_TRUE(outcome.ok);
   EXPECT_EQ(validator.state(), SequenceState::kRunning);
+}
+
+TEST(SequenceValidatorTest, ALegacyBlockLengthValidatesJustAsWell) {
+  // A board carrying gateware from before issue #186 counts 65,536 samples to
+  // the block rather than 65,535. Its captures are still captures worth
+  // proving, so the validator measures the block length off the stream instead
+  // of assuming the one this tree builds.
+  test::WireStreamBuilder builder(0, 8, kLegacySamplesPerSequenceCounter);
+  builder.AppendConstant(512, 8);
+  builder.AppendConstant(512, kLegacySamplesPerSequenceCounter);
+  builder.AppendConstant(512, kLegacySamplesPerSequenceCounter);
+  builder.AppendConstant(512, 16);
+
+  SequenceValidator validator;
+  const SequenceValidator::Outcome outcome =
+      validator.Process(builder.bytes().data(), builder.bytes().size());
+
+  EXPECT_TRUE(outcome.ok);
+  EXPECT_EQ(validator.state(), SequenceState::kRunning);
+}
+
+TEST(SequenceValidatorTest, TheBlockLengthIsMeasuredOnceAndThenHeldTo) {
+  // Accepting either length for the length of a capture would be accepting a
+  // one-sample hole every block. The first complete run settles which gateware
+  // this is; everything after it is checked against that number alone.
+  test::WireStreamBuilder legacy(0, 8, kLegacySamplesPerSequenceCounter);
+  legacy.AppendConstant(512, 8);
+  legacy.AppendConstant(512, kLegacySamplesPerSequenceCounter);
+
+  // The next block is one sample short, which is what a legacy stream missing
+  // a single sample looks like — and exactly what the other shipped length
+  // looks like too.
+  test::WireStreamBuilder shortened(legacy.counter(),
+                                    kSamplesPerSequenceCounter);
+  shortened.AppendConstant(512, kSamplesPerSequenceCounter);
+  shortened.AppendConstant(512, 4);
+
+  std::vector<uint8_t> bytes = legacy.bytes();
+  bytes.insert(bytes.end(), shortened.bytes().begin(), shortened.bytes().end());
+
+  SequenceValidator validator;
+  const SequenceValidator::Outcome outcome =
+      validator.Process(bytes.data(), bytes.size());
+
+  EXPECT_FALSE(outcome.ok);
+  EXPECT_EQ(validator.state(), SequenceState::kFailed);
+  EXPECT_EQ(outcome.samples_expected_remaining, 1U)
+      << "the block ended one sample early, and that is the figure to report";
+}
+
+TEST(SequenceValidatorTest, ACounterThatOutstaysItsBlockIsAFailure) {
+  // The other half of the check, and the half a countdown alone would miss: a
+  // counter that never changes. A whole number of blocks going astray leaves
+  // the stream in the right phase with the wrong value, so the run simply runs
+  // on — and it has to be caught at the sample the change was due.
+  test::WireStreamBuilder builder(0, 8);
+  builder.AppendConstant(512, 8);                           // counter 0 tail
+  builder.AppendConstant(512, kSamplesPerSequenceCounter);  // counter 1, whole
+
+  // A block that never ends. Counting well past the length settles that it is
+  // the missing change being caught rather than the buffer running out.
+  test::WireStreamBuilder stuck(builder.counter(),
+                                kSamplesPerSequenceCounter * 2);
+  stuck.AppendConstant(512, kSamplesPerSequenceCounter + 4);
+
+  std::vector<uint8_t> bytes = builder.bytes();
+  bytes.insert(bytes.end(), stuck.bytes().begin(), stuck.bytes().end());
+
+  SequenceValidator validator;
+  const SequenceValidator::Outcome outcome =
+      validator.Process(bytes.data(), bytes.size());
+
+  EXPECT_FALSE(outcome.ok);
+  EXPECT_EQ(validator.state(), SequenceState::kFailed);
+  EXPECT_EQ(outcome.expected_counter, 3);
+  EXPECT_EQ(outcome.actual_counter, 2);
+  EXPECT_EQ(outcome.samples_expected_remaining, 0U)
+      << "nothing was outstanding — the block was over and did not end";
+
+  // The sample after the last one the block was entitled to: eight of counter
+  // 0, then two whole blocks.
+  EXPECT_EQ(outcome.mismatch_sample_index,
+            8U + (size_t{kSamplesPerSequenceCounter} * 2));
+}
+
+TEST(SequenceValidatorTest, ALostWholePeriodIsCaughtBecauseThePeriodIsOdd) {
+  // The failure issue #186 is about. A hole of exactly a whole counter period
+  // leaves the stream in the phase it would have been in anyway, so the only
+  // defence is that no whole number of USB packets can ever be one — which is
+  // true because the period is odd.
+  //
+  // The hole here is one *legacy* period: 63 * 65,536 samples, which is 8,064
+  // whole 1,024-byte packets and precisely the 7.875 MiB the old block length
+  // could not see. Against a block of 65,535 it lands 63 samples into a block
+  // instead of on a boundary, and 63 samples is what gives it away.
+  constexpr uint64_t kLostSamples =
+      uint64_t{kSequenceCounterValues} * kLegacySamplesPerSequenceCounter;
+  constexpr uint64_t kBlock = kSamplesPerSequenceCounter;
+  static_assert(kLostSamples % kLegacySamplesPerSequenceCounter == 0,
+                "the hole must be invisible to the block length it is built "
+                "from, or it proves nothing");
+
+  // Two whole blocks before the hole, because a validator that has not yet
+  // measured a complete run does not know which of the two lengths it is
+  // looking at and rightly tolerates either.
+  constexpr size_t kLeadIn = 8;
+  test::WireStreamBuilder before(0, kLeadIn);
+  before.AppendConstant(512, kLeadIn);
+  before.AppendConstant(512, kSamplesPerSequenceCounter);  // counter 1
+  before.AppendConstant(512, kSamplesPerSequenceCounter);  // counter 2
+
+  // Where the hole leaves the stream: whole blocks gone with it, and the rest
+  // of a block carried away from the front of the one that survives.
+  constexpr uint32_t kIntoBlock = static_cast<uint32_t>(kLostSamples % kBlock);
+  static_assert(kIntoBlock != 0,
+                "a hole landing on a boundary would be a different fault");
+  constexpr uint8_t kCounterAfter = static_cast<uint8_t>(
+      (3 + (kLostSamples / kBlock)) % kSequenceCounterValues);
+
+  test::WireStreamBuilder after(kCounterAfter,
+                                static_cast<uint32_t>(kBlock - kIntoBlock));
+  after.AppendConstant(512, kSamplesPerSequenceCounter);
+
+  std::vector<uint8_t> bytes = before.bytes();
+  bytes.insert(bytes.end(), after.bytes().begin(), after.bytes().end());
+
+  SequenceValidator validator;
+  const SequenceValidator::Outcome outcome =
+      validator.Process(bytes.data(), bytes.size());
+
+  EXPECT_FALSE(outcome.ok);
+  EXPECT_EQ(validator.state(), SequenceState::kFailed);
+
+  // Caught at the end of the block the hole ate the front of, which is the
+  // first boundary that can disagree with the prediction.
+  EXPECT_EQ(outcome.mismatch_sample_index,
+            kLeadIn + (size_t{kSamplesPerSequenceCounter} * 2) +
+                (kBlock - kIntoBlock));
+  EXPECT_EQ(outcome.samples_expected_remaining, kIntoBlock)
+      << "the shortfall is the hole modulo the block length";
 }
 
 TEST(SequenceValidatorTest, ThePhaseSurvivesABufferBoundary) {
