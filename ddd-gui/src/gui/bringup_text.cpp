@@ -71,23 +71,21 @@ QString DurationPhrase(int seconds) {
 QString BringUpPageTitle(BringUpPage page) {
   switch (page) {
     case BringUpPage::kOverview:
-      return Translate("1 of 9");
+      return Translate("1 of 8");
     case BringUpPage::kConnect:
-      return Translate("2 of 9");
+      return Translate("2 of 8");
     case BringUpPage::kImage:
-      return Translate("3 of 9");
-    case BringUpPage::kJumper:
-      return Translate("4 of 9");
+      return Translate("3 of 8");
     case BringUpPage::kConfigure:
-      return Translate("5 of 9");
+      return Translate("4 of 8");
     case BringUpPage::kProgram:
-      return Translate("6 of 9");
+      return Translate("5 of 8");
     case BringUpPage::kRemoveJumper:
-      return Translate("7 of 9");
+      return Translate("6 of 8");
     case BringUpPage::kPowerCycle:
-      return Translate("8 of 9");
+      return Translate("7 of 8");
     case BringUpPage::kVerify:
-      return Translate("9 of 9");
+      return Translate("8 of 8");
   }
   return QString();
 }
@@ -97,11 +95,9 @@ QString BringUpPageHeading(BringUpPage page) {
     case BringUpPage::kOverview:
       return Translate("What this does, and what it will ask of you");
     case BringUpPage::kConnect:
-      return Translate("Both boards, connected");
+      return Translate("Both boards, and jumper J4");
     case BringUpPage::kImage:
       return Translate("The update file");
-    case BringUpPage::kJumper:
-      return Translate("Fit jumper J4");
     case BringUpPage::kConfigure:
       return Translate("Load the gateware into the FPGA");
     case BringUpPage::kProgram:
@@ -200,21 +196,21 @@ QString BringUpMarkColour(BringUpRowState state) {
 
 QString BringUpConnectLegend() {
   // The amber case is the one worth the words. A coloured mark that is not
-  // green reads as a fault, and here it usually is not: it means this board is
-  // in a state the wizard already expects and will deal with a few pages
-  // further on.
+  // green reads as a fault, and here it usually is not: it means the board is
+  // in a state the wizard already expects, and that the three steps above are
+  // what take it out of that state.
   return Translate(
-             "<p>%1 means that board is ready as it is. %2 means the wizard "
-             "will ask you to do something to it further on — fit a jumper, or "
-             "pull both cables — and <b>not</b> that anything is wrong with "
-             "it. "
+             "<p>%1 means that board is ready. %2 means it is there and the "
+             "steps above have still to be done to it — and <b>not</b> that "
+             "anything is wrong with it. "
              "%3 is something to put right before going on.</p>")
       .arg(Marked(BringUpRowState::kReady), Marked(BringUpRowState::kWaiting),
            Marked(BringUpRowState::kProblem));
 }
 
 BringUpStatusRow BringUpFx3Row(const std::optional<capture::DeviceInfo>& fx3,
-                               capture::UsbPresence debug_bridge) {
+                               capture::UsbPresence debug_bridge,
+                               bool restarted) {
   BringUpStatusRow row;
   row.title = Translate("FX3 board (SuperSpeed Explorer Kit)");
 
@@ -232,18 +228,28 @@ BringUpStatusRow BringUpFx3Row(const std::optional<capture::DeviceInfo>& fx3,
 
     switch (fx3->personality) {
       case capture::DevicePersonality::kRecovery:
-        // Amber rather than green, and the sentence says why. A board sitting
-        // in its boot ROM looks like a board with nothing left to arrange, and
-        // it is the one board where that reading does most harm: an FX3 whose
-        // EEPROM has never been written comes up here jumper or no jumper, and
-        // leaves again at the first restart if there is no jumper holding it.
+        // The one state this page is waiting for — but only once the board has
+        // been seen to restart, and the sentence says why. An FX3 whose EEPROM
+        // has never been written sits here jumper or no jumper, so "already in
+        // the boot ROM" is not "already arranged": without a jumper holding it
+        // there, such a board leaves again at the first restart.
+        if (restarted) {
+          row.state = BringUpRowState::kReady;
+          row.detail = Translate(
+              "In its boot ROM after restarting, which is where the rest of "
+              "this needs it and what says jumper J4 is fitted.");
+          return row;
+        }
+
         row.state = BringUpRowState::kWaiting;
         row.detail = Translate(
             "Waiting in its boot ROM, which is where this needs it — most "
-            "likely a newly built kit, whose EEPROM is empty. The jumper is "
-            "still asked for further on: an empty board comes up here whether "
-            "or not one is fitted, and without it the board would leave the "
-            "boot ROM part way through the programming.");
+            "likely a newly built kit, whose EEPROM is empty. <b>Fit the "
+            "jumper and pull both cables anyway:</b> an empty board comes up "
+            "here whether or not one is fitted, and without it the board "
+            "would leave the boot ROM part way through the programming. This "
+            "row ticks when the board has been seen to go away and come "
+            "back.");
         return row;
 
       case capture::DevicePersonality::kApplication:
@@ -251,7 +257,7 @@ BringUpStatusRow BringUpFx3Row(const std::optional<capture::DeviceInfo>& fx3,
         if (capture::ProtocolVersionIsSupported(fx3->protocol_version)) {
           // A board that already works. Somebody who only wants to update it
           // is in the wrong window, and the row says so rather than leading
-          // them through nine pages of jumpers to find out.
+          // them through the whole procedure to find out.
           row.detail =
               Translate(
                   "Running this application's own firmware%1, so this board "
@@ -259,8 +265,8 @@ BringUpStatusRow BringUpFx3Row(const std::optional<capture::DeviceInfo>& fx3,
                   "close this and use <b>Tools ▸ Firmware ▸ Update "
                   "firmware…</b> instead, which needs no cables moved and no "
                   "case opened. Carrying on here is safe and reprograms "
-                  "everything — it will be asked to reach its boot ROM, which "
-                  "means fitting a jumper.")
+                  "everything — fit jumper J4 and pull both cables, as above, "
+                  "and it will come back in its boot ROM.")
                   .arg(named);
         } else {
           // Out of range in *either* direction, and the reachable direction is
@@ -275,7 +281,8 @@ BringUpStatusRow BringUpFx3Row(const std::optional<capture::DeviceInfo>& fx3,
                   "Running Duplicator firmware%1 whose protocol this build of "
                   "the application does not know, most likely newer than it. "
                   "Bring-up replaces it with the firmware from the file you "
-                  "choose, so this is safe to carry on with.")
+                  "choose, so this is safe to carry on with — fit jumper J4 "
+                  "and pull both cables, as above.")
                   .arg(named);
         }
         return row;
@@ -285,7 +292,9 @@ BringUpStatusRow BringUpFx3Row(const std::optional<capture::DeviceInfo>& fx3,
         row.detail = Translate(
             "Running the <b>original</b> Duplicator firmware — the one from "
             "before this application existed, enumerating as 1d50:603b. This "
-            "is exactly what this wizard is for.");
+            "is exactly what this wizard is for. Fit jumper J4 and pull both "
+            "cables, as above, and it will come back in its boot ROM as "
+            "04b4:00f3.");
         return row;
 
       case capture::DevicePersonality::kFlashProgrammer:
@@ -307,11 +316,23 @@ BringUpStatusRow BringUpFx3Row(const std::optional<capture::DeviceInfo>& fx3,
     return row;
   }
 
+  // Nothing on the bus — and on Windows that includes a board which is
+  // plainly there. This application sees a device there only when its USB
+  // identifier is bound to WinUSB, and a board running firmware presents an
+  // identifier nobody has any reason to bind: the original 1d50:603b above
+  // all. So an empty row is not evidence that nothing is attached, and the
+  // remedy is the one the page has already asked for — the jumper, whose
+  // 04b4:00f3 is an identifier this flow needs bound in any case.
   row.state = BringUpRowState::kProblem;
   row.detail = Translate(
-      "Nothing found. Connect the kit's USB 3.0 cable, and on Linux check that "
-      "the device rules are installed "
-      "(fx3/programmer/configs/70-domesday-duplicator.rules).");
+      "Nothing found. Connect the kit's USB 3.0 cable, fit jumper J4 and pull "
+      "both cables, as above. <b>On Windows a board running firmware is "
+      "invisible here until the jumper is fitted</b>: the application sees "
+      "only devices whose USB identifier is bound to WinUSB, and a board "
+      "running the original firmware presents 1d50:603b, which nothing binds "
+      "— the boot ROM's 04b4:00f3 is the identifier to bind, and the jumper "
+      "is what produces it. On Linux, check that the device rules are "
+      "installed (fx3/programmer/configs/70-domesday-duplicator.rules).");
   return row;
 }
 
@@ -360,29 +381,39 @@ BringUpStatusRow BringUpFpgaRow(bool opened, capture::UsbPresence presence,
   return row;
 }
 
-// --- the physical pages ---------------------------------------------------
-
-QString BringUpFitJumperText() {
+QString BringUpConnectText() {
   return Translate(
              "<p><b>1. Fit jumper J4</b> on the FX3 board — the two-pin "
-             "<tt>PMODE</tt> header shown below. <b>Fit it even if the "
-             "FX3 has already been reported as waiting in its boot "
-             "ROM.</b> A board whose EEPROM has never been written "
-             "comes up there with or without the jumper — and one "
-             "that got there without it leaves again at the first "
-             "restart, part way through the writing, which is where "
-             "the bring-up fails. The jumper is what makes the boot "
+             "<tt>PMODE</tt> header, photographed at the foot of this page. "
+             "<b>Fit it whatever the board is running</b>, including one "
+             "already reported below as waiting in its boot ROM. A board "
+             "whose EEPROM has never been written comes up there with or "
+             "without the jumper — and one that got there without it leaves "
+             "again at the first restart, part way through the writing, which "
+             "is where the bring-up fails. The jumper is what makes the boot "
              "ROM the place the board comes back to every time.</p>"
 
              "<p><b>2. </b>") +
          BothCables() + QStringLiteral("</p>") +
          Translate(
-             "<p><b>3. Plug both back in.</b></p>"
+             "<p><b>3. Plug both back in</b> — the kit's USB 3.0 cable and "
+             "the DE0-Nano's mini-USB — and leave both connected until the "
+             "end.</p>"
 
              "<p>The jumper only takes effect when the board boots, and the "
              "unit does not boot while either cable is still feeding it — "
-             "which is why both have to come out.</p>");
+             "which is why both have to come out. What this page then waits "
+             "for is the FX3 back in its <b>boot ROM</b>, which is the one "
+             "state the rest of this can work from, and reached the same way "
+             "from a bare kit, a legacy unit and a board that already "
+             "works.</p>"
+
+             "<p>Each board is <b>opened</b> here rather than merely noticed, "
+             "so that a permissions problem turns up now rather than in the "
+             "middle of writing a flash.</p>");
 }
+
+// --- the physical pages ---------------------------------------------------
 
 QString BringUpRemoveJumperText() {
   return Translate(
@@ -459,7 +490,7 @@ QString BringUpPhotographPath(BringUpPage page) {
   switch (page) {
     case BringUpPage::kOverview:
       return QStringLiteral(":/photographs/fpga-usb-port.png");
-    case BringUpPage::kJumper:
+    case BringUpPage::kConnect:
       return QStringLiteral(":/photographs/fx3-j4-fitted.png");
     case BringUpPage::kRemoveJumper:
       return QStringLiteral(":/photographs/fx3-j4-removed.png");
@@ -474,7 +505,7 @@ QString BringUpPhotographCaption(BringUpPage page) {
       return Translate(
           "The DE0-Nano's mini-USB connector, underneath the FX3 kit. This is "
           "the one that has to be connected as well.");
-    case BringUpPage::kJumper:
+    case BringUpPage::kConnect:
       return Translate("Jumper J4 fitted — the USB-boot position.");
     case BringUpPage::kRemoveJumper:
       return Translate("Jumper J4 removed — the EEPROM-boot position.");

@@ -320,8 +320,8 @@ struct WizardUnderTest {
     return wizard->findChild<QProgressBar*>(QLatin1String(name));
   }
 
-  // The one physical act the jumper page waits for: the jumper fitted, both
-  // cables out — which is the half this window can actually see — and the
+  // The one physical act the connectivity page waits for: the jumper fitted,
+  // both cables out — which is the half this window can actually see — and the
   // board back in its boot ROM.
   void FitTheJumper() {
     bus.clear();
@@ -338,7 +338,7 @@ struct WizardUnderTest {
           !Button(BoardBringUpWizard::kNextButtonName)->isEnabled()) {
         wizard->LoadUpdateFile(file.path());
       }
-      if (wizard->page() == BringUpPage::kJumper) {
+      if (wizard->page() == BringUpPage::kConnect) {
         FitTheJumper();
       }
       wizard->Poll();
@@ -366,9 +366,9 @@ struct WizardUnderTest {
 // still well out of specification for both dies.
 //
 // What keeps a board out of that pairing is where the FX3 is while the FPGA
-// changes: in its boot ROM, with every shared pin idle. So the jumper page
-// comes before the configure page, and the configure page before anything is
-// written.
+// changes: in its boot ROM, with every shared pin idle. So the page that asks
+// for the jumper comes before the configure page, and the configure page
+// before anything is written.
 
 TEST(BoardBringUpWizardTest, TheFpgaIsOnlyConfiguredOnceTheFx3IsInItsBootRom) {
   WizardUnderTest test(capture::DevicePersonality::kLegacy);
@@ -380,7 +380,7 @@ TEST(BoardBringUpWizardTest, TheFpgaIsOnlyConfiguredOnceTheFx3IsInItsBootRom) {
                          std::find(steps.begin(), steps.end(), page));
   };
 
-  EXPECT_LT(position(BringUpPage::kJumper), position(BringUpPage::kConfigure));
+  EXPECT_LT(position(BringUpPage::kConnect), position(BringUpPage::kConfigure));
   EXPECT_LT(position(BringUpPage::kConfigure), position(BringUpPage::kProgram));
 
   // And everything else about the order, stated once: the physical steps
@@ -417,11 +417,11 @@ TEST(BoardBringUpWizardTest, NoPowerCycleIsAskedForInTheMiddleOfTheWriting) {
                            std::find(steps.begin(), steps.end(), page));
     };
 
-    // Every page that asks the user to pull the cables. The jumper page does,
-    // because a jumper only takes effect on a boot.
+    // Every page that asks the user to pull the cables. The connectivity page
+    // does, because a jumper only takes effect on a boot.
     std::vector<BringUpPage> replugs;
     for (BringUpPage page : steps) {
-      if (page == BringUpPage::kJumper || page == BringUpPage::kPowerCycle) {
+      if (page == BringUpPage::kConnect || page == BringUpPage::kPowerCycle) {
         replugs.push_back(page);
       }
     }
@@ -469,21 +469,22 @@ TEST(BoardBringUpWizardTest,
 
 // --- the jumper, on every board -------------------------------------------
 
-// The bug this pair of tests exists for. The wizard used to skip both jumper
-// pages for a board already reporting its boot ROM, on the reasoning that a
-// board already there needs no jumper to get there. That is true of a board
-// somebody put there, and false of the commonest board of all: a freshly built
-// kit is in its boot ROM because its EEPROM is empty, jumper or no jumper — so
-// it comes out again at the first restart, in the middle of the writing.
+// The bug this pair of tests exists for. The wizard used to skip the jumper
+// for a board already reporting its boot ROM, on the reasoning that a board
+// already there needs no jumper to get there. That is true of a board somebody
+// put there, and false of the commonest board of all: a freshly built kit is
+// in its boot ROM because its EEPROM is empty, jumper or no jumper — so it
+// comes out again at the first restart, in the middle of the writing.
 TEST(BoardBringUpWizardTest, ABoardInItsBootRomIsStillAskedForTheJumper) {
   WizardUnderTest test(capture::DevicePersonality::kRecovery);
-  test.AdvanceTo(BringUpPage::kJumper);
+  test.wizard->GoNext();
+  test.wizard->Poll();
 
-  ASSERT_EQ(test.wizard->page(), BringUpPage::kJumper);
-  EXPECT_EQ(test.wizard->Steps().size(), 9u);
+  ASSERT_EQ(test.wizard->page(), BringUpPage::kConnect);
+  EXPECT_EQ(test.wizard->Steps().size(), 8u);
 
   const std::vector<BringUpPage> steps = test.wizard->Steps();
-  EXPECT_EQ(std::count(steps.begin(), steps.end(), BringUpPage::kJumper), 1);
+  EXPECT_EQ(std::count(steps.begin(), steps.end(), BringUpPage::kConnect), 1);
   EXPECT_EQ(std::count(steps.begin(), steps.end(), BringUpPage::kRemoveJumper),
             1);
 
@@ -491,22 +492,32 @@ TEST(BoardBringUpWizardTest, ABoardInItsBootRomIsStillAskedForTheJumper) {
   // anybody touched it. Being in the boot ROM is where this board started; what
   // the page waits for is the restart that says a jumper put it there.
   EXPECT_FALSE(test.Button(BoardBringUpWizard::kNextButtonName)->isEnabled());
-  EXPECT_TRUE(test.Label(BoardBringUpWizard::kJumperTextName)
+  EXPECT_TRUE(test.Label(BoardBringUpWizard::kConnectTextName)
                   ->text()
-                  .contains("even if"));
+                  .contains("whatever the board is running"));
+
+  // And the row that a user reads is amber rather than ticked, so the page and
+  // the row cannot disagree about whether this board is ready.
+  EXPECT_TRUE(test.Label(BoardBringUpWizard::kFx3RowName)
+                  ->text()
+                  .contains(QStringLiteral("\u2022")));
 
   test.FitTheJumper();
   EXPECT_TRUE(test.Button(BoardBringUpWizard::kNextButtonName)->isEnabled());
+  EXPECT_TRUE(test.Label(BoardBringUpWizard::kFx3RowName)
+                  ->text()
+                  .contains(QStringLiteral("\u2713")));
 }
 
-// A legacy board is running firmware, so it has to be sent to the jumper —
+// A legacy board is running firmware, so it has to be sent to the boot ROM —
 // and this is the case the whole wizard exists for.
 TEST(BoardBringUpWizardTest, ALegacyBoardIsSentToTheJumper) {
   WizardUnderTest test(capture::DevicePersonality::kLegacy);
-  test.AdvanceTo(BringUpPage::kJumper);
+  test.wizard->GoNext();
+  test.wizard->Poll();
 
-  EXPECT_EQ(test.wizard->page(), BringUpPage::kJumper);
-  EXPECT_EQ(test.wizard->Steps().size(), 9u);
+  EXPECT_EQ(test.wizard->page(), BringUpPage::kConnect);
+  EXPECT_EQ(test.wizard->Steps().size(), 8u);
 
   // And held there until the board comes back in its boot ROM, because the
   // jumper only takes effect on a boot.
@@ -516,16 +527,60 @@ TEST(BoardBringUpWizardTest, ALegacyBoardIsSentToTheJumper) {
   EXPECT_TRUE(test.Button(BoardBringUpWizard::kNextButtonName)->isEnabled());
 }
 
+// The bug this merge exists for —
+// https://github.com/Domesday86/DomesdayDuplicator/issues/179.
+//
+// On Windows an application sees only devices whose USB identifier is bound to
+// WinUSB, and nobody binds 1d50:603b: a board running the original firmware is
+// *absent* rather than merely unopenable, so the row reads "nothing found"
+// beside a board that is plainly attached. The connectivity page used to wait
+// for the FX3 to be seen at all, which that board could never satisfy — and
+// the page that would have told the user to fit jumper J4 was two steps
+// further on, behind the dead Next button.
+//
+// So the page waits for the boot ROM instead, and says on its own face how to
+// reach it. An invisible board is modelled here the only way it can be: as an
+// empty bus.
+TEST(BoardBringUpWizardTest, AnInvisibleLegacyBoardIsToldToFitTheJumper) {
+  WizardUnderTest test(capture::DevicePersonality::kLegacy);
+  test.bus.clear();
+
+  test.wizard->GoNext();
+  test.wizard->Poll();
+  ASSERT_EQ(test.wizard->page(), BringUpPage::kConnect);
+
+  // Stuck, as it was — but with the remedy on the page rather than two
+  // pages away.
+  EXPECT_FALSE(test.Button(BoardBringUpWizard::kNextButtonName)->isEnabled());
+
+  const QString row = test.Label(BoardBringUpWizard::kFx3RowName)->text();
+  EXPECT_TRUE(row.contains("J4")) << row.toStdString();
+  EXPECT_TRUE(row.contains("04b4:00f3")) << row.toStdString();
+  EXPECT_TRUE(row.contains("WinUSB")) << row.toStdString();
+
+  EXPECT_TRUE(test.Label(BoardBringUpWizard::kConnectTextName)
+                  ->text()
+                  .contains("Fit jumper J4"));
+
+  // And doing what it says gets the user off the page: the board comes back
+  // in its boot ROM, under an identifier Windows can be made to show.
+  test.bus = {Device(capture::DevicePersonality::kRecovery)};
+  test.wizard->Poll();
+
+  EXPECT_TRUE(test.Button(BoardBringUpWizard::kNextButtonName)->isEnabled());
+}
+
 // Stepping back to re-read the page does not ask for the power cycle again.
 // The jumper is fitted; it has not become unfitted because somebody wanted
 // another look at the photograph.
-TEST(BoardBringUpWizardTest, GoingBackToTheJumperPageDoesNotAskForItAgain) {
+TEST(BoardBringUpWizardTest,
+     GoingBackToTheConnectivityPageDoesNotAskForTheJumperAgain) {
   WizardUnderTest test(capture::DevicePersonality::kLegacy);
-  test.AdvanceTo(BringUpPage::kConfigure);
-  ASSERT_EQ(test.wizard->page(), BringUpPage::kConfigure);
+  test.AdvanceTo(BringUpPage::kImage);
+  ASSERT_EQ(test.wizard->page(), BringUpPage::kImage);
 
   test.wizard->GoPrevious();
-  ASSERT_EQ(test.wizard->page(), BringUpPage::kJumper);
+  ASSERT_EQ(test.wizard->page(), BringUpPage::kConnect);
   test.wizard->Poll();
 
   EXPECT_TRUE(test.Button(BoardBringUpWizard::kNextButtonName)->isEnabled());
@@ -542,7 +597,7 @@ TEST(BoardBringUpWizardTest, EveryPhotographPageDrawsItsPhotograph) {
   WizardUnderTest test;
 
   for (const char* name : {BoardBringUpWizard::kOverviewPhotographName,
-                           BoardBringUpWizard::kJumperPhotographName,
+                           BoardBringUpWizard::kConnectPhotographName,
                            BoardBringUpWizard::kRemoveJumperPhotographName}) {
     QLabel* const label = test.Label(name);
     ASSERT_NE(label, nullptr) << name;
@@ -672,9 +727,9 @@ TEST(BoardBringUpWizardTest, TheStatusMarksAreTheCharactersTheyLookLike) {
   EXPECT_TRUE(cable_row.contains(QStringLiteral("\u2713")))
       << cable_row.toStdString();
 
-  // A board in its boot ROM is amber too — usable as it is, and still with a
-  // jumper to fit. The tick above, on the cable row, and the cross below cover
-  // the other two marks.
+  // A board in its boot ROM is amber too — found, and still with a jumper to
+  // fit and a power cycle to do. The tick above, on the cable row, and the
+  // cross below cover the other two marks.
   WizardUnderTest ready;
   ready.AdvanceTo(BringUpPage::kConnect);
   const QString boot_rom_row =
@@ -1202,6 +1257,7 @@ TEST(BoardBringUpWizardTest, APageThatIsNotFinishedSaysWhatItIsWaitingFor) {
   // never both on screen and never both absent.
   WizardUnderTest ready;
   ready.AdvanceTo(BringUpPage::kConnect);
+  ready.FitTheJumper();
   ready.wizard->Poll();
 
   ASSERT_EQ(ready.wizard->page(), BringUpPage::kConnect);
@@ -1275,8 +1331,7 @@ TEST(BoardBringUpWizardTest, EveryPageIsBuiltAndNamed) {
         BoardBringUpWizard::kConnectStatusName,
         BoardBringUpWizard::kImageLabelName,
         BoardBringUpWizard::kImageStatusName,
-        BoardBringUpWizard::kJumperTextName,
-        BoardBringUpWizard::kJumperStatusName,
+        BoardBringUpWizard::kConnectTextName,
         BoardBringUpWizard::kConfigureTextName,
         BoardBringUpWizard::kConfigureStatusName,
         BoardBringUpWizard::kProgramTextName,
