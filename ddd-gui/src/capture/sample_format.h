@@ -21,10 +21,19 @@
 //     bits  9..0   the 10-bit unsigned sample value, 0..1023
 //     bits 15..10  a 6-bit sequence counter
 //
-// The sequence counter increments once every 65,536 samples and wraps at 62,
-// so it repeats every 63 * 65,536 samples. It is the only evidence a capture is
+// The sequence counter increments once every 65,535 samples and wraps at 62,
+// so it repeats every 63 * 65,535 samples. It is the only evidence a capture is
 // bit-perfect: a host that stalls loses whole USB packets, and the gap shows up
 // as a counter that skipped. Nothing else in the stream would reveal it.
+//
+// The one gap that cannot show up is a gap of exactly a whole number of
+// periods, because that leaves the stream in the phase it would have been in
+// anyway. The block length is odd so that no whole number of USB packets can
+// ever be one: a SuperSpeed bulk packet is 1,024 bytes, 512 samples, and the
+// smallest loss that is both a whole number of packets and a whole period is
+// 512 periods — just under 4 GiB, or 53 seconds of capture. Gateware built
+// before this was understood used a block of 65,536, where the same figure was
+// one period: 7.875 MiB, or a tenth of a second. See issue #186.
 //
 // These constants are deliberately a component-local copy rather than shared
 // with the gateware or the firmware (AGENTS.md §2). They describe a wire
@@ -67,8 +76,30 @@ inline constexpr uint8_t kSampleValueHighByteMask = 0x03;
 // Sequence counter values run 0..62 inclusive — 63 distinct values, not 64.
 inline constexpr uint32_t kSequenceCounterValues = 63;
 
-// Samples carrying each sequence counter value
-inline constexpr uint32_t kSamplesPerSequenceCounter = 65'536;
+// Samples carrying each sequence counter value, as the gateware in this tree
+// emits them.
+inline constexpr uint32_t kSamplesPerSequenceCounter = 65'535;
+
+// What gateware predating the odd block length emits. The host accepts either,
+// because a board is updated when its owner updates it and a capture from an
+// older one is still a capture worth proving. Both are what the validator
+// measures against; nothing else is a block length this project has shipped.
+inline constexpr uint32_t kLegacySamplesPerSequenceCounter = 65'536;
+
+// The longest run of one counter value any gateware produces. What a validator
+// searching for its first counter change has to look through before concluding
+// there are no markers at all.
+inline constexpr uint32_t kMaximumSamplesPerSequenceCounter =
+    kLegacySamplesPerSequenceCounter;
+
+// Is this a run length one of the shipped gatewares produces? The validator
+// learns the block length from the stream rather than being told it, and this
+// is the only thing standing between "learned it" and "believed the first
+// number it saw".
+inline constexpr bool IsKnownSamplesPerSequenceCounter(uint32_t samples) {
+  return samples == kSamplesPerSequenceCounter ||
+         samples == kLegacySamplesPerSequenceCounter;
+}
 
 // Extract the 10-bit sample value from a little-endian wire word.
 inline constexpr uint16_t SampleValueFromWord(uint16_t word) {
