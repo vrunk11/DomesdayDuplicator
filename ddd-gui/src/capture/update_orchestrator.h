@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 
 #include "device_updater.h"
 #include "update_bundle.h"
@@ -281,6 +282,15 @@ class UpdateOrchestrator {
   // stall, or a cancellation.
   bool AwaitCompletion(UpdateTarget target, uint64_t total,
                        UpdateOutcome& outcome);
+
+  // Ask the device why it refused, and say how far it had got when it did.
+  //
+  // Every path that reports a refusal goes through here, because a refusal
+  // can surface at any of them: the device stalls the request that carried a
+  // chunk it cannot take, so a medium that stops writing part way is caught
+  // at the chunk after it rather than at the end of the transfer. `fallback`
+  // is what to say when the device will not say anything itself.
+  std::string DeviceRefusal(uint64_t total, std::string_view fallback);
 
   void Report(UpdateStage stage, UpdateTarget target, uint64_t done,
               uint64_t total, std::string message);

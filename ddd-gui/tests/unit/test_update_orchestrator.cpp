@@ -360,6 +360,35 @@ TEST(UpdateOrchestrator, ReportsHowFarAFailedWriteGot) {
       0u);
 }
 
+// The same sentence, on the path a real write failure actually takes. The
+// device cannot refuse the chunk that broke it — by the time the medium
+// answers, the USB hardware has acknowledged that transfer and it can no
+// longer be stalled — so it refuses the *next* one. That surfaces here as a
+// chunk the device would not take, and the reason and the offset matter just
+// as much as they do when the failure is found by polling at the end.
+TEST(UpdateOrchestrator, ReportsHowFarAWriteGotWhenTheNextChunkIsRefused) {
+  // Five chunks of 2048, so that there is a middle for the failure to be in.
+  const TestBundle test(10240);
+  FakeDeviceUpdater device;
+  device.RefuseChunkAfterBytes(3, 6144);
+  device.SetFailureError(DeviceUpdateError::kWrite);
+
+  const UpdateOutcome outcome = RunUpdate(device, test.bundle);
+
+  EXPECT_FALSE(outcome.succeeded);
+  EXPECT_EQ(
+      outcome.problem.find(DeviceUpdateErrorText(DeviceUpdateError::kWrite)),
+      0u);
+  EXPECT_NE(outcome.problem.find("stopped after writing 6144"),
+            std::string::npos)
+      << outcome.problem;
+
+  // And it stopped there rather than sending the rest of the image into a
+  // transfer that had already ended, which is the whole point of the device
+  // stalling the chunk instead of acknowledging it.
+  EXPECT_EQ(device.chunk_count(), 3u);
+}
+
 // And a device that wrote nothing is not given a sentence about the nothing it
 // wrote.
 TEST(UpdateOrchestrator, AFailureBeforeAnythingWasWrittenSaysNoOffset) {

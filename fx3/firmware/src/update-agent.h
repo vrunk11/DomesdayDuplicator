@@ -93,6 +93,25 @@ CyBool_t updateAgentInProgress(void);
 CyBool_t updateAgentBegin(uint8_t target, const uint8_t *data, uint16_t length,
                           CyBool_t captureRunning);
 
+// Whether UPDATE_DATA can take this chunk, decided from the request's
+// fields alone and therefore before its data stage has been read.
+//
+// That timing is the whole point of the function. Once CyU3PUsbGetEP0Data()
+// has taken a payload the USB hardware has already acknowledged the
+// transfer and it can no longer be stalled, so a device that has stopped
+// being able to accept chunks would go on acknowledging every remaining one
+// of them — and the host, which has no other signal, would send a whole
+// image into a transfer that ended long ago and only find out at the next
+// UPDATE_STATUS. Refusing here means the host's write fails on the chunk
+// that actually failed.
+//
+// Returns UPDATE_ERROR_NONE when the chunk may be taken. Any other return
+// has already been recorded in the state — the first error recorded is the
+// one kept, so a refusal that follows an earlier failure does not hide it —
+// and the caller should stall.
+uint8_t updateAgentChunkRefusal(uint8_t target, uint16_t index,
+                                uint16_t length);
+
 // UPDATE_DATA. The chunk is hashed and written straight to the medium as
 // it arrives, with no assembly buffer in between.
 //
