@@ -24,6 +24,7 @@
 #include <cstring>
 
 #include "capture_controller.h"
+#include "cursor_readout.h"
 #include "sample_format.h"
 #include "spectrum_analyser.h"
 #include "theme_color_tokens.h"
@@ -1112,12 +1113,13 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
   });
   controls->addWidget(reset_);
 
-  controls->addStretch();
-
-  cursor_ = new QLabel(this);
+  // No spacer before it, and the whole of the row's slack given to it: the
+  // readout is what fills the end of the row. It asks the layout for no width
+  // of its own, which is what keeps the dock from being re-laid out every time
+  // the pointer moves — see CursorReadout.
+  cursor_ = new CursorReadout(this);
   cursor_->setObjectName(QLatin1String(kCursorLabelName));
-  cursor_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-  controls->addWidget(cursor_);
+  controls->addWidget(cursor_, 1);
 
   layout->addLayout(controls);
 
@@ -1256,11 +1258,12 @@ void SpectrumPanel::OnMonitoringChanged(bool monitoring) {
 
 void SpectrumPanel::ShowCursor(double frequency_hz, double level_db,
                                double seconds_ago) {
-  cursor_->setText(FormatSpectrumCursor(frequency_hz, level_db, seconds_ago));
+  cursor_->SetReadout(
+      FormatSpectrumCursor(frequency_hz, level_db, seconds_ago));
 }
 
 void SpectrumPanel::ClearCursor() {
-  cursor_->setText(tr("Point at the trace to read a frequency"));
+  cursor_->SetReadout(tr("Point at the trace to read a frequency"));
 }
 
 }  // namespace ddd::gui

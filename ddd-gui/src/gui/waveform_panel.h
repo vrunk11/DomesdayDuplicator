@@ -32,6 +32,7 @@ class QSlider;
 namespace ddd::gui {
 
 class CaptureController;
+class CursorReadout;
 
 // The persistence control's range: a quarter of a second per step, up to two.
 //
@@ -251,7 +252,7 @@ class WaveformPanel : public QWidget {
   QCheckBox* trigger_ = nullptr;
   QSlider* persistence_ = nullptr;
   QLabel* persistence_label_ = nullptr;
-  QLabel* cursor_ = nullptr;
+  CursorReadout* cursor_ = nullptr;
 
   analysis::FrontEndGain gain_;
 };

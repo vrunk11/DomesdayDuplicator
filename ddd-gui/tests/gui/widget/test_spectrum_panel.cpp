@@ -11,11 +11,13 @@
 
 #include <gtest/gtest.h>
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
 #include <QImage>
 #include <QLabel>
+#include <QLayout>
 #include <QMouseEvent>
 #include <QPixmap>
 #include <QPushButton>
@@ -26,6 +28,7 @@
 #include <vector>
 
 #include "capture_format.h"
+#include "cursor_readout.h"
 #include "frequency_axis.h"
 #include "sample_format.h"
 #include "spectrogram_history.h"
@@ -1148,6 +1151,33 @@ TEST(SpectrumPanelTest, TheReadoutChangesWithTheSegmentCountItIsGiven) {
   EXPECT_NE(averaged, silent)
       << "the panel drew the same thing whether or not it was told how many "
          "segments were averaged";
+}
+
+TEST(SpectrumPanelTest, WhatTheCursorSaysDoesNotChangeWhatThePanelAsksFor) {
+  // Issue #180: the readout is the last thing in the widest row in the panel,
+  // so if it asked the layout for room to hold its text, the panel's minimum
+  // width — and with it the dock's — moved with every reading the pointer
+  // produced. See CursorReadout.
+  SpectrumPanel panel(nullptr);
+  panel.resize(600, 300);
+  panel.show();
+  QApplication::processEvents();
+
+  auto* const cursor =
+      Named<CursorReadout>(panel, SpectrumPanel::kCursorLabelName);
+  ASSERT_NE(cursor, nullptr);
+
+  panel.layout()->activate();
+  const int minimum = panel.minimumSizeHint().width();
+  const int preferred = panel.sizeHint().width();
+
+  cursor->SetReadout(
+      QStringLiteral("8.123456 MHz \u00b7 \u221242.5 dBFS \u00b7 1.25 s ago, "
+                     "and more besides"));
+  panel.layout()->activate();
+
+  EXPECT_EQ(panel.minimumSizeHint().width(), minimum);
+  EXPECT_EQ(panel.sizeHint().width(), preferred);
 }
 
 TEST(SpectrumPanelTest, TheCursorLabelSaysWhatToDoBeforeItIsUsed) {

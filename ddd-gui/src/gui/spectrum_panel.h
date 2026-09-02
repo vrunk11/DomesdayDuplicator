@@ -31,6 +31,7 @@ class QPushButton;
 namespace ddd::gui {
 
 class CaptureController;
+class CursorReadout;
 
 // The waterfall's colour scale, as the two figures a user sets.
 //
@@ -338,7 +339,7 @@ class SpectrumPanel : public QWidget {
   // and hidden with the controls they name.
   QLabel* reference_label_ = nullptr;
   QLabel* range_label_ = nullptr;
-  QLabel* cursor_ = nullptr;
+  CursorReadout* cursor_ = nullptr;
 };
 
 // A frequency put to a user in the units the number is comfortable in: kHz
