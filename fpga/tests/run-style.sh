@@ -54,6 +54,7 @@ files=(
     "$fpga/application/dataGenerator.v"
     "$fpga/application/fifo.v"
     "$fpga/application/fx3StateMachine.v"
+    "$fpga/application/wordPacker.v"
     "$fpga/common/spiRegisters.v"
     "$fpga/common/flashBridge.v"
     "$fpga/common/asmiBlock.v"
@@ -73,6 +74,7 @@ files=(
     "$tests/tb_flashBridge.v"
     "$tests/tb_fx3StateMachine.v"
     "$tests/tb_spiRegisters.v"
+    "$tests/tb_wordPacker.v"
 )
 
 failed=0

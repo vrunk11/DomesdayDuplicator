@@ -81,13 +81,13 @@ module tb_spiRegisters;
 
     // Distinguishable in every byte, so a wrong byte order fails rather
     // than reading plausibly.
-    localparam [63:0] DIAGNOSTICS_CONTENTS = 64'hDD01_8877_6655_4433;
+    localparam [ 63:0] DIAGNOSTICS_CONTENTS = 64'hDD01_8877_6655_4433;
 
     // The capture buffer instrument's shadow bank and its geometry, filled so
     // that every byte carries the address it should appear at: the first byte
     // of the bank is 0x10 at address 0x41, and the geometry is 0x51 to 0x56.
-    localparam [127:0] TELEMETRY_CONTENTS = 128'h1F1E_1D1C_1B1A_1918_1716_1514_1312_1110;
-    localparam [47:0] TELEMETRY_GEOMETRY = 48'h5655_5453_5251;
+    localparam [127:0] TELEMETRY_CONTENTS   = 128'h1F1E_1D1C_1B1A_1918_1716_1514_1312_1110;
+    localparam [ 47:0] TELEMETRY_GEOMETRY   = 48'h5655_5453_5251;
 
     reg     [127:0] telemetry;
     reg     [ 47:0] telemetry_geometry;

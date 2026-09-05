@@ -35,8 +35,7 @@ module fx3StateMachine #(
 
     localparam integer WordCounterBits = $clog2(PacketWords + 1);
     localparam [31:0] PacketWordsValue = PacketWords;
-    localparam [WordCounterBits-1:0] LastWordIndex =
-        PacketWordsValue[WordCounterBits-1:0] - 1'b1;
+    localparam [WordCounterBits-1:0] LastWordIndex = PacketWordsValue[WordCounterBits-1:0] - 1'b1;
 
     // State machine logic ---------------------------------------------------
 

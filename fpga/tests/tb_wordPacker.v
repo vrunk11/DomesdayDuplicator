@@ -26,16 +26,16 @@
 
 module tb_wordPacker;
 
-    reg         reset_n;
-    reg         clock;
-    reg         sample_enable;
-    reg  [15:0] data_in;
+    reg            reset_n;
+    reg            clock;
+    reg            sample_enable;
+    reg     [15:0] data_in;
 
-    wire        write_enable;
-    wire [31:0] data_out;
+    wire           write_enable;
+    wire    [31:0] data_out;
 
-    integer     errors;
-    integer     i;
+    integer        errors;
+    integer        i;
 
     wordPacker dut (
         .reset_n      (reset_n),

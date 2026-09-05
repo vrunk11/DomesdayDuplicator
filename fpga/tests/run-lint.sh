@@ -44,6 +44,7 @@ modules=(
     "application:fifo"
     "application:fx3StateMachine"
     "application:halfBandDecimator"
+    "application:wordPacker"
     "common:spiRegisters"
     "common:flashBridge"
     "common:asmiBlock"

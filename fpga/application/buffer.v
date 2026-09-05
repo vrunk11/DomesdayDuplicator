@@ -51,7 +51,7 @@ module buffer #(
     // sample; at 32, one every second sample, because that is what packing
     // two samples into one wide word means for how often there is a whole
     // one to write.
-    input                  write_enable,
+    input                 write_enable,
     input [DataWidth-1:0] data_in,
 
     // High for each cycle the FX3 is taking a word off the databus
