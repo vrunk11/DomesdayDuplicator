@@ -138,11 +138,13 @@ static void testCommitText(void)
 static void testHostWritable(void)
 {
     // What the capture path does with the samples is the host's to choose,
-    // and these two are the whole of that choice.
+    // and these three are the whole of that choice.
     check(fpgaRegisterIsHostWritable(FPGA_REGISTER_TEST_MODE),
           "the host may write test mode");
     check(fpgaRegisterIsHostWritable(FPGA_REGISTER_DECIMATION),
           "the host may write the decimation factor");
+    check(fpgaRegisterIsHostWritable(FPGA_REGISTER_RANGE_SELECT),
+          "the host may write the ADC input range");
 
     // The gateware would accept this write. The firmware refuses to relay it,
     // because the LEDs are a status output with exactly one owner.
@@ -154,12 +156,15 @@ static void testHostWritable(void)
     check(!fpgaRegisterIsHostWritable(0x20u),
           "the host may not write an unmapped register");
 
-    // The addresses either side of the two that are permitted, so that a
-    // whitelist which had become a range would fail here.
+    // The addresses either side of the three that are permitted, so that a
+    // whitelist which had become a range would fail here. 0x14 rather than
+    // 0x13: RANGE_SELECT moved the boundary when it became host-writable,
+    // and testing the old boundary would no longer prove anything - it
+    // would pass whether or not the whitelist stayed a whitelist.
     check(!fpgaRegisterIsHostWritable(0x0Fu),
           "the host may not write the address below test mode");
-    check(!fpgaRegisterIsHostWritable(0x13u),
-          "the host may not write the address above decimation");
+    check(!fpgaRegisterIsHostWritable(0x14u),
+          "the host may not write the address above range select");
 }
 
 static void testReadRequests(void)
