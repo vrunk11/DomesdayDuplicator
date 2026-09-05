@@ -46,7 +46,9 @@ def normalise(pin):
 
 def read_pin_mapping(top):
     """The pins the top level drives or reads, grouped by what they carry."""
-    databus = {normalise(p) for p in re.findall(r"(GPIO1\[\d+\])\s*= fx3_databus", top)}
+    # GPIO1 alone at 16 bits; at 32 the upper half is on GPIO0's other 16
+    # traces to the FX3 (DomesdayDuplicator.v, the wide-bus generate block).
+    databus = {normalise(p) for p in re.findall(r"(GPIO[01]\[\d+\])\s*= fx3_databus", top)}
     adc_data = {normalise(p) for p in re.findall(r"adc_databus\[\d\] = (GPIO0\[\d+\])", top)}
 
     control_out = {
