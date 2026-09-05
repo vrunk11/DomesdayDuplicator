@@ -51,6 +51,7 @@ module tb_spiRegisters;
     wire           spi_miso;
 
     wire           test_mode;
+    wire           range_select;
     wire    [ 7:0] decimation;
     wire    [ 7:0] leds;
 
@@ -100,6 +101,7 @@ module tb_spiRegisters;
     wire            spi_miso_absent;
     wire            telemetry_latch_absent;
     wire            test_mode_absent;
+    wire            range_select_absent;
     wire    [  7:0] decimation_absent;
     wire    [  7:0] leds_absent;
     wire            window_write_absent;
@@ -107,12 +109,17 @@ module tb_spiRegisters;
     wire    [  7:0] window_write_data_absent;
     wire            transaction_decoded_absent;
 
+    // Distinguishable from the parameter's own default, so a test that reads
+    // back the default by accident fails rather than passing by coincidence.
+    localparam [7:0] MAX_ADC_RATE_MHZ = 8'd66;
+
     spiRegisters #(
         .CommitText       (COMMIT_TEXT),
         .BuildFlags       (BUILD_FLAGS),
         .ImageRole        (IMAGE_ROLE),
         .TelemetryPresent (1'b1),
-        .DecimationPresent(1'b1)
+        .DecimationPresent(1'b1),
+        .MaxAdcRateMHz    (MAX_ADC_RATE_MHZ)
     ) dut (
         .reset_n            (reset_n),
         .clock              (clock),
@@ -125,6 +132,7 @@ module tb_spiRegisters;
         .telemetry_geometry (telemetry_geometry),
         .spi_miso           (spi_miso),
         .test_mode          (test_mode),
+        .range_select       (range_select),
         .decimation         (decimation),
         .leds               (leds),
         .window_write       (window_write),
@@ -152,6 +160,7 @@ module tb_spiRegisters;
         .telemetry_geometry (telemetry_geometry),
         .spi_miso           (spi_miso_absent),
         .test_mode          (test_mode_absent),
+        .range_select       (range_select_absent),
         .decimation         (decimation_absent),
         .leds               (leds_absent),
         .window_write       (window_write_absent),
@@ -317,6 +326,10 @@ module tb_spiRegisters;
         check(leds, 8'h01, "LED register reset value");
         check(test_mode, 1'b0, "test mode is off after reset");
 
+        // 2Vpp at reset: clipping the input loses signal irrecoverably,
+        // where a range wider than the input needs only costs resolution.
+        check(range_select, 1'b1, "range select is 2Vpp after reset");
+
         // --- Identity block ---
         //
         // Eleven bytes in one transaction: the signature, the map version, the
@@ -349,6 +362,47 @@ module tb_spiRegisters;
         spi_write_one(7'h10, 8'h00);
         check(test_mode, 1'b0, "test mode off after writing 0");
 
+        // --- Range select ---
+        //
+        // Same convention as test mode: any non-zero value means 2Vpp, so a
+        // host writing 1 and a host writing 0xFF agree about what they asked
+        // for. Unlike decimation, this register is not gated by a "present"
+        // parameter - a board without the RSEL-capable ADC still has
+        // somewhere to store the value, it just is not wired to a pin - so
+        // dut_absent must behave identically rather than fold away.
+        spi_write_one(7'h13, 8'h00);
+        check(range_select, 1'b0, "range select is 1Vpp after writing 0");
+        spi_read(7'h13, 8'd1);
+        check(read_data[0], 8'h00, "range select reads back 0");
+
+        spi_write_one(7'h13, 8'h01);
+        check(range_select, 1'b1, "range select is 2Vpp after writing 1");
+        spi_read(7'h13, 8'd1);
+        check(read_data[0], 8'h01, "range select reads back 1");
+
+        spi_write_one(7'h13, 8'hFF);
+        check(range_select, 1'b1, "range select is 2Vpp after writing 0xFF");
+
+        spi_write_one(7'h13, 8'h00);
+        check(range_select, 1'b0, "back to 1Vpp");
+        check(range_select_absent, 1'b0, "the bank without a capture path tracks the same write");
+
+        spi_write_one(7'h13, 8'h01);
+        check(range_select_absent, 1'b1, "and the same for 2Vpp - the register is not parameterised off");
+
+        spi_write_one(7'h13, 8'hFF);
+
+        // --- Capability: max ADC rate ---
+        //
+        // Read-only and a build-time constant, so the only thing to check is
+        // that it reads back the value this instance was built with, and
+        // that a write to it is discarded like any other read-only register.
+        spi_read(7'h14, 8'd1);
+        check(read_data[0], MAX_ADC_RATE_MHZ, "max ADC rate reads the build's own value");
+        spi_write_one(7'h14, 8'hAA);
+        spi_read(7'h14, 8'd1);
+        check(read_data[0], MAX_ADC_RATE_MHZ, "max ADC rate survives a write");
+
         // --- Decimation ---
         //
         // The register holds the factor and reads back what the capture path
@@ -369,9 +423,11 @@ module tb_spiRegisters;
 
         // A factor this gateware does not implement is normalised to every
         // sample rather than stored. The host reads back 1, learns that its
-        // request was not honoured, and can say so - where a stored 4 would
-        // have it believe the capture was quarter rate when it was not.
-        spi_write_one(7'h12, 8'h04);
+        // request was not honoured, and can say so - where a stored 3 would
+        // have it believe the capture was a third rate when it was not.
+        // 0x03 and not 0x04: 0x04 became a real, implemented factor below,
+        // and this case is specifically about one that is not.
+        spi_write_one(7'h12, 8'h03);
         check(decimation, 8'h01, "an unsupported factor falls back to every sample");
         spi_read(7'h12, 8'd1);
         check(read_data[0], 8'h01, "and reads back as every sample");
@@ -386,6 +442,16 @@ module tb_spiRegisters;
         check(decimation, 8'h02, "and it can be selected again afterwards");
         spi_write_one(7'h12, 8'h01);
         check(decimation, 8'h01, "back to every sample");
+
+        // Four is the second factor this gateware implements, chaining a
+        // second half-band stage behind the first rather than a filter of
+        // its own.
+        spi_write_one(7'h12, 8'h04);
+        check(decimation, 8'h04, "4:1 decimation selected");
+        spi_read(7'h12, 8'd1);
+        check(read_data[0], 8'h04, "4:1 decimation reads back");
+        spi_write_one(7'h12, 8'h01);
+        check(decimation, 8'h01, "back to every sample after 4:1");
 
         // The image without a capture path holds it at every sample whatever
         // is written, which is what makes the whole register fold away there.
@@ -599,6 +665,7 @@ module tb_spiRegisters;
         repeat (4) @(posedge clock);
         check(leds, 8'h01, "reset restores the LED register");
         check(test_mode, 1'b0, "reset clears test mode");
+        check(range_select, 1'b1, "reset restores range select to 2Vpp");
 
         if (errors == 0) begin
             $display("tb_spiRegisters: PASS");

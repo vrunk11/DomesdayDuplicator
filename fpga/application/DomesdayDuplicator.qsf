@@ -277,6 +277,7 @@ set_global_assignment -name VERILOG_FILE fx3StateMachine.v
 set_global_assignment -name VERILOG_FILE buffer.v
 set_global_assignment -name VERILOG_FILE bufferMonitor.v
 set_global_assignment -name VERILOG_FILE fifo.v
+set_global_assignment -name VERILOG_FILE wordPacker.v
 set_global_assignment -name CDF_FILE DomesdayDuplicator_write_sof.cdf
 set_global_assignment -name VERILOG_FILE ../common/spiRegisters.v
 set_global_assignment -name VERILOG_FILE ../common/flashBridge.v

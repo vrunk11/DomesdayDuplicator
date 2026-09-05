@@ -115,10 +115,10 @@ void fpgaIdentityCommitText(const uint8_t *identity, char *text, size_t size)
 
 int fpgaRegisterIsHostWritable(uint8_t address)
 {
-    // Test mode and the sample rate. Both select what the capture path does
-    // with the samples before they reach the buffer, both are meaningless to
-    // this firmware, and the host is the only thing that knows which the user
-    // asked for.
+    // Test mode, the sample rate, and the ADC input range. All three select
+    // what the capture path does with the samples before they reach the
+    // buffer, all three are meaningless to this firmware, and the host is
+    // the only thing that knows which the user asked for.
     //
     // The LED register is excluded even though the gateware would accept the
     // write, because the LEDs are a status output and status outputs have
@@ -131,7 +131,8 @@ int fpgaRegisterIsHostWritable(uint8_t address)
     // well: a write to an address it does not name is refused with a stall,
     // however willing the gateware would have been.
     return (address == FPGA_REGISTER_TEST_MODE ||
-            address == FPGA_REGISTER_DECIMATION) ? 1 : 0;
+            address == FPGA_REGISTER_DECIMATION ||
+            address == FPGA_REGISTER_RANGE_SELECT) ? 1 : 0;
 }
 
 int fpgaReadRequestIsValid(uint16_t address, uint16_t length)

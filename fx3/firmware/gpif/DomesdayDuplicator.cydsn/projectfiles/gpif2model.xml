@@ -12,7 +12,7 @@
       <ClockSource>External</ClockSource>
       <ClockEdge>Positive</ClockEdge>
       <Endianness>LittleEndian</Endianness>
-      <DataBusWidth>Bit16</DataBusWidth>
+      <DataBusWidth>Bit32</DataBusWidth>
       <AddressBuswidth>0</AddressBuswidth>
     </InterfaceSetting>
   </InterfaceDefination>
@@ -131,7 +131,7 @@
       <Action ElementId="LD_DATA_COUNT0" ActionType="LD_DATA_COUNT">
         <CounterType>Up</CounterType>
         <CounterLoadValue>0</CounterLoadValue>
-        <CounterLimit>8192</CounterLimit>
+        <CounterLimit>4096</CounterLimit>
         <CounterReloadEnable>Disable</CounterReloadEnable>
         <CounterIncrement>1</CounterIncrement>
         <CounterInterrupt>Mask</CounterInterrupt>
@@ -169,7 +169,7 @@
       <Action ElementId="LD_DATA_COUNT0" ActionType="LD_DATA_COUNT">
         <CounterType>Up</CounterType>
         <CounterLoadValue>0</CounterLoadValue>
-        <CounterLimit>8192</CounterLimit>
+        <CounterLimit>4096</CounterLimit>
         <CounterReloadEnable>Disable</CounterReloadEnable>
         <CounterIncrement>1</CounterIncrement>
         <CounterInterrupt>Mask</CounterInterrupt>

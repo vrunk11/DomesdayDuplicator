@@ -48,6 +48,7 @@ benches=(
     "tb_dataGenerator:application/dataGenerator"
     "tb_halfBandDecimator:application/halfBandDecimator"
     "tb_fifo:application/fifo"
+    "tb_wordPacker:application/wordPacker"
     "tb_fx3StateMachine:application/fx3StateMachine"
     "tb_spiRegisters:common/spiRegisters"
     "tb_crc32:factory/crc32"

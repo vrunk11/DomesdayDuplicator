@@ -1,6 +1,6 @@
 /*
  * Project Name: DomesdayDuplicator.cyfx
- * Time : 08/15/2018 15:11:41
+ * Time : 09/05/2026 23:32:47
  * Device Type: FX3
  * Project Type: GPIF2
  *
@@ -13,8 +13,8 @@
  * 
  */
 
-#ifndef _INCLUDED_DOMESDAYDUPLICATOR_
-#define _INCLUDED_DOMESDAYDUPLICATOR_
+#ifndef _INCLUDED_DOCUMENTS_
+#define _INCLUDED_DOCUMENTS_
 #include "cyu3types.h"
 #include "cyu3gpif.h"
 
@@ -75,7 +75,7 @@ uint8_t CyFxGpifWavedataPosition[]  = {
  */
 uint32_t CyFxGpifRegValue[]  = {
     0x80008300,  /*  CY_U3P_PIB_GPIF_CONFIG */
-    0x00000067,  /*  CY_U3P_PIB_GPIF_BUS_CONFIG */
+    0x0000006C,  /*  CY_U3P_PIB_GPIF_BUS_CONFIG */
     0x00000000,  /*  CY_U3P_PIB_GPIF_BUS_CONFIG2 */
     0x00000046,  /*  CY_U3P_PIB_GPIF_AD_CONFIG */
     0x00000000,  /*  CY_U3P_PIB_GPIF_STATUS */
@@ -113,7 +113,7 @@ uint32_t CyFxGpifRegValue[]  = {
     0x0000FFFF,  /*  CY_U3P_PIB_GPIF_STATE_COUNT_LIMIT */
     0x00000109,  /*  CY_U3P_PIB_GPIF_DATA_COUNT_CONFIG */
     0x00000000,  /*  CY_U3P_PIB_GPIF_DATA_COUNT_RESET */
-    0x00002000,  /*  CY_U3P_PIB_GPIF_DATA_COUNT_LIMIT */
+    0x00001000,  /*  CY_U3P_PIB_GPIF_DATA_COUNT_LIMIT */
     0x00000000,  /*  CY_U3P_PIB_GPIF_CTRL_COMP_VALUE */
     0x00000000,  /*  CY_U3P_PIB_GPIF_CTRL_COMP_MASK */
     0x00000000,  /*  CY_U3P_PIB_GPIF_DATA_COMP_VALUE */
@@ -165,4 +165,4 @@ const CyU3PGpifConfig_t CyFxGpifConfig  = {
     CyFxGpifRegValue
 };
 
-#endif   /* _INCLUDED_DOMESDAYDUPLICATOR_ */
+#endif   /* _INCLUDED_DOCUMENTS_ */

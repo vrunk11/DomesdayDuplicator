@@ -32,11 +32,15 @@ module tb_fx3StateMachine;
     // 8192 16-bit words is one 16 KB USB 3.0 bulk endpoint buffer.
     localparam integer PACKET_WORDS = 8192;
 
+    // Tied high: this testbench covers the Fx3DataWidth == 16 pacing, where
+    // fx3_clock already is the rate words really leave the FIFO at, so every
+    // edge counts - see the port's own comment in fx3StateMachine.v.
     fx3StateMachine dut (
-        .reset_n       (reset_n),
-        .fx3_clock     (fx3_clock),
-        .read_data     (read_data),
-        .fx3_is_reading(fx3_is_reading)
+        .reset_n        (reset_n),
+        .fx3_clock      (fx3_clock),
+        .read_data      (read_data),
+        .transfer_enable(1'b1),
+        .fx3_is_reading (fx3_is_reading)
     );
 
     // 60 MHz FX3 system clock — 16.667 ns period

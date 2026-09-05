@@ -37,18 +37,26 @@
 
 ************************************************************************/
 
-module buffer (
+module buffer #(
+    // 16 for the two-byte GPIF word this board has always used; 32 for the
+    // wide bus that halves the word rate for the same byte throughput. Every
+    // size below is derived from this so that widening it cannot silently
+    // leave one of them at the old width - see the note at PacketWords.
+    parameter integer DataWidth = 16
+) (
     input reset_n,
     input clock,
 
-    // One assertion per sample. The sampling side runs at half the system
-    // clock, so this is high every second cycle.
-    input        write_enable,
-    input [15:0] data_in,
+    // One write per DataWidth/16 samples: at 16 bits, one assertion per
+    // sample; at 32, one every second sample, because that is what packing
+    // two samples into one wide word means for how often there is a whole
+    // one to write.
+    input                  write_enable,
+    input [DataWidth-1:0] data_in,
 
     // High for each cycle the FX3 is taking a word off the databus
-    input         is_reading,
-    output [15:0] data_out,
+    input                  is_reading,
+    output [DataWidth-1:0] data_out,
 
     output reg data_available,
     output reg buffer_error,
@@ -60,21 +68,27 @@ module buffer (
     output [ 47:0] telemetry_geometry
 );
 
-    // The packet size, in words, and the same number three places agree on:
-    // the FX3's DMA buffer, the count in fx3StateMachine, and one 16 KiB USB 3
-    // bulk endpoint buffer. Changing it here alone breaks the capture.
-    localparam integer PacketWords = 8192;
+    // The packet size, in words, held constant in bytes rather than in words
+    // as DataWidth changes - 16 KiB either way, which is the number the FX3's
+    // DMA buffer, the count in fx3StateMachine, and one USB 3 bulk endpoint
+    // buffer all still have to agree on. 8192 words at 16 bits, 4096 at 32:
+    // the wide bus halves the word rate for the same byte throughput, and
+    // this is the other half of making that true - the packet still holds
+    // the same 16 KiB, just as fewer, wider words.
+    localparam integer PacketWords = 131072 / DataWidth;
 
     // Twice the packet size. The headroom above the threshold is what a USB
-    // stall is paid for out of: 8192 words at 40 MSPS is 205 us of grace, the
-    // same as the old pair of buffers gave, in the same total memory.
-    localparam integer FifoDepth = 16384;
+    // stall is paid for out of: 16 KiB of headroom at 40 MSPS x 16 bits is
+    // 205 us of grace, the same as the old pair of buffers gave, in the same
+    // total memory - and the same 16 KiB of headroom at a wider word is the
+    // same grace in time, because it is still the same number of bytes.
+    localparam integer FifoDepth = 2 * PacketWords;
 
     // Three quarters of the depth, which is half the headroom above the packet
     // threshold. Occupancy at or above this is what the instrument counts time
     // against: the FIFO reaching half is ordinary, and reaching this means half
     // of what a stall is paid out of has already been spent.
-    localparam integer NearFullWords = 12288;
+    localparam integer NearFullWords = (3 * PacketWords) / 2;
 
     localparam integer UsedBits = $clog2(FifoDepth + 1);
     localparam integer PacketBits = $clog2(PacketWords + 1);
@@ -105,7 +119,7 @@ module buffer (
     wire                overflow = write_enable && fifo_full;
 
     fifo #(
-        .DataWidth(16),
+        .DataWidth(DataWidth),
         .Depth    (FifoDepth)
     ) fifo_0 (
         .reset_n      (reset_n),

@@ -133,7 +133,9 @@ Map version `0x02`, which is what both gateware images in this repository report
 | `0x10` | `TEST_MODE` | RW | `0x00` | yes |
 | `0x11` | `LED` | RW | `0x01` | no |
 | `0x12` | `DECIMATION` | RW | `0x01` | yes |
-| `0x13` to `0x1F` | — | unmapped | | |
+| `0x13` | `RANGE_SELECT` | RW | `0xFF` | yes |
+| `0x14` | `MAX_ADC_RATE_MHZ` | RO | — | — |
+| `0x15` to `0x1F` | — | unmapped | | |
 | `0x20` | `BRIDGE_UNLOCK` | RW | `0x00` | no |
 | `0x21` | `BRIDGE_CONTROL` | RW | `0x00` | no |
 | `0x22` | `BRIDGE_DATA` | RW | — | no |
@@ -150,7 +152,7 @@ The identity block at `0x00` to `0x0A` is frozen across all map versions, so a h
 
 "Host-writable" is a firmware policy, not a gateware one. The gateware accepts a write to any read/write register from whoever is on the link; the FX3 is what declines to relay some of them.
 
-**`TEST_MODE` and `DECIMATION` are the only host-writable registers, and the flash bridge is the reason that matters.** Both of them select what the capture path does with the samples before they reach the buffer, both are meaningless to the firmware, and the host is the only thing that knows which the user asked for. A new one of these is a firmware change as well as a gateware change: `fpgaRegisterIsHostWritable()` is a list of addresses, and a write to an address it does not name is refused with a stall however willing the gateware would have been. `0x20` to `0x23` are refused as firmly as the LED register and for a stronger reason: the firmware owns the bridge during an update, and a host writing to `BRIDGE_DATA` between two of the firmware's own writes would shift an unaccounted byte into a flash command in progress. The bridge's four-byte unlock is what stands between a *stray* write and an unbootable board; refusing to relay the write at all is what stands between a deliberate one and the same result. Everything a host legitimately wants from the bridge — write this gateware, reload the FPGA — it asks for through `0xD1`–`0xD3` and `0xD5`, where the firmware is the one holding the sequence.
+**`TEST_MODE`, `DECIMATION`, and `RANGE_SELECT` are the only host-writable registers, and the flash bridge is the reason that matters.** All three select what the capture path does with the samples before they reach the buffer, all three are meaningless to the firmware, and the host is the only thing that knows which the user asked for. A new one of these is a firmware change as well as a gateware change: `fpgaRegisterIsHostWritable()` is a list of addresses, and a write to an address it does not name is refused with a stall however willing the gateware would have been. `0x20` to `0x23` are refused as firmly as the LED register and for a stronger reason: the firmware owns the bridge during an update, and a host writing to `BRIDGE_DATA` between two of the firmware's own writes would shift an unaccounted byte into a flash command in progress. The bridge's four-byte unlock is what stands between a *stray* write and an unbootable board; refusing to relay the write at all is what stands between a deliberate one and the same result. Everything a host legitimately wants from the bridge — write this gateware, reload the FPGA — it asks for through `0xD1`–`0xD3` and `0xD5`, where the firmware is the one holding the sequence.
 
 ### Identity block, `0x00` to `0x0A`
 
@@ -192,19 +194,33 @@ Changing this mid-capture is permitted and takes effect at the next sample, but 
 
 ### `DECIMATION`, `0x12`
 
-How many device samples each sample the host receives stands for. `0x01` is every sample — 40 Msps, the reset value and what a LaserDisc capture uses. `0x02` halves it to 20 Msps, which is enough for tape RF and half the file.
+How many device samples each sample the host receives stands for. `0x01` is every sample — 40 Msps, the reset value and what a LaserDisc capture uses. `0x02` halves it to 20 Msps, which is enough for tape RF and half the file. `0x04` quarters it to 10 Msps, by chaining a second half-band stage behind the first rather than by a filter of its own — the second stage only engages for `0x04`, and is a second bypass (no cost beyond a pass-through mux) for every other value.
 
 **This is not "send every second sample".** Halving the rate without filtering first folds everything above 10 MHz down on top of the signal: a 15 MHz component would reappear at 5 MHz, directly on top of a tape's luma FM carrier, and nothing downstream could tell the alias from the signal. So the gateware low-passes the stream at 10 MHz before it decimates, with a 63-tap half-band FIR — ±0.0015 dB of passband ripple to 8 MHz, 75 dB or better of rejection from 11.4 MHz upwards, and exactly constant group delay. [The decimation filter](fpga-decimation-filter.md) covers the design, the coefficients, the measured response and the phase.
 
 What no half-band can do is protect the band edge. The response is antisymmetric about 10 MHz and passes exactly −6 dB there, so energy just above 10 MHz still aliases to just below it at a comparable level. That is a property of 2:1 decimation rather than of this filter, and the remedy is to capture a signal with content up there at the full rate.
 
-**The register holds the factor, not a flag**, so reading it back is a statement of what the capture path is doing rather than an echo of what was asked for — and so that a third factor can be a value rather than a second bit. A factor this gateware does not implement is normalised to `0x01` rather than stored, and so is `0x00`, which is not a factor at all.
+**The register holds the factor, not a flag**, so reading it back is a statement of what the capture path is doing rather than an echo of what was asked for — and so that a third factor can be a value rather than a second bit. A factor this gateware does not implement (anything other than `0x01`, `0x02` or `0x04`) is normalised to `0x01` rather than stored, and so is `0x00`, which is not a factor at all.
 
 Only the application image implements it. The factory image has no sample stream to decimate, so its `spiRegisters` is compiled with the register parameterised off and `0x12` reads `0x00` there, exactly as an unmapped address does.
 
 The decimator sits **in front of** the test-data generator and the sequence counter, which is what keeps a decimated capture checkable: the counter is attached to the samples that survive, so the stream carries an unbroken count, and a test-mode capture is an unbroken ramp at whichever rate is selected. Decimating after the generator would drop every second sequence number and every capture would read as damaged.
 
 Changing this mid-capture is permitted and takes effect at the next sample, but the sample stream will contain the discontinuity. The application sets it before starting a capture, alongside `TEST_MODE`.
+
+### `RANGE_SELECT`, `0x13`
+
+Selects the ADC's input full-scale range: `0x00` is 1Vpp, non-zero is 2Vpp, on the same convention as `TEST_MODE` — a host writing `0x01` and a host writing `0xFF` agree about what they asked for.
+
+The reset value is 2Vpp. Clipping the input loses signal irrecoverably, where a range wider than the input needs only costs resolution, so the wider range is the safe default until the host has picked deliberately.
+
+Only gateware built for a board carrying the RSEL-capable ADC drives this to a pin; on other boards the register still stores whatever is written to it, but nothing is wired to read it back from.
+
+### `MAX_ADC_RATE_MHZ`, `0x14`
+
+The fastest rate, in MHz, this build's board can actually convert at — a build-time constant, not something read off the ADC at runtime, because two speed grades of the same converter family are pin-compatible and electrically indistinguishable to the FPGA. A host uses this to grey out sample-rate choices the hardware in front of it cannot do, rather than discovering the limit by asking for a rate that produces garbage.
+
+Gateware predating this register reads `0x00` here, the same as any unmapped address. A front end should treat that as "unknown", not as a literal claim that the board converts at zero MHz.
 
 ### `LED`, `0x11`
 

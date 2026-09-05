@@ -63,13 +63,30 @@ set fx3_hold 1.0
 set fx3_ctl_max 8.0
 set fx3_ctl_min 1.0
 
-# The ADC data path: ADS825 clock-to-data, plus two 74LVTH541 buffers between
-# the converter and the FPGA (see the hardware guide - they are there to keep
-# the ADC's own switching noise off the analogue front end), plus the board
-# and header traces. 15 ns is far more than that sum can plausibly be; the
-# path has a 25 ns budget, so even this bound leaves room.
-set adc_data_max 15.0
-set adc_data_min 2.0
+# The ADC data path, replaced with real numbers for the ADS828 (Texas
+# Instruments SBAS126A) now that this design targets that part rather than
+# the ADS825 the placeholder above was guessing at.
+#
+# Only ONE 74LVTH541 buffer is in this path, not two: the hardware guide
+# ("ADC" section) explains the board needs two buffer ICs because a 10-bit bus
+# does not fit in one octal buffer's 8 channels, and places them in PARALLEL -
+# each bit crosses exactly one of the two chips, never both. Treating this as
+# two buffers in series would have doubled a real number into a wrong one.
+#
+# adc_data_max: 12 ns (ADS828 t2, "New Data Delay Time", SBAS126A pg. 2) +
+# 3.5 ns (SN74LVTH541 tPLH/tPHL max at VCC = 3.3 V +-0.3 V). Board trace delay
+# is not added on top: the hardware guide places the ADC "as close as
+# possible" to the FPGA header specifically to keep this short, and nothing
+# here has a real number for it - if timing closure ever comes down to a
+# fraction of a ns, that assumption is the first thing to revisit.
+#
+# adc_data_min: the ADS828's own t1 ("Data Hold Time") alone, deliberately
+# not adding the buffer's minimum propagation delay on top - the smaller
+# number is the more conservative one for a -min bound (it assumes data could
+# become invalid sooner than the full chain really allows), consistent with
+# this file's rule of erring the safe direction.
+set adc_data_max 15.5
+set adc_data_min 3.9
 
 
 # ---------------------------------------------------------------------------
@@ -83,11 +100,24 @@ create_clock -name CLOCK_50 -period 20.000 [get_ports CLOCK_50]
 # it, so this one command covers every internal path.
 derive_pll_clocks
 
-# PCLK to the FX3 is the system clock driven straight onto a pin, so the clock
-# at the pin is a one-to-one copy of it. Without this the FX3 databus has no
-# clock to be constrained against and the whole interface goes unanalysed.
+# PCLK to the FX3, at Fx3DataWidth == 32: the same divide-by-two register as
+# adc_clock, not the system clock driven straight onto the pin. The wide bus
+# gives up the FX3 running faster than the sampling rate - that headroom now
+# comes from halving the word rate instead - so the interface clock is 1:1
+# with adc_clock, on the same register, for the same reason adc_clock is
+# sourced from the PLL rather than from its own pin two entries below: that
+# register is duplicated by the fitter, once per pin it drives, and naming
+# either duplicate as a source fails.
+#
+# TODO once hardware bring-up starts: GPIO0[33] (adc_clock) carries a
+# FAST_OUTPUT_REGISTER assignment in the .qsf for a clean edge at the pin;
+# GPIO1[31] (this clock) does not. Both are driven by the same register now,
+# and PCLK reaching the FX3 with more jitter than adc_clock reaching the ADC
+# is worth checking for in the fitter report before trusting this on real
+# hardware. If this proves it matters, GPIO1[31] needs the same assignment.
 create_generated_clock -name fx3_pclk \
     -source [get_pins $pll_clock_pin] \
+    -divide_by 2 \
     [get_ports {GPIO1[31]}]
 
 # The ADC's 40 MHz sampling clock: the divide-by-two register's output, driven
@@ -134,7 +164,17 @@ set fx3_synchronous_outputs [get_ports { \
     GPIO1[16] GPIO1[18] GPIO1[20] GPIO1[22] GPIO1[24] GPIO1[26] GPIO1[28] \
     GPIO1[30] GPIO1[32] \
     GPIO1[27] \
-    GPIO1[21] }]
+    GPIO1[21] \
+    GPIO0[2]  GPIO0[3]  GPIO0[4]  GPIO0[5]  GPIO0[6]  GPIO0[7] \
+    GPIO0[12] GPIO0[13] GPIO0[14] GPIO0[15] GPIO0[16] GPIO0[17] \
+    GPIO0[18] GPIO0[19] GPIO0[20] GPIO0[21] }]
+
+# The GPIO0 half of the databus is only driven at Fx3DataWidth == 32; at 16
+# these pins are tri-stated (see DomesdayDuplicator.v) and this group simply
+# has nothing to say about them. Quartus does not mind a port group naming a
+# pin with no active driver in a given build - the analysis for it is a
+# constant, not an error - so one SDC file covers both widths without a
+# generate of its own.
 
 # readData, the one FX3 output this design captures on a clock edge
 set fx3_synchronous_inputs [get_ports {GPIO1[25]}]
@@ -174,17 +214,46 @@ set_input_delay -clock fx3_pclk -min $fx3_ctl_min $fx3_synchronous_inputs
 set_input_delay -clock adc_clock -max $adc_data_max $adc_data_inputs
 set_input_delay -clock adc_clock -min $adc_data_min $adc_data_inputs
 
-# The sample the ADC launches on one of its clock edges is captured a whole
-# ADC period later, not on the next system clock edge - dataGenerator only
-# takes a sample when sample_enable is high, which is every second system
-# clock edge, and those are exactly the edges the ADC clock rises on.
+# The sample the ADC launches on one of its clock edges is captured one and a
+# half ADC periods later, not one: halfBandDecimator's first stage is fed
+# sample_enable_delayed, a further one-cycle register delay of sample_enable,
+# specifically because one ADC period (13.33 ns at 75 MHz) is shorter than
+# the ADC's own real settling time plus its output buffer's (about 15.5 ns,
+# ADS828 + SN74LVTH541 datasheets) - the fix moves the capture point later,
+# into the window the ADS828's own data-hold spec guarantees is still valid,
+# rather than trying to make the ADC or the buffer faster.
 #
-# Without this the analysis would allow 12.5 ns for a path the design gives
-# 25 ns, and would report a failure that does not exist. The hold multicycle
-# is one less than the setup multicycle, which is what keeps the hold check
-# against the same edge it was against before the exception.
-set_multicycle_path -setup 2 -from [get_clocks adc_clock] -to [get_clocks $pll_clock_pin]
-set_multicycle_path -hold 1 -from [get_clocks adc_clock] -to [get_clocks $pll_clock_pin]
+# Three system-clock periods, not two: this is the whole reason the capture
+# was moved a cycle later in the first place, and the SDC has to say so or it
+# would go on checking the old, too-tight relationship regardless of what the
+# RTL actually does now. The hold multicycle is one less than the setup
+# multicycle, which is what keeps the hold check against the same edge it was
+# against before the exception.
+set_multicycle_path -setup 3 -from [get_clocks adc_clock] -to [get_clocks $pll_clock_pin]
+set_multicycle_path -hold 2 -from [get_clocks adc_clock] -to [get_clocks $pll_clock_pin]
+
+# The other direction of the same relationship, for fx3_pclk: the registers
+# driving the FX3-facing outputs (buffer.v, fx3StateMachine.v) are clocked by
+# system_clock and only change once every second cycle now (transfer_enable in
+# DomesdayDuplicator.v), which is exactly what makes fx3_pclk a real 2:1
+# divide-by-two of that clock rather than a one-to-one copy of it - see the
+# comment above fx3_pclk's create_generated_clock. Without this, TimeQuest has
+# no reason to believe a launch on system_clock has two of its own periods to
+# reach a pin it only expects a new value at every other one of, and analyses
+# every path here at half the time it actually has.
+set_multicycle_path -setup 2 -from [get_clocks $pll_clock_pin] -to [get_clocks fx3_pclk]
+set_multicycle_path -hold 1 -from [get_clocks $pll_clock_pin] -to [get_clocks fx3_pclk]
+
+# And the input direction of the same 2:1 relationship: readData (GPIO1[25])
+# is driven by the FX3 synchronously to the PCLK this design hands it back -
+# it only actually changes once every fx3_pclk period - but fx3StateMachine
+# samples it into read_data_flag on every system_clock edge, twice that
+# often. Without this, TimeQuest has no reason to believe a launch on
+# fx3_pclk has two system_clock periods to arrive in and checks it against
+# one, which is tighter than the 8 ns pessimistic clock-to-out bound this
+# file gives the FX3's own outputs.
+set_multicycle_path -setup 2 -from [get_clocks fx3_pclk] -to [get_clocks $pll_clock_pin]
+set_multicycle_path -hold 1 -from [get_clocks fx3_pclk] -to [get_clocks $pll_clock_pin]
 
 
 # ---------------------------------------------------------------------------

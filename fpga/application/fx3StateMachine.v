@@ -9,13 +9,34 @@
 
 ************************************************************************/
 
-module fx3StateMachine (
+module fx3StateMachine #(
+    // Words per packet - has to agree with buffer.v's PacketWords, which is
+    // where the reasoning for the number lives. Two places that must agree
+    // and cannot share a localparam, because this module has no visibility
+    // into buffer.v's DataWidth of its own; the top level ties them together
+    // by passing the same derived value to both.
+    parameter integer PacketWords = 8192
+) (
     input reset_n,
     input fx3_clock,
     input read_data,
 
+    // High on the fx3_clock cycle a word may actually be counted. At
+    // Fx3DataWidth == 16 this is tied high - fx3_clock and this module's own
+    // clock are the same rate, so every cycle counts, as it always has. At
+    // 32 bits the pin fx3_clock's name refers to is a divide-by-two of the
+    // clock this module (and the FIFO) actually run on, so counting every
+    // cycle here would count words twice as fast as the FX3 can really take
+    // them - see the top-level comment where this input is driven.
+    input transfer_enable,
+
     output fx3_is_reading
 );
+
+    localparam integer WordCounterBits = $clog2(PacketWords + 1);
+    localparam [31:0] PacketWordsValue = PacketWords;
+    localparam [WordCounterBits-1:0] LastWordIndex =
+        PacketWordsValue[WordCounterBits-1:0] - 1'b1;
 
     // State machine logic ---------------------------------------------------
 
@@ -50,17 +71,17 @@ module fx3StateMachine (
     end
 
     // Counter for the StateSendPacket state
-    // Here we should send 8192 words to the FX3
-    reg [15:0] word_counter;
+    // Here we should send PacketWords words to the FX3
+    reg [WordCounterBits-1:0] word_counter;
 
     always @(posedge fx3_clock, negedge reset_n) begin
         if (!reset_n) begin
-            word_counter = 16'd0;
+            word_counter = {WordCounterBits{1'b0}};
         end else begin
-            if (sm_current_state == StateSendPacket) begin
-                word_counter = word_counter + 16'd1;
-            end else begin
-                word_counter = 16'd0;
+            if (sm_current_state == StateSendPacket && transfer_enable) begin
+                word_counter = word_counter + 1'b1;
+            end else if (sm_current_state != StateSendPacket) begin
+                word_counter = {WordCounterBits{1'b0}};
             end
         end
     end
@@ -77,7 +98,7 @@ module fx3StateMachine (
             // StateWaitForRequest (waits for the FX3 to request a packet)
             StateWaitForRequest: begin
                 // Is the GPIF reading data?
-                if (read_data_flag == 1'b1 && word_counter == 16'd0) begin
+                if (read_data_flag == 1'b1 && word_counter == {WordCounterBits{1'b0}}) begin
                     sm_next_state = StateSendPacket;
                 end else begin
                     // GPIF not ready... wait
@@ -85,9 +106,9 @@ module fx3StateMachine (
                 end
             end
 
-            // StateSendPacket (sends a packet of 8192 words to the FX3)
+            // StateSendPacket (sends a packet of PacketWords words to the FX3)
             StateSendPacket: begin
-                if (word_counter == 16'd8191) begin
+                if (word_counter == LastWordIndex) begin
                     // Packet send, go back to waiting
                     sm_next_state = StateWaitForRequest;
                 end else begin

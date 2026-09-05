@@ -130,6 +130,18 @@ inline constexpr uint8_t kRegisterCommit = 0x03;
 inline constexpr uint8_t kRegisterImageRole = 0x0B;
 inline constexpr uint8_t kRegisterTestMode = 0x10;
 inline constexpr uint8_t kRegisterDecimation = 0x12;
+inline constexpr uint8_t kRegisterRangeSelect = 0x13;
+
+// Any non-zero value means 2Vpp, on the same convention as test mode.
+inline constexpr uint8_t kRangeSelect1Vpp = 0x00;
+inline constexpr uint8_t kRangeSelect2Vpp = 0x01;
+
+// The fastest ADC rate, in MHz, this specific unit's hardware can convert
+// at. Read-only: only the gateware knows what its own board was built for.
+// A device predating this register reads 0x00 here, same as any unmapped
+// address - a front end that cares should treat that as "unknown" rather
+// than as a literal zero-MHz ADC.
+inline constexpr uint8_t kRegisterMaxAdcRateMhz = 0x14;
 
 // What the decimation register holds: the factor, not a flag, so that reading
 // it back is a statement of what the capture path is doing rather than an echo
@@ -138,6 +150,7 @@ inline constexpr uint8_t kRegisterDecimation = 0x12;
 // file.
 inline constexpr uint8_t kDecimationEverySample = 0x01;
 inline constexpr uint8_t kDecimationHalfRate = 0x02;
+inline constexpr uint8_t kDecimationQuarterRate = 0x04;
 
 // The identity block: signature, map version, build flags, eight commit
 // characters and the image role, contiguous so that one request fetches all of
@@ -237,6 +250,11 @@ inline constexpr uint16_t MakeTestModeWrite(bool test_mode) {
 // Build the wValue that selects the sample rate.
 inline constexpr uint16_t MakeDecimationWrite(uint8_t factor) {
   return MakeRegisterWrite(kRegisterDecimation, factor);
+}
+
+// Build the wValue that selects the ADC input range.
+inline constexpr uint16_t MakeRangeSelectWrite(bool is2Vpp) {
+  return MakeRegisterWrite(kRegisterRangeSelect, is2Vpp ? kRangeSelect2Vpp : kRangeSelect1Vpp);
 }
 
 // The device update agent.

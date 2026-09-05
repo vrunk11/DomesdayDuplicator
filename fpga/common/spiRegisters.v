@@ -48,6 +48,7 @@ module spiRegisters (
 
     // Register outputs
     output       test_mode,
+    output       range_select,
     output [7:0] decimation,
     output [7:0] leds,
 
@@ -129,6 +130,18 @@ module spiRegisters (
     // synthesised into it.
     parameter [0:0] DecimationPresent = 1'b0;
 
+    // The fastest ADC sampling rate, in MHz, this specific build's hardware
+    // can actually convert at. Different boards in the field carry different
+    // speed grades of the same ADC family - this is what tells a host which
+    // presets are real on the unit it is talking to, and it is read-only for
+    // the same reason the host cannot be trusted to pick TEST_MODE for
+    // itself: the gateware is the only thing that knows what its own board
+    // was built for. A future preset-selection register normalises any
+    // request above this the same way DECIMATION normalises an
+    // unimplemented factor, rather than letting a host clock an ADC past
+    // what it was speced for.
+    parameter [7:0] MaxAdcRateMHz = 8'd75;
+
     // The register map this bank implements, reported at 0x01. Version 2
     // adds IMAGE_ROLE and the 0x20 to 0x23 window; everything version 1
     // defined is unchanged, and the identity block is frozen across all
@@ -159,6 +172,7 @@ module spiRegisters (
     // it is a capture path asked to divide by it.
     localparam [7:0] EverySample = 8'h01;
     localparam [7:0] EverySecondSample = 8'h02;
+    localparam [7:0] EveryFourthSample = 8'h04;
 
     // Input synchronisers ---------------------------------------------------
 
@@ -217,6 +231,7 @@ module spiRegisters (
     // Register bank ---------------------------------------------------------
 
     reg [7:0] test_mode_register;
+    reg [7:0] range_select_register;
     reg [7:0] decimation_register;
     reg [7:0] led_register;
 
@@ -242,6 +257,8 @@ module spiRegisters (
                 7'h10:   read_register = test_mode_register;
                 7'h11:   read_register = led_register;
                 7'h12:   read_register = DecimationPresent ? decimation_register : 8'h00;
+                7'h13:   read_register = range_select_register;
+                7'h14:   read_register = MaxAdcRateMHz;
                 7'h20:   read_register = window_read_data[7:0];
                 7'h21:   read_register = window_read_data[15:8];
                 7'h22:   read_register = window_read_data[23:16];
@@ -319,6 +336,7 @@ module spiRegisters (
     // Any non-zero value means on, so that a host writing 1 and a host writing
     // 0xFF agree about what they asked for
     assign test_mode           = (test_mode_register != 8'h00);
+    assign range_select        = (range_select_register != 8'h00);
     assign decimation          = decimation_register;
     assign leds                = led_register;
 
@@ -345,6 +363,11 @@ module spiRegisters (
             telemetry_latch_pulse <= 1'b0;
 
             test_mode_register    <= 8'h00;
+
+            // 2Vpp at reset: clipping loses signal irrecoverably, a smaller
+            // range only costs resolution, so the safe default is the wider
+            // one until the host picks deliberately.
+            range_select_register <= 8'hff;
 
             // Every sample, which is the only reset value that cannot produce
             // a file at a rate nobody asked for.
@@ -432,10 +455,12 @@ module spiRegisters (
                                     // register fold away there.
                                     if (DecimationPresent) begin
                                         decimation_register <=
-                                            (shift_in_next == EverySecondSample) ?
-                                            EverySecondSample : EverySample;
+                                            (shift_in_next == EverySecondSample ||
+                                             shift_in_next == EveryFourthSample) ?
+                                            shift_in_next : EverySample;
                                     end
                                 end
+                                7'h13: range_select_register <= shift_in_next;
                                 default: begin
                                     if (address_in_window) begin
                                         window_write_pulse   <= 1'b1;

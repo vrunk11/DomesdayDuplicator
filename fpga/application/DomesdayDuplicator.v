@@ -11,7 +11,20 @@
 
 `include "version.vh"
 
-module DomesdayDuplicator (
+module DomesdayDuplicator #(
+    // 16 for the word width every board shipped with until now; 32 to use
+    // the wide half of the bus the hardware has always had wired (see the
+    // note below) and halve the FX3 transfer rate for the same byte
+    // throughput. A build for a board that still needs 16 bits overrides
+    // this alone - buffer.v, fx3StateMachine.v and the pin mapping below all
+    // derive from it rather than each carrying their own copy of the choice.
+    //
+    // Only a value this file's own gateware understands is safe here: 32
+    // needs the FX3's GPIF II reconfigured to match, which is a firmware
+    // change this parameter cannot make by itself. Do not set this to 32
+    // without that firmware alongside it.
+    parameter integer Fx3DataWidth = 32
+) (
     input         CLOCK_50,
     inout  [33:0] GPIO0,
     inout  [33:0] GPIO1,
@@ -21,12 +34,14 @@ module DomesdayDuplicator (
     // FX3 Hardware mapping begins ------------------------------------------------
 
     // Generic pin-mapping for FX3 (DomDupBoard revisions 2_0 to 3_0)
-    wire [15:0] fx3_databus;  // 32-bit databus (only 16-bits used)
+    wire [Fx3DataWidth-1:0] fx3_databus;  // 32-bit databus (16 or 32 bits used)
     wire [12:0] fx3_control;  // 13-bit control bus
     wire        fx3_clock;  // FX3 GPIF Clock
 
-    // 32-bit data bus physical mapping (output only)
-    // Note: board supports 32-bits; software is limited to 16-bits
+    // The lower 16 bits of the data bus physical mapping (output only).
+    // Present at every width - the upper half, when it exists, is mapped
+    // separately below, on GPIO0 rather than GPIO1, because that is where
+    // the board's remaining 16 traces to the FX3 run.
     assign GPIO1[32]       = fx3_databus[00];
     assign GPIO1[30]       = fx3_databus[01];
     assign GPIO1[28]       = fx3_databus[02];
@@ -44,41 +59,48 @@ module DomesdayDuplicator (
     assign GPIO1[04]       = fx3_databus[14];
     assign GPIO1[02]       = fx3_databus[15];
 
-    // High-Z the unused FX3 databus pins
-    assign GPIO0[02]       = 1'bZ;
-    assign GPIO0[03]       = 1'bZ;
-    assign GPIO0[04]       = 1'bZ;
-    assign GPIO0[05]       = 1'bZ;
-    assign GPIO0[06]       = 1'bZ;
-    assign GPIO0[07]       = 1'bZ;
-    assign GPIO0[12]       = 1'bZ;
-    assign GPIO0[13]       = 1'bZ;
-    assign GPIO0[14]       = 1'bZ;
-    assign GPIO0[15]       = 1'bZ;
-    assign GPIO0[16]       = 1'bZ;
-    assign GPIO0[17]       = 1'bZ;
-    assign GPIO0[18]       = 1'bZ;
-    assign GPIO0[19]       = 1'bZ;
-    assign GPIO0[20]       = 1'bZ;
-    assign GPIO0[21]       = 1'bZ;
-
-    // Mappings for 32-bit databus
-    //assign GPIO0[02] = fx3_databus[16];
-    //assign GPIO0[03] = fx3_databus[17];
-    //assign GPIO0[04] = fx3_databus[18];
-    //assign GPIO0[05] = fx3_databus[19];
-    //assign GPIO0[06] = fx3_databus[20];
-    //assign GPIO0[07] = fx3_databus[21];
-    //assign GPIO0[12] = fx3_databus[22];
-    //assign GPIO0[13] = fx3_databus[23];
-    //assign GPIO0[14] = fx3_databus[24];
-    //assign GPIO0[15] = fx3_databus[25];
-    //assign GPIO0[16] = fx3_databus[26];
-    //assign GPIO0[17] = fx3_databus[27];
-    //assign GPIO0[18] = fx3_databus[28];
-    //assign GPIO0[19] = fx3_databus[29];
-    //assign GPIO0[20] = fx3_databus[30];
-    //assign GPIO0[21] = fx3_databus[31];
+    // The upper 16 bits of the data bus, on the board's other 16 traces to
+    // the FX3 - GPIO0 rather than GPIO1, because GPIO1 only ever carried 16.
+    // Driven only at Fx3DataWidth == 32; tri-stated otherwise, exactly as
+    // every board has left them since the pins were first wired, because at
+    // 16 bits nothing on the other end expects them to be anything else.
+    generate
+        if (Fx3DataWidth == 32) begin : gen_wide_databus
+            assign GPIO0[02] = fx3_databus[16];
+            assign GPIO0[03] = fx3_databus[17];
+            assign GPIO0[04] = fx3_databus[18];
+            assign GPIO0[05] = fx3_databus[19];
+            assign GPIO0[06] = fx3_databus[20];
+            assign GPIO0[07] = fx3_databus[21];
+            assign GPIO0[12] = fx3_databus[22];
+            assign GPIO0[13] = fx3_databus[23];
+            assign GPIO0[14] = fx3_databus[24];
+            assign GPIO0[15] = fx3_databus[25];
+            assign GPIO0[16] = fx3_databus[26];
+            assign GPIO0[17] = fx3_databus[27];
+            assign GPIO0[18] = fx3_databus[28];
+            assign GPIO0[19] = fx3_databus[29];
+            assign GPIO0[20] = fx3_databus[30];
+            assign GPIO0[21] = fx3_databus[31];
+        end else begin : gen_narrow_databus
+            assign GPIO0[02] = 1'bZ;
+            assign GPIO0[03] = 1'bZ;
+            assign GPIO0[04] = 1'bZ;
+            assign GPIO0[05] = 1'bZ;
+            assign GPIO0[06] = 1'bZ;
+            assign GPIO0[07] = 1'bZ;
+            assign GPIO0[12] = 1'bZ;
+            assign GPIO0[13] = 1'bZ;
+            assign GPIO0[14] = 1'bZ;
+            assign GPIO0[15] = 1'bZ;
+            assign GPIO0[16] = 1'bZ;
+            assign GPIO0[17] = 1'bZ;
+            assign GPIO0[18] = 1'bZ;
+            assign GPIO0[19] = 1'bZ;
+            assign GPIO0[20] = 1'bZ;
+            assign GPIO0[21] = 1'bZ;
+        end
+    endgenerate
 
     // FX3 Clock physical mapping
     assign GPIO1[31]       = fx3_clock;  // FX3 GPIO_16
@@ -107,7 +129,7 @@ module DomesdayDuplicator (
     assign GPIO0[9]        = 1'bZ;
     assign GPIO0[10]       = 1'bZ;
     assign GPIO0[11]       = 1'bZ;
-    assign GPIO0[22]       = 1'bZ;
+    assign GPIO0[22]       = fx3_range_select;  // RSEL on the ADS828
     assign GPIO0[23]       = 1'bZ;
     assign GPIO0[24]       = 1'bZ;
     assign GPIO0[25]       = 1'bZ;
@@ -169,6 +191,7 @@ module DomesdayDuplicator (
     wire       fx3_spi_miso;
     wire       fx3_spi_chip_select_n;
     wire       fx3_test_mode;
+    wire       fx3_range_select;
     wire [7:0] fx3_decimation;
 
     // Signal outputs to FX3
@@ -243,10 +266,6 @@ module DomesdayDuplicator (
         .c0(system_clock)  // 80 MHz system clock
     );
 
-    // The FX3's GPIF II is a synchronous slave and this pin is the clock it
-    // runs from, so it is simply the system clock.
-    assign fx3_clock = system_clock;
-
     // ADC sampling clock and the sampling instant
     //
     // A divide-by-two of the system clock, free-running and with no reset:
@@ -272,6 +291,29 @@ module DomesdayDuplicator (
 
     assign adc_clock = adc_clock_divider;
 
+    // The FX3's GPIF II is a synchronous slave and this pin is the clock it
+    // runs from.
+    //
+    // At Fx3DataWidth == 32, this is adc_clock itself: system_clock = 2 x
+    // adc_clock still holds (it is what gives the decimation filter's
+    // pipeline its slack, see halfBandDecimator.v), but the interface no
+    // longer needs to be faster than the sampling rate to give the FX3 room
+    // to catch up - the wide bus buys that margin instead, by halving the
+    // word rate for the same byte throughput. Driving the interface from the
+    // undivided system clock here would put 150 MHz on a pin specified for a
+    // small fraction of that.
+    //
+    // At 16 bits this is unchanged from what this design has always done:
+    // the undivided system clock, twice the sampling rate, which is where
+    // the FX3's headroom to catch up has always come from on that bus width.
+    generate
+        if (Fx3DataWidth == 32) begin : gen_fx3_clock_divided
+            assign fx3_clock = adc_clock_divider;
+        end else begin : gen_fx3_clock_undivided
+            assign fx3_clock = system_clock;
+        end
+    endgenerate
+
     wire       sample_enable = ~adc_clock_divider;
 
     // Reset synchroniser
@@ -293,6 +335,37 @@ module DomesdayDuplicator (
 
     wire        reset_n = reset_n_sync[1];
 
+    // ADC capture delay ------------------------------------------------------
+    //
+    // sample_enable fires one system_clock cycle after adc_clock's rising
+    // edge - one ADC period after the sample was launched, per the comment
+    // above adc_clock_divider. At 75 MHz that period alone (13.33 ns) is
+    // shorter than the real settling time of the ADC plus its output buffer
+    // (measured against the ADS828 and SN74LVTH541 datasheets: about 15.5 ns
+    // worst case) - so capturing there reads the bus before it has finished
+    // settling, not after.
+    //
+    // The ADS828's own data-hold spec (t1) guarantees the *previous* value
+    // stays valid well past that same edge - the real valid window for a
+    // given sample sits later than a single ADC period, not earlier - so the
+    // fix is to wait one system_clock cycle longer before capturing, not to
+    // touch adc_clock itself. Delaying adc_clock would only shrink the gap
+    // between launch and capture; only delaying the capture widens it.
+    //
+    // This is a plain one-cycle register delay of sample_enable, not a
+    // fractional PLL phase shift: it is derived from sample_enable and
+    // nothing else, so it cannot drift out of the fixed one-cycle
+    // relationship the way two independently-generated counters could.
+    reg sample_enable_delayed;
+
+    always @(posedge system_clock, negedge reset_n) begin
+        if (!reset_n) begin
+            sample_enable_delayed <= 1'b0;
+        end else begin
+            sample_enable_delayed <= sample_enable;
+        end
+    end
+
     wire        fx3_is_reading;
     wire [15:0] data_generator_out;
 
@@ -300,34 +373,59 @@ module DomesdayDuplicator (
     //
     // The register holds the decimation factor rather than a flag, so that a
     // host reading it back gets a positive statement of what the capture path
-    // is doing rather than an echo of what it asked for. Two is the only
-    // factor this gateware implements; the bank normalises anything else to
-    // one, so this comparison is the whole of the decode.
-    wire        fx3_decimate = (fx3_decimation == 8'h02);
+    // is doing rather than an echo of what it asked for. One, two and four
+    // are the factors this gateware implements; the bank normalises anything
+    // else to one. Four is two half-band stages in series rather than a
+    // filter of its own - the first stage's decision to decimate covers both
+    // the 2:1 and 4:1 cases, and the second stage only joins in for 4:1.
+    wire        fx3_decimate_stage1 =
+        (fx3_decimation == 8'h02) || (fx3_decimation == 8'h04);
+    wire        fx3_decimate_stage2 = (fx3_decimation == 8'h04);
 
+    wire [ 9:0] capture_sample_stage1;
+    wire        capture_enable_stage1;
     wire [ 9:0] capture_sample;
     wire        capture_enable;
 
-    // Anti-aliased 2:1 decimation, for tape capture
+    // Anti-aliased decimation, for tape capture
     //
     // In front of the data generator rather than behind it, which is the
     // arrangement that keeps the sequence counter honest: the counter is
     // attached to the samples that survive, so a decimated capture carries an
     // unbroken count and the host's integrity check works on it unchanged. A
-    // decimator placed after the generator would drop every second sequence
-    // number and every capture would read as damaged.
+    // decimator placed after the generator would drop samples' sequence
+    // numbers and every capture would read as damaged.
     //
     // It filters the ADC and nothing else. The test pattern is generated
     // downstream at the rate the decimator sets, so a test capture is an
     // unbroken ramp at whichever rate is selected and the integrity oracle
-    // covers the decimated path as well as the full-rate one.
+    // covers every decimated path as well as the full-rate one.
+    //
+    // Stage 1: undecimated to 2:1.
     halfBandDecimator half_band_decimator_0 (
         // Inputs
-        .reset_n      (reset_n),        // Not reset
-        .clock        (system_clock),   // 80 MHz system clock
-        .sample_enable(sample_enable),  // 1 = a sample arrives on this edge
-        .data_in      (adc_databus),    // 10-bit ADC databus
-        .decimate     (fx3_decimate),   // 1 = filter and halve the rate
+        .reset_n      (reset_n),                  // Not reset
+        .clock        (system_clock),             // 80 MHz system clock
+        .sample_enable(sample_enable_delayed),    // 1 = a sample arrives on this edge
+        .data_in      (adc_databus),              // 10-bit ADC databus
+        .decimate     (fx3_decimate_stage1),      // 1 = filter and halve the rate
+
+        // Outputs
+        .data_out     (capture_sample_stage1),  // 10-bit filtered sample
+        .output_enable(capture_enable_stage1)   // 1 = a sample worth keeping
+    );
+
+    // Stage 2: 2:1 to 4:1. Its own sample_enable is stage 1's output_enable,
+    // so it only ever considers a sample stage 1 kept - at 2:1 it is asked to
+    // bypass and this stage is a second pass-through, at 4:1 it halves the
+    // rate again on top of stage 1's half.
+    halfBandDecimator half_band_decimator_1 (
+        // Inputs
+        .reset_n      (reset_n),                 // Not reset
+        .clock        (system_clock),            // 80 MHz system clock
+        .sample_enable(capture_enable_stage1),   // 1 = stage 1 kept a sample this edge
+        .data_in      (capture_sample_stage1),   // 10-bit sample from stage 1
+        .decimate     (fx3_decimate_stage2),     // 1 = filter and halve the rate again
 
         // Outputs
         .data_out     (capture_sample),  // 10-bit filtered sample
@@ -347,6 +445,66 @@ module DomesdayDuplicator (
         .data_out(data_generator_out)  // 16-bit data out
     );
 
+    // Word packer, active only at Fx3DataWidth == 32 ------------------------
+    //
+    // Combines two successive 16-bit sample words into one wide transfer
+    // word, halving the write rate into the buffer for the same byte
+    // throughput as 16 bits at twice the word rate - see buffer.v's
+    // PacketWords for the other half of this arrangement. The first sample
+    // of a pair lands in the low half and the second in the high half; a
+    // host unpacking the wide bus has to agree with that order.
+    //
+    // At 16 bits this is a wire, not a register: write_enable and data_in
+    // reach the buffer exactly as they did before this parameter existed.
+    //
+    // The packer itself lives in wordPacker.v, not inline here, specifically
+    // so it can be simulated - see that file's header for why this top level
+    // cannot be.
+    wire                     buffer_write_enable;
+    wire [Fx3DataWidth-1:0] buffer_data_in;
+
+    generate
+        if (Fx3DataWidth == 32) begin : gen_word_packer
+            wordPacker word_packer_0 (
+                .reset_n      (reset_n),
+                .clock        (system_clock),
+                .sample_enable(capture_enable),
+                .data_in      (data_generator_out),
+
+                .write_enable(buffer_write_enable),
+                .data_out    (buffer_data_in)
+            );
+        end else begin : gen_no_packer
+            assign buffer_write_enable = capture_enable;
+            assign buffer_data_in      = data_generator_out;
+        end
+    endgenerate
+
+    // Read-side pacing, at Fx3DataWidth == 32 -------------------------------
+    //
+    // fx3_clock, the pin, is adc_clock_divider - half the rate everything in
+    // this module (including fx3StateMachine and the FIFO read port) is
+    // actually clocked at. Without this, the FIFO would give up a word, and
+    // fx3StateMachine would count one sent, on every system_clock edge - twice
+    // the rate the FX3 can really take them off the pin at. This is the read
+    // side's equivalent of sample_enable, and at 32 bits it is sample_enable:
+    // both sides only need "once every second system_clock cycle", and reusing
+    // one register rather than building a second is one fewer thing that could
+    // drift out of step with it.
+    //
+    // At 16 bits fx3_clock is the undivided system clock - the rate
+    // fx3StateMachine and the FIFO already assume - so this is tied high and
+    // changes nothing.
+    wire fx3_transfer_enable;
+
+    generate
+        if (Fx3DataWidth == 32) begin : gen_fx3_transfer_enable_gated
+            assign fx3_transfer_enable = sample_enable;
+        end else begin : gen_fx3_transfer_enable_always
+            assign fx3_transfer_enable = 1'b1;
+        end
+    endgenerate
+
     // The capture buffer's back-pressure instrument, on its way to the register
     // bank. The latch pulse comes back the other way and is the only thing the
     // host can do to the buffer at all.
@@ -354,18 +512,33 @@ module DomesdayDuplicator (
     wire [ 47:0] buffer_telemetry_geometry;
     wire         buffer_telemetry_latch;
 
+    // Words per packet at this bus width, held constant in bytes - see
+    // buffer.v's PacketWords, which computes the same number from the same
+    // reasoning and cannot share this one because the two modules have no
+    // other link between them.
+    localparam integer Fx3PacketWords = 131072 / Fx3DataWidth;
+
+    // What the FIFO actually sees as a read this edge: fx3StateMachine says
+    // a packet is in flight for the whole packet's duration, and this is what
+    // narrows that down to the edges a word may really leave the FIFO on -
+    // see the fx3_transfer_enable comment above for why that is not every
+    // edge at Fx3DataWidth == 32.
+    wire buffer_is_reading = fx3_is_reading && fx3_transfer_enable;
+
     // FIFO buffer
-    buffer buffer_0 (
+    buffer #(
+        .DataWidth(Fx3DataWidth)
+    ) buffer_0 (
         // Inputs
         .reset_n        (reset_n),                // Not reset
         .clock          (system_clock),           // 80 MHz system clock
-        .write_enable   (capture_enable),         // 1 = a sample is written this edge
-        .data_in        (data_generator_out),     // 16-bit ADC data bus input
-        .is_reading     (fx3_is_reading),         // 1 = FX3 is reading data
+        .write_enable   (buffer_write_enable),    // 1 = a word is written this edge
+        .data_in        (buffer_data_in),         // Fx3DataWidth-bit data bus input
+        .is_reading     (buffer_is_reading),      // 1 = a word may be taken off the FIFO this edge
         .telemetry_latch(buffer_telemetry_latch), // 1 = sample the instrument
 
         // Outputs
-        .data_out          (fx3_databus),               // 16-bit data output
+        .data_out          (fx3_databus),               // Fx3DataWidth-bit data output
         .data_available    (fx3_data_available),        // Set if a whole packet is queued
         .buffer_error      (fx3_buffer_error),          // Set if a sample had to be dropped
         .telemetry         (buffer_telemetry),          // The instrument's shadow bank
@@ -373,11 +546,14 @@ module DomesdayDuplicator (
     );
 
     // FX3 GPIF state-machine logic
-    fx3StateMachine fx3_state_machine_0 (
+    fx3StateMachine #(
+        .PacketWords(Fx3PacketWords)
+    ) fx3_state_machine_0 (
         // Inputs
-        .reset_n  (reset_n),       // Not reset
-        .fx3_clock(system_clock),  // 80 MHz system clock
-        .read_data(fx3_read_data), // FX3 is about to start sampling the databus
+        .reset_n        (reset_n),               // Not reset
+        .fx3_clock      (system_clock),          // 80 MHz system clock
+        .read_data      (fx3_read_data),         // FX3 is about to start sampling the databus
+        .transfer_enable(fx3_transfer_enable),   // 1 = this edge may count as a word sent
 
         // Output
         .fx3_is_reading(fx3_is_reading)  // Flag to indicate FX3 is sampling the databus
@@ -407,7 +583,12 @@ module DomesdayDuplicator (
         .TelemetryPresent(1'b1),
 
         // and the only image with a sample stream to decimate
-        .DecimationPresent(1'b1)
+        .DecimationPresent(1'b1),
+
+        // This board's ADS828 converts up to 75 MHz. A build for a board
+        // carrying a slower part in the same family overrides this alone -
+        // everything else in this file is shared between them.
+        .MaxAdcRateMHz(8'd75)
     ) spi_registers_0 (
         // Inputs
         .reset_n           (reset_n),
@@ -423,6 +604,7 @@ module DomesdayDuplicator (
         // Outputs
         .spi_miso           (fx3_spi_miso),
         .test_mode          (fx3_test_mode),          // 1 = test data generator selected
+        .range_select       (fx3_range_select),       // 1 = 2Vpp, 0 = 1Vpp on the ADS828
         .decimation         (fx3_decimation),         // Samples kept out of every n
         .leds               (LED),                    // Driven by the FX3, for status
         .window_write       (window_write),

@@ -34,12 +34,20 @@
 #define FPGA_REGISTER_TEST_MODE         (0x10u)
 #define FPGA_REGISTER_LED               (0x11u)
 #define FPGA_REGISTER_DECIMATION        (0x12u)
+#define FPGA_REGISTER_RANGE_SELECT      (0x13u)
+#define FPGA_REGISTER_MAX_ADC_RATE_MHZ  (0x14u)
+
+// Any non-zero value means 2Vpp, on the same convention as TEST_MODE, so a
+// host writing 1 and a host writing 0xFF agree about what they asked for.
+#define FPGA_RANGE_SELECT_1VPP          (0x00u)
+#define FPGA_RANGE_SELECT_2VPP          (0x01u)
 
 // Decimation factors. The register holds the factor rather than a flag, so
 // reading it back says what the capture path is doing rather than echoing what
 // was asked for.
 #define FPGA_DECIMATION_EVERY_SAMPLE    (0x01u)
 #define FPGA_DECIMATION_HALF_RATE       (0x02u)
+#define FPGA_DECIMATION_QUARTER_RATE    (0x04u)
 
 // Map version 2's flash bridge and reconfiguration control. These are the
 // only registers whose writes have an effect outside the register bank:
