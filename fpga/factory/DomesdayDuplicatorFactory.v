@@ -196,6 +196,15 @@ module DomesdayDuplicatorFactory (
     // image's without either of them having to bump the map version.
     wire [ 7:0] decimation_unused;
 
+    // RANGE_SELECT is not gated by a "present" parameter the way the two
+    // registers above are - a board without the RSEL-capable ADC still has
+    // somewhere to store the value, it is just not wired to a pin (see the
+    // application top level and the register interface documentation) - so
+    // 0x13 is genuinely writable and readable here too, unlike 0x12 and
+    // 0x40 upwards. What this image does not have is anything to do with
+    // the resulting signal: it has no ADC and drives no such pin.
+    wire        range_select_unused;
+
     spiRegisters #(
         .CommitText(`GATEWARE_COMMIT_TEXT),
         .BuildFlags(`GATEWARE_BUILD_FLAGS),
@@ -221,6 +230,7 @@ module DomesdayDuplicatorFactory (
         // Outputs
         .spi_miso           (fx3_spi_miso),
         .test_mode          (test_mode_unused),
+        .range_select       (range_select_unused),
         .decimation         (decimation_unused),
         .leds               (leds),
         .window_write       (window_write_registers),
