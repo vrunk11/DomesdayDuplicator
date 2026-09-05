@@ -254,7 +254,8 @@ inline constexpr uint16_t MakeDecimationWrite(uint8_t factor) {
 
 // Build the wValue that selects the ADC input range.
 inline constexpr uint16_t MakeRangeSelectWrite(bool is2Vpp) {
-  return MakeRegisterWrite(kRegisterRangeSelect, is2Vpp ? kRangeSelect2Vpp : kRangeSelect1Vpp);
+  return MakeRegisterWrite(kRegisterRangeSelect,
+                           is2Vpp ? kRangeSelect2Vpp : kRangeSelect1Vpp);
 }
 
 // The device update agent.
