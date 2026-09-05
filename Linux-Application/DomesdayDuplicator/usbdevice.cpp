@@ -241,12 +241,17 @@ bool UsbDevice::searchForAttachedDevice()
 }
 
 // Send a configuration command to the USB device
-void UsbDevice::sendConfigurationCommand(bool testMode)
+void UsbDevice::sendConfigurationCommand(bool testMode, bool isOneVppRange)
 {
     quint16 configurationFlags = 0;
 
     if (testMode) configurationFlags += 1; // Bit 0: Set test mode
-    // Bit 1: Unused
+
+    // Bit 1: ADC input range select (RSEL). RSEL high = 2Vpp (the range earlier
+    // board revisions were hardwired to, via a pull to 5V), RSEL low = 1Vpp.
+    // So the bit is set (RSEL high / 2Vpp) whenever the 1Vpp checkbox is NOT
+    // checked, and cleared (RSEL low / 1Vpp) when it is checked.
+    if (!isOneVppRange) configurationFlags += 2;
     // Bit 2: Unused
     // Bit 3: Unused
     // Bit 4: Unused

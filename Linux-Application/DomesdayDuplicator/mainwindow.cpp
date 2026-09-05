@@ -617,13 +617,19 @@ void MainWindow::on_actionTest_mode_toggled(bool arg1)
 {
     if (arg1) {
         // Turn test-mode on
-        usbDevice->sendConfigurationCommand(true);
+        usbDevice->sendConfigurationCommand(true, ui->actionOne_Vpp_range->isChecked());
         ui->capturePushButton->setText("Test data capture");
     } else {
         // Turn test-mode off
-        usbDevice->sendConfigurationCommand(false);
+        usbDevice->sendConfigurationCommand(false, ui->actionOne_Vpp_range->isChecked());
         ui->capturePushButton->setText("Capture");
     }
+}
+
+// Menu option: Edit->1 Vpp input range
+void MainWindow::on_actionOne_Vpp_range_toggled(bool arg1)
+{
+    usbDevice->sendConfigurationCommand(ui->actionTest_mode->isChecked(), arg1);
 }
 
 // Menu option->Advanced naming
@@ -664,10 +670,12 @@ void MainWindow::on_capturePushButton_clicked()
     if (!isCaptureRunning) {
         // Start capture
 
-        // Ensure that the test mode option matches the device configuration
+        // Ensure that the test mode and ADC range options match the device configuration
         bool isTestMode = ui->actionTest_mode->isChecked();
-        qDebug() << "MainWindow::on_capturePushButton_clicked(): Setting device's test mode flag to" << isTestMode;
-        usbDevice->sendConfigurationCommand(isTestMode);
+        bool isOneVppRange = ui->actionOne_Vpp_range->isChecked();
+        qDebug() << "MainWindow::on_capturePushButton_clicked(): Setting device's test mode flag to" << isTestMode
+                 << "and 1Vpp range flag to" << isOneVppRange;
+        usbDevice->sendConfigurationCommand(isTestMode, isOneVppRange);
 
         // Construct the capture file path and name
 

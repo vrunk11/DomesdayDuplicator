@@ -46,7 +46,7 @@ public:
     void stop();
 
     bool scanForDevice();
-    void sendConfigurationCommand(bool testMode);
+    void sendConfigurationCommand(bool testMode, bool isOneVppRange);
 
     void startCapture(QString filename, bool isCaptureFormat10Bit, bool isCaptureFormat10BitDecimated, bool isTestMode);
     void stopCapture();

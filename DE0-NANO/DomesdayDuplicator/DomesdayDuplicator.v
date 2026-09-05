@@ -120,7 +120,6 @@ assign GPIO0[8] = 1'bZ;
 assign GPIO0[9] = 1'bZ;
 assign GPIO0[10] = 1'bZ;
 assign GPIO0[11] = 1'bZ;
-assign GPIO0[22] = 1'bZ;
 assign GPIO0[23] = 1'bZ;
 assign GPIO0[24] = 1'bZ;
 assign GPIO0[25] = 1'bZ;
@@ -161,7 +160,7 @@ assign GPIO1[33] = 1'bZ;
 // input3				GPIO_29		CTL_12	Output	- Unused
 
 // outputE0				GPIO_22		CTL_05	Input		- FX3 Configuration bit 0 (Test mode off/on)
-// outputD0				GPIO_23		CTL_06	Input		- FX3 Configuration bit 1 (Unused)
+// outputD0				GPIO_23		CTL_06	Input		- FX3 Configuration bit 1 (ADC RSEL - input range select)
 // outputD1				GPIO_24		CTL_07	Input		- FX3 Configuration bit 2 (Unused)
 // outputD2				GPIO_25		CTL_08	Input		- FX3 Configuration bit 3 (Unused)
 // outputD3				GPIO_26		CTL_09	Input		- FX3 Configuration bit 4 (Unused)
@@ -189,7 +188,7 @@ assign fx3_readData    = fx3_control[01];
 
 // Signal inputs from FX3 (configuration bits)
 assign fx3_testMode    		= fx3_control[05];
-//assign fx3_configBit1    = fx3_control[06];
+assign fx3_rangeSelect		= fx3_control[06];
 //assign fx3_configBit2 	= fx3_control[07];
 //assign fx3_configBit3		= fx3_control[07];
 //assign fx3_configBit4 	= fx3_control[07];
@@ -218,6 +217,17 @@ assign adc_databus[9] = GPIO0[23];
 wire adc_clock;
 assign GPIO0[33] = adc_clock;
 
+// ADC input-range select (RSEL, PIN_F9, J102 - added for the ADS828)
+// Driven directly from the FX3 "configuration bit 1" control line, using
+// the same generic configuration-bit mechanism as fx3_testMode.
+// RSEL high = 2Vpp (the range earlier board revisions were hardwired to,
+// via a pull to 5V); RSEL low = 1Vpp. Defaults low at FX3 power-up (i.e.
+// 1Vpp) until the host sends a configuration command; the host app sends
+// one before every capture start, so this only matters for the brief
+// window before the first capture.
+wire fx3_rangeSelect;
+assign GPIO0[22] = fx3_rangeSelect;
+
 // ADC Hardware mapping ends --------------------------------------------------
 
 
@@ -225,15 +235,24 @@ assign GPIO0[33] = adc_clock;
 
 
 // PLL clock generation
-// Generate 60 MHz FX3/FPGA system clock from the 50 MHz physical clock and
-// 40 MHz sampling clock
+// Generate a 100 MHz FX3/FPGA system clock and a 75 MHz ADC sampling clock
+// (ADS828, 75MSPS) from the 50 MHz physical clock.
+//
+// The FX3 system clock was raised from 60 to 100 MHz (the CYUSB3014 GPIF-II
+// synchronous-slave-FIFO spec maximum) alongside the ADC clock bump: at
+// 75MSPS the FIFO write side now demands 75M x 16-bit = 1200Mbit/s
+// (150MB/s) sustained, which the old 60MHz/16-bit read side (max 960Mbit/s
+// = 120MB/s) could not drain without overflowing. 100MHz gives a 16-bit
+// drain capacity of 1600Mbit/s (200MB/s), restoring headroom over the
+// 150MB/s demand. See fx3StateMachine.v/buffer.v for the packet read-out
+// logic this feeds.
 IPpllGenerator IPpllGenerator0 (
 	// Inputs
 	.inclk0(CLOCK_50),
-	
+
 	// Outputs
-	.c0(fx3_clock),	// 60 MHz system clock
-	.c1(adc_clock)		// 40 MHz ADC clock
+	.c0(fx3_clock),	// 100 MHz system clock
+	.c1(adc_clock)		// 75 MHz ADC clock
 );
 
 wire fx3_isReading;
