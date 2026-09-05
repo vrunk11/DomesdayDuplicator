@@ -388,7 +388,8 @@ module tb_spiRegisters;
         check(range_select_absent, 1'b0, "the bank without a capture path tracks the same write");
 
         spi_write_one(7'h13, 8'h01);
-        check(range_select_absent, 1'b1, "and the same for 2Vpp - the register is not parameterised off");
+        check(range_select_absent, 1'b1,
+              "and the same for 2Vpp - the register is not parameterised off");
 
         spi_write_one(7'h13, 8'hFF);
 
