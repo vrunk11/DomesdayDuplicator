@@ -1,0 +1,10 @@
+(sym_lib_table
+  (version 0)
+  (lib (name "Domesday-Duplicator-rescue")(type "Legacy")(uri "${KIPRJMOD}/Domesday Duplicator-rescue.lib")(options "")(descr ""))
+  (lib (name "ads825")(type "Legacy")(uri "${KIPRJMOD}/ads825.lib")(options "")(descr ""))
+  (lib (name "de0-nano_gpio")(type "Legacy")(uri "${KIPRJMOD}/de0-nano_gpio.lib")(options "")(descr ""))
+  (lib (name "opa690")(type "Legacy")(uri "${KIPRJMOD}/opa690.lib")(options "")(descr ""))
+  (lib (name "gpifii_j7")(type "Legacy")(uri "${KIPRJMOD}/gpifii_j7.lib")(options "")(descr ""))
+  (lib (name "gpifii_j6")(type "Legacy")(uri "${KIPRJMOD}/gpifii_j6.lib")(options "")(descr ""))
+  (lib (name "bnc_rosenberger")(type "Legacy")(uri "${KIPRJMOD}/bnc_rosenberger.lib")(options "")(descr ""))
+)

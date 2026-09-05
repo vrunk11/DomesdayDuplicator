@@ -171,3 +171,5 @@ compile_commands.json
 
 # Don't track local implementation plans
 docs-tech/
+/KiCAD/Domesday Duplicator/Domesday Duplicator-backups
+/KiCAD/Domesday Duplicator/rescue-backup
