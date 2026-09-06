@@ -31,7 +31,15 @@ namespace {
 class SpdlogLoggerTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    directory_ = std::filesystem::temp_directory_path() / "ddd-spdlog-test";
+    // Named per test rather than shared, so that ctest running several of
+    // these TEST_F cases as separate parallel processes cannot race on the
+    // same directory: one process's remove_all landing between another's
+    // create_directories and its first write throws "Directory not empty"
+    // rather than either test actually failing on its own terms.
+    const ::testing::TestInfo* const info =
+        ::testing::UnitTest::GetInstance()->current_test_info();
+    directory_ = std::filesystem::temp_directory_path() /
+                 (std::string("ddd-spdlog-test-") + info->name());
     std::filesystem::remove_all(directory_);
     std::filesystem::create_directories(directory_);
   }
