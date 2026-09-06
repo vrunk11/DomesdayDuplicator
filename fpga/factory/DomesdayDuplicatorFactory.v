@@ -124,12 +124,32 @@ module DomesdayDuplicatorFactory (
 
     // Clock ---------------------------------------------------------------------
 
+    // The scan-chain and lock-status ports IPpllGenerator carries for the
+    // application image's runtime PLL retuning (see pllPresetController.v).
+    // This image has no reconfiguration controller and never will - it has
+    // no capture path to retune a sampling clock for - so the inputs are
+    // tied to their safe defaults (matching the tri0 they had before this
+    // port list existed) and the outputs go to explicit _unused sinks,
+    // following the same convention as test_mode_unused below for a
+    // register this image cannot act on.
+    wire pll_locked_unused;
+    wire pll_scandataout_unused;
+    wire pll_scandone_unused;
+
     IPpllGenerator pll_generator_0 (
         // Inputs
-        .inclk0(CLOCK_50),
+        .inclk0      (CLOCK_50),
+        .areset      (1'b0),
+        .configupdate(1'b0),
+        .scanclk     (1'b0),
+        .scanclkena  (1'b0),
+        .scandata    (1'b0),
 
         // Outputs
-        .c0(system_clock)  // 80 MHz system clock
+        .c0         (system_clock),            // 80 MHz system clock
+        .locked     (pll_locked_unused),
+        .scandataout(pll_scandataout_unused),
+        .scandone   (pll_scandone_unused)
     );
 
     // Resets --------------------------------------------------------------------

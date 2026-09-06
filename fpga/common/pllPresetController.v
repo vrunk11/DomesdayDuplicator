@@ -162,6 +162,15 @@ module pllPresetController (
                 PllPreset60MHz: preset_bits = Preset60MHz;
                 PllPreset65MHz: preset_bits = Preset65MHz;
                 PllPreset70MHz: preset_bits = Preset70MHz;
+                PllPreset75MHz: preset_bits = Preset75MHz;
+                // Unreachable by construction - preset_bits is only ever
+                // called with active_target, which is only ever loaded from
+                // preset_request, which spiRegisters.v's write-side
+                // normalisation guarantees is one of the eight arms above or
+                // PllPresetNone (never passed here - see StateIdle). Kept
+                // rather than omitted so a mistake in that guarantee fails
+                // safe to the highest-margin preset instead of to whatever
+                // Verilog does with a table that does not cover its input.
                 default:        preset_bits = Preset75MHz;
             endcase
         end
