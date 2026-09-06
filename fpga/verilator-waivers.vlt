@@ -166,6 +166,15 @@ lint_off -rule BLKSEQ -file "*/fx3StateMachine.v"
 lint_off -rule SYNCASYNCNET -file "*/DomesdayDuplicator.v" -match "*reset_n_sync*"
 lint_off -rule SYNCASYNCNET -file "*/DomesdayDuplicator.v" -match "*GPIO1*"
 
+// DomesdayDuplicator.v: reset_n_clock50_sync is the same structure again, for
+// the same reason - pllReconfig and pllPresetController run on CLOCK_50 (see
+// pllPresetController.v's header for why), and this is their own
+// async-assert/sync-release copy of reset_n, released against CLOCK_50
+// instead of system_clock. Not covered by the *reset_n_sync* pattern above:
+// that wildcard does not match this net's name, and each is named narrowly
+// on purpose rather than widened to catch both.
+lint_off -rule SYNCASYNCNET -file "*/DomesdayDuplicator.v" -match "*reset_n_clock50_sync*"
+
 // DomesdayDuplicatorFactory.v: the same two findings, for the same reasons -
 // the factory image synchronises the FX3's reset exactly as the application
 // image does, and fx3_reset_n reaches it through the same GPIO1 bus.
