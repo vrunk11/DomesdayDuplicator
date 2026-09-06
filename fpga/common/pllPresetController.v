@@ -49,9 +49,46 @@
     the design; see the CDC note at preset_request_toggle below for why
     its cost is small.
 
+    A second failsafe, beside spiRegisters.v's refusal to store a
+    PLL_PRESET write above MaxAdcRateMHz: that one only covers a write
+    arriving after the fact, and does nothing about the rate the PLL is
+    already running at the moment this module comes out of reset, which
+    is StaticDefaultMHz - a fact about how IPpllGenerator was compiled,
+    not about anything this module or spiRegisters knows without being
+    told. If a build's StaticDefaultMHz turns out to exceed the
+    MaxAdcRateMHz that same build declares - a board fitted with a
+    slower ADC than the one the static PLL was generated for, most
+    plausibly - this module scans itself down to the highest preset at
+    or below MaxAdcRateMHz once, unconditionally, the first time it
+    reaches StateIdle after reset, before it ever looks at
+    preset_request. No host action required and none possible in time to
+    matter: the alternative is a board that runs its ADC out of the only
+    spec this module was ever told about, from the moment configuration
+    finishes, for as long as it takes a host to notice and write a
+    correction.
+
 ************************************************************************/
 
-module pllPresetController (
+module pllPresetController #(
+    // What this specific build's IPpllGenerator was actually generated
+    // for - the rate the PLL is already running at the moment this module
+    // comes out of reset, before any preset_request has been acted on.
+    // Not derived from anything else here because it cannot be: it is a
+    // fact about a MegaWizard regeneration, fixed at synthesis time, and
+    // the only place it can be recorded is a parameter that whoever
+    // changes the static PLL's frequency also has to update.
+    parameter [7:0] StaticDefaultMHz = 8'd75,
+
+    // The board's own capability, exactly as given to spiRegisters.v's
+    // identically-named parameter - see there for what a mismatch between
+    // the two would mean. Passed here separately, rather than read back
+    // out of spiRegisters over a wire, because it is a build-time fact
+    // about the hardware, not run-time state - the two parameters are
+    // meant to be given the same value at every instantiation site, and a
+    // build that gave them different ones would be asking the PLL to obey
+    // a limit it was told does not apply to it.
+    parameter [7:0] MaxAdcRateMHz = 8'd75
+) (
     input reset_n,
     input clock,
 
@@ -176,6 +213,46 @@ module pllPresetController (
         end
     endfunction
 
+    // The highest known preset at or below max_rate, or PllPresetNone if
+    // even the lowest known preset exceeds it. That second case is not
+    // expected to arise - MaxAdcRateMHz is meant to be a real board
+    // capability, and every board this design targets can do at least
+    // 40 MHz - but a function that fell back to a plausible-looking wrong
+    // answer instead of the one value this module never acts on would be
+    // the wrong failure mode for a safety check to have.
+    function [7:0] safe_default_preset;
+        input [7:0] max_rate;
+        begin
+            if (PllPreset75MHz <= max_rate) begin
+                safe_default_preset = PllPreset75MHz;
+            end else if (PllPreset70MHz <= max_rate) begin
+                safe_default_preset = PllPreset70MHz;
+            end else if (PllPreset65MHz <= max_rate) begin
+                safe_default_preset = PllPreset65MHz;
+            end else if (PllPreset60MHz <= max_rate) begin
+                safe_default_preset = PllPreset60MHz;
+            end else if (PllPreset55MHz <= max_rate) begin
+                safe_default_preset = PllPreset55MHz;
+            end else if (PllPreset50MHz <= max_rate) begin
+                safe_default_preset = PllPreset50MHz;
+            end else if (PllPreset45MHz <= max_rate) begin
+                safe_default_preset = PllPreset45MHz;
+            end else if (PllPreset40MHz <= max_rate) begin
+                safe_default_preset = PllPreset40MHz;
+            end else begin
+                safe_default_preset = PllPresetNone;
+            end
+        end
+    endfunction
+
+    // Whether the static PLL, as this build compiled it, needs correcting
+    // down to something MaxAdcRateMHz actually allows - and what to correct
+    // it to, when it does. Combinational: both are facts about the two
+    // parameters above and never change while the design is running.
+    wire [7:0] startup_safe_preset = safe_default_preset(MaxAdcRateMHz);
+    wire       startup_correction_needed =
+        (StaticDefaultMHz > MaxAdcRateMHz) && (startup_safe_preset != PllPresetNone);
+
     // The standard toggle synchroniser: two flops catch preset_request_toggle
     // into this clock domain, and an edge on the synchronised copy is what
     // preset_request has settled means a new value is ready to read. A raw
@@ -184,7 +261,7 @@ module pllPresetController (
     // one - for one cycle at exactly the moment this module would be
     // deciding what to do with it; a single synchronised bit cannot tear.
     reg [1:0] preset_toggle_sync;
-    reg       preset_toggle_sync_previous;
+    reg preset_toggle_sync_previous;
 
     always @(posedge clock, negedge reset_n) begin
         if (!reset_n) begin
@@ -204,6 +281,14 @@ module pllPresetController (
     // under a request that arrives while one is already running.
     reg  [  7:0] active_target;
 
+    // Whether the power-on safety check above has run. Set the first time
+    // this module reaches StateIdle after reset and never cleared again -
+    // the check is about what the PLL is doing the moment configuration
+    // finishes, not something to repeat, and repeating it would mean a
+    // host-requested preset getting silently overridden the next time this
+    // state is passed through.
+    reg          self_check_done;
+
     wire [143:0] active_preset_bits = preset_bits(active_target);
     assign rom_data_in = active_preset_bits[rom_address_out];
 
@@ -221,6 +306,7 @@ module pllPresetController (
         if (!reset_n) begin
             state             <= StateIdle;
             active_target     <= PllPresetNone;
+            self_check_done   <= 1'b0;
             reset_rom_address <= 1'b0;
             write_from_rom    <= 1'b0;
             reconfig          <= 1'b0;
@@ -230,12 +316,23 @@ module pllPresetController (
 
             case (state)
                 StateIdle: begin
-                    // Only a synchronised, named preset change starts a
-                    // sequence - PllPresetNone is never acted on, and a
-                    // request equal to the one already active is not a
-                    // change worth another pass through the sequence.
-                    if (preset_request_ready && preset_request != PllPresetNone &&
-                        preset_request != active_target) begin
+                    if (!self_check_done) begin
+                        // Runs exactly once, and before anything a host
+                        // could have asked for is even considered - see
+                        // the header comment for why this cannot wait for
+                        // preset_request.
+                        self_check_done <= 1'b1;
+                        if (startup_correction_needed) begin
+                            active_target     <= startup_safe_preset;
+                            reset_rom_address <= 1'b1;
+                            state             <= StateLoadRom;
+                        end
+                        // Only a synchronised, named preset change starts a
+                        // sequence - PllPresetNone is never acted on, and a
+                        // request equal to the one already active is not a
+                        // change worth another pass through the sequence.
+                    end else if (preset_request_ready && preset_request != PllPresetNone &&
+                                 preset_request != active_target) begin
                         active_target     <= preset_request;
                         reset_rom_address <= 1'b1;
                         state             <= StateLoadRom;

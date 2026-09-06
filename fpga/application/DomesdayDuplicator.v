@@ -399,7 +399,17 @@ module DomesdayDuplicator #(
         end
     end
 
-    pllPresetController pll_preset_controller_0 (
+    pllPresetController #(
+        // Both match what this build's static IPpllGenerator was actually
+        // generated for and what it declares to a host via spiRegisters'
+        // MaxAdcRateMHz above - see pllPresetController.v's header for what
+        // a mismatch between the two would mean. A build for a board with
+        // a slower ADC changes both together, alongside regenerating
+        // nothing on the PLL itself: the power-on self-check is what makes
+        // that safe without a second static PLL frequency to keep in step.
+        .StaticDefaultMHz(8'd75),
+        .MaxAdcRateMHz   (8'd75)
+    ) pll_preset_controller_0 (
         .reset_n              (reset_n_clock50),
         .clock                (CLOCK_50),
         .preset_request       (fx3_pll_preset),
