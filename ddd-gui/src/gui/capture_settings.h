@@ -112,6 +112,30 @@ struct CaptureSettings {
   // integrity check covers that path as well.
   int decimation_factor = capture::kUndecimatedFactor;
 
+  // The ADC's input range: true for 2Vpp, false for 1Vpp. 2Vpp by default,
+  // matching the gateware's own reset value — clipping the input loses signal
+  // irrecoverably, where a range wider than the input needs only costs
+  // resolution, so the wider range is the safe default until the user has
+  // picked deliberately.
+  //
+  // Persisted, like the gain declaration and decimation: it is a property of
+  // the cabling and the source's output level, not of one particular capture,
+  // and asking again every session for something that has not changed is how
+  // a setting ends up ignored.
+  bool range_select_2vpp = true;
+
+  // The ADC rate to ask for via PLL_PRESET, in MHz, or 0 for no override —
+  // run at whatever rate this build's gateware was compiled for. Never a
+  // value IsSupportedPllPreset would refuse; anything else read back from a
+  // settings file is clamped to 0 at load, the same as an unsupported
+  // decimation factor is clamped to kUndecimatedFactor, and for the same
+  // reason: a value nothing here or in the gateware recognises must not be
+  // sent as though it were a real request.
+  //
+  // Persisted, on the same terms as decimation_factor: this is a decision
+  // about what kind of capture is wanted, not about one particular capture.
+  uint8_t pll_preset_mhz = 0;
+
   // 0-8, as flac's -0 .. -8. See FlacWriter::Options — the default is 8, which
   // multithreaded libFLAC sustains at the device's full rate.
   //
@@ -156,6 +180,8 @@ struct CaptureSettings {
            capture_name == other.capture_name && naming == other.naming &&
            output_format == other.output_format &&
            decimation_factor == other.decimation_factor &&
+           range_select_2vpp == other.range_select_2vpp &&
+           pll_preset_mhz == other.pll_preset_mhz &&
            compression_level == other.compression_level &&
            duration_limit_seconds == other.duration_limit_seconds &&
            low_space_warning_minutes == other.low_space_warning_minutes;
@@ -176,17 +202,31 @@ struct CaptureSettings {
   // before the warning ever fires.
   double EstimatedBytesPerSecond() const;
 
+  // The converter's own rate, before decimation: pll_preset_mhz scaled to
+  // hertz, or the device's default when it is 0 (no override). Safe to read
+  // while a stream is running for the same reason SampleRateHz() is — see
+  // there — and safe to read with no device attached at all, unlike the
+  // gateware's own MAX_ADC_RATE_MHZ capability register, which is what
+  // CapturePanel consults to decide which presets to offer in the first
+  // place rather than what this computes from one that was chosen.
+  uint32_t BaseSampleRateHz() const {
+    return pll_preset_mhz == 0
+               ? capture::kSampleRateHz
+               : static_cast<uint32_t>(pll_preset_mhz) * 1'000'000U;
+  }
+
   // The rate the samples actually arrive at.
   //
   // What every display that turns samples into time or frequency needs, and the
   // reason it is here rather than being read off the converter's rate: the
   // spectrum's Nyquist, the scope's time axis and the encoder backlog are all
-  // properties of the stream, and a decimated stream is half the rate. It is
-  // safe to read this while a stream is running because the rate cannot be
-  // changed under one — see CapturePanel's sample-rate control, which is locked
-  // from the moment monitoring starts.
+  // properties of the stream, and a decimated stream is half the rate — and,
+  // now, the converter's own rate is not always the device's default either.
+  // It is safe to read this while a stream is running because neither factor
+  // can change under one — see CapturePanel's sample-rate and input-range
+  // controls, both locked from the moment monitoring starts.
   uint32_t SampleRateHz() const {
-    return capture::SampleRateHzFor(decimation_factor);
+    return capture::SampleRateHzFor(decimation_factor, BaseSampleRateHz());
   }
 
   // The declared front-end gain, or the undeclared state. Named DeclaredGain

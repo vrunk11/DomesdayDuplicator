@@ -21,6 +21,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -36,6 +37,7 @@
 #include "statistics_presenter.h"
 #include "theme_color_tokens.h"
 #include "update_text.h"
+#include "wire_protocol.h"
 
 namespace ddd::gui {
 namespace {
@@ -187,6 +189,30 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
          "signal with content up there should be captured at the full rate."));
   form->addRow(tr("Sample rate"), sample_rate_combo_);
 
+  range_select_combo_ = new QComboBox(contents);
+  range_select_combo_->setObjectName(QLatin1String(kRangeSelectComboName));
+  range_select_combo_->addItem(tr("2Vpp (default)"), true);
+  range_select_combo_->addItem(tr("1Vpp"), false);
+  range_select_combo_->setToolTip(
+      tr("The ADC's input range. Clipping the input loses signal "
+         "irrecoverably, where a range wider than the source's own output "
+         "level only costs resolution — so 2Vpp is the safe default until "
+         "you know the source runs at 1Vpp. Only takes effect on gateware "
+         "built for a board with the RSEL-capable ADC; older boards ignore "
+         "it."));
+  form->addRow(tr("Input range"), range_select_combo_);
+
+  pll_preset_combo_ = new QComboBox(contents);
+  pll_preset_combo_->setObjectName(QLatin1String(kPllPresetComboName));
+  pll_preset_combo_->setToolTip(
+      tr("The ADC's own converter rate, before the sample-rate control "
+         "above decimates it further. \"Board default\" is whatever rate "
+         "this build's gateware was compiled for, and is the only option "
+         "offered by a board or gateware build that cannot report which "
+         "other rates it supports."));
+  form->addRow(tr("ADC rate"), pll_preset_combo_);
+  RefreshPllPresetOptions();
+
   compression_spin_ = new QSpinBox(contents);
   compression_spin_->setObjectName(QLatin1String(kCompressionSpinName));
   compression_spin_->setRange(0, 8);
@@ -288,6 +314,10 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
           [this](int) { ApplySettingsFromWidgets(); });
   connect(sample_rate_combo_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
+  connect(range_select_combo_, &QComboBox::currentIndexChanged, this,
+          [this](int) { ApplySettingsFromWidgets(); });
+  connect(pll_preset_combo_, &QComboBox::currentIndexChanged, this,
+          [this](int) { ApplySettingsFromWidgets(); });
   connect(compression_spin_, &QSpinBox::valueChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
   connect(duration_spin_, &QSpinBox::valueChanged, this,
@@ -342,6 +372,9 @@ void CapturePanel::ShowSettings() {
       format_combo_->findData(static_cast<int>(settings.output_format)));
   sample_rate_combo_->setCurrentIndex(
       sample_rate_combo_->findData(settings.decimation_factor));
+  range_select_combo_->setCurrentIndex(
+      range_select_combo_->findData(settings.range_select_2vpp));
+  RefreshPllPresetOptions();
   compression_spin_->setValue(settings.compression_level);
   // Rounded to the nearest whole minute for display. The stored value is in
   // seconds and is honoured as written; only what this box shows is coarser.
@@ -352,6 +385,57 @@ void CapturePanel::ShowSettings() {
   UpdateNamePlaceholder();
   UpdateEnabledState();
   RefreshFreeSpace();
+}
+
+void CapturePanel::RefreshPllPresetOptions() {
+  // Blocked for the whole rebuild rather than only around the parts that
+  // change the selection: addItem itself can change currentIndex as items
+  // come and go, and this runs from the constructor before the widgets
+  // ApplySettingsFromWidgets reads have all been created yet - a signal
+  // escaping here would reach a spin box that does not exist.
+  const QSignalBlocker blocker(pll_preset_combo_);
+
+  // What the combo showed before this rebuild, kept only as a fallback for
+  // when there is no controller to ask what is actually wanted - the widget
+  // tests build the panel that way. Whenever a controller exists, its
+  // settings are the fact of record and are what this restores, not
+  // whatever the combo happened to be showing.
+  const QVariant previous = pll_preset_combo_->count() > 0
+                                ? pll_preset_combo_->currentData()
+                                : QVariant(0);
+  pll_preset_combo_->clear();
+
+  pll_preset_combo_->addItem(tr("Board default"), 0);
+
+  // 0 (no controller yet, or a board/gateware that predates or does not
+  // implement MAX_ADC_RATE_MHZ) offers nothing else - see max_adc_rate_mhz()
+  // and the register interface documentation for why 0 has to be read as
+  // "unknown" rather than as a literal zero-MHz converter.
+  const uint8_t max_rate =
+      controller_ != nullptr ? controller_->max_adc_rate_mhz() : 0;
+
+  static constexpr uint8_t kKnownPresets[] = {
+      capture::kPllPreset40Mhz, capture::kPllPreset45Mhz,
+      capture::kPllPreset50Mhz, capture::kPllPreset55Mhz,
+      capture::kPllPreset60Mhz, capture::kPllPreset65Mhz,
+      capture::kPllPreset70Mhz, capture::kPllPreset75Mhz};
+
+  for (const uint8_t preset : kKnownPresets) {
+    if (preset <= max_rate) {
+      // Stored as plain int, like every other combo on this panel — findData
+      // below compares QVariants, and keeping every entry the same
+      // underlying numeric type is what makes that comparison unambiguous.
+      pll_preset_combo_->addItem(tr("%1 MSPS").arg(preset),
+                                 static_cast<int>(preset));
+    }
+  }
+
+  const QVariant wanted =
+      controller_ != nullptr
+          ? QVariant(static_cast<int>(controller_->settings().pll_preset_mhz))
+          : previous;
+  const int restored = pll_preset_combo_->findData(wanted);
+  pll_preset_combo_->setCurrentIndex(restored >= 0 ? restored : 0);
 }
 
 void CapturePanel::UpdateNamePlaceholder() {
@@ -383,6 +467,9 @@ void CapturePanel::ApplySettingsFromWidgets() {
   settings.output_format = static_cast<capture::CaptureOutputFormat>(
       format_combo_->currentData().toInt());
   settings.decimation_factor = sample_rate_combo_->currentData().toInt();
+  settings.range_select_2vpp = range_select_combo_->currentData().toBool();
+  settings.pll_preset_mhz =
+      static_cast<uint8_t>(pll_preset_combo_->currentData().toInt());
   settings.compression_level = compression_spin_->value();
   settings.duration_limit_seconds = duration_spin_->value() * 60;
   settings.low_space_warning_minutes = low_space_spin_->value();
@@ -496,6 +583,12 @@ void CapturePanel::RefreshFreeSpace() {
 void CapturePanel::OnDevicesChanged(
     const std::vector<ddd::capture::DeviceInfo>& devices) {
   devices_ = devices;
+
+  // The capability this depends on, controller_->max_adc_rate_mhz(), is
+  // read as part of the same connect sequence that produced this signal -
+  // CaptureController::CheckFirmware runs before it emits DevicesChanged -
+  // so it is already current here.
+  RefreshPllPresetOptions();
 
   // The device the engine would actually open, asked for the same way the
   // engine asks. This used to report on whichever entry a combo box on this
@@ -760,6 +853,15 @@ void CapturePanel::UpdateEnabledState() {
   // downstream of the decimator, so a decimated test capture is an unbroken
   // ramp at the decimated rate.
   sample_rate_combo_->setEnabled(!monitoring_);
+
+  // Same terms as the sample rate: written to the gateware before the stream
+  // is opened, with no way to change it under a running one.
+  range_select_combo_->setEnabled(!monitoring_);
+
+  // More so than either of the above: changing this reconfigures the PLL and
+  // takes the whole design out of lock for as long as that takes, so it is
+  // locked here for the same reason and then some.
+  pll_preset_combo_->setEnabled(!monitoring_);
 
   // Nothing to compress in the uncompressed format, so the level stops being a
   // setting rather than becoming one that is quietly ignored.

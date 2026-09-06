@@ -66,8 +66,8 @@ std::vector<FlacWriter::Tag> BuildProvenanceTags(
           ? provenance.decimation_factor
           : 1;
   tags.push_back(
-      {kTagSampleRate,
-       std::to_string(kSampleRateHz / static_cast<uint32_t>(decimation))});
+      {kTagSampleRate, std::to_string(provenance.base_sample_rate_hz /
+                                      static_cast<uint32_t>(decimation))});
   tags.push_back({kTagDecimation, std::to_string(decimation)});
 
   tags.push_back({kTagTestMode, provenance.test_mode ? "true" : "false"});

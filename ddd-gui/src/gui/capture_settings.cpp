@@ -30,6 +30,8 @@ constexpr const char* kCaptureDirectoryKey = "capture/directory";
 constexpr const char* kCaptureNameKey = "capture/name";
 constexpr const char* kOutputFormatKey = "capture/output_format";
 constexpr const char* kDecimationFactorKey = "capture/decimation_factor";
+constexpr const char* kRangeSelectKey = "hardware/range_select_2vpp";
+constexpr const char* kPllPresetKey = "capture/pll_preset_mhz";
 constexpr const char* kCompressionLevelKey = "capture/compression_level";
 constexpr const char* kDurationLimitKey = "capture/duration_limit_seconds";
 constexpr const char* kLowSpaceKey = "capture/low_space_warning_minutes";
@@ -255,14 +257,22 @@ analysis::FrontEndGain CaptureSettings::DeclaredGain() const {
 }
 
 double CaptureSettings::EstimatedBytesPerSecond() const {
+  // Both figures are stated at the device's default 40 Msps, so a PLL_PRESET
+  // asking for a different converter rate scales them by how much faster or
+  // slower that rate is — a 75 Msps capture costs proportionally more disk
+  // than a 40 Msps one of the same length, decimation and format alike.
+  const double rate_scale =
+      static_cast<double>(BaseSampleRateHz()) / capture::kSampleRateHz;
+
   // Uncompressed is not an estimate at all: it is exactly the wire rate, and
   // decimation divides it exactly. FLAC is the estimate — see free_space.h,
   // where the working figure of half the wire rate is deliberately conservative
   // because real RF compresses better than that.
   const double undecimated =
-      output_format == capture::CaptureOutputFormat::kSigned16Bit
-          ? static_cast<double>(capture::kWireBytesPerSecond)
-          : capture::kEstimatedCaptureBytesPerSecond;
+      (output_format == capture::CaptureOutputFormat::kSigned16Bit
+           ? static_cast<double>(capture::kWireBytesPerSecond)
+           : capture::kEstimatedCaptureBytesPerSecond) *
+      rate_scale;
 
   return undecimated / static_cast<double>(decimation_factor);
 }
@@ -356,6 +366,23 @@ CaptureSettings LoadCaptureSettings() {
           ? stored_decimation
           : capture::kUndecimatedFactor;
 
+  loaded.range_select_2vpp =
+      settings.value(QLatin1String(kRangeSelectKey), loaded.range_select_2vpp)
+          .toBool();
+
+  // Same rule as decimation above: read as "no override" unless it is a
+  // preset this build actually recognises, since a value neither this
+  // application nor the gateware has a definition for is not a request for
+  // an intermediate rate, just not one that can be honoured.
+  const int stored_pll_preset =
+      settings.value(QLatin1String(kPllPresetKey), loaded.pll_preset_mhz)
+          .toInt();
+  loaded.pll_preset_mhz =
+      (stored_pll_preset >= 0 && stored_pll_preset <= 0xFF &&
+       capture::IsSupportedPllPreset(static_cast<uint8_t>(stored_pll_preset)))
+          ? static_cast<uint8_t>(stored_pll_preset)
+          : 0;
+
   loaded.compression_level = std::clamp(
       settings
           .value(QLatin1String(kCompressionLevelKey), loaded.compression_level)
@@ -394,6 +421,9 @@ void SaveCaptureSettings(const CaptureSettings& settings) {
                  OutputFormatName(settings.output_format));
   store.setValue(QLatin1String(kDecimationFactorKey),
                  settings.decimation_factor);
+  store.setValue(QLatin1String(kRangeSelectKey), settings.range_select_2vpp);
+  store.setValue(QLatin1String(kPllPresetKey),
+                 static_cast<int>(settings.pll_preset_mhz));
   store.setValue(QLatin1String(kCompressionLevelKey),
                  settings.compression_level);
   store.setValue(QLatin1String(kDurationLimitKey),

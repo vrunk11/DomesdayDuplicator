@@ -69,6 +69,9 @@ class CapturePanel : public QWidget {
   static constexpr const char* kFormatComboName = "capture_format_combo";
   static constexpr const char* kSampleRateComboName =
       "capture_sample_rate_combo";
+  static constexpr const char* kRangeSelectComboName =
+      "capture_range_select_combo";
+  static constexpr const char* kPllPresetComboName = "capture_pll_preset_combo";
   static constexpr const char* kCompressionSpinName =
       "capture_compression_spin";
   static constexpr const char* kDurationSpinName = "capture_duration_spin";
@@ -164,6 +167,13 @@ class CapturePanel : public QWidget {
   void ApplySettingsFromWidgets();
   void ShowSettings();
 
+  // Rebuilds pll_preset_combo_'s items from the connected device's
+  // MAX_ADC_RATE_MHZ, preserving the current selection where it is still
+  // offered. Called whenever the device might have changed rather than only
+  // once at construction, because the capability is a property of whichever
+  // board answered last and that can change from one connection to the next.
+  void RefreshPllPresetOptions();
+
   // The name the next capture will be given, as a placeholder rather than as
   // text. A generated name shown as real text would be saved as though the user
   // had typed it, and every later capture would then reuse the timestamp of the
@@ -181,6 +191,8 @@ class CapturePanel : public QWidget {
   QPushButton* naming_button_ = nullptr;
   QComboBox* format_combo_ = nullptr;
   QComboBox* sample_rate_combo_ = nullptr;
+  QComboBox* range_select_combo_ = nullptr;
+  QComboBox* pll_preset_combo_ = nullptr;
   QSpinBox* compression_spin_ = nullptr;
   QSpinBox* duration_spin_ = nullptr;
   QPushButton* duration_reset_button_ = nullptr;

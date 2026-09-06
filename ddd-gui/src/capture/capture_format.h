@@ -15,6 +15,8 @@
 #include <filesystem>
 #include <string>
 
+#include "sample_format.h"
+
 namespace ddd::capture {
 
 // This application writes native FLAC, and uncompressed signed 16-bit for
@@ -51,44 +53,68 @@ enum class CaptureOutputFormat {
 
 // The rate stamped into a FLAC header.
 //
-// Not a measurement. FLAC's sample-rate field tops out at 655,350 Hz and the
-// device runs at 40,000,000, so the file carries a label instead and everything
-// downstream treats it as one. The value matches lddecode/compress.py's
-// SAMPLE_RATE — a different number here would produce a file ld-decode reads at
-// the wrong speed.
-inline constexpr uint32_t kFlacSampleRateLabel = 40'000;
+// Not a measurement. FLAC's sample-rate field tops out at 655,350 Hz, which
+// no rate this device can run at fits, so the file carries a label instead —
+// the real rate divided by kFlacLabelScale — and everything downstream
+// treats it as one. At the device's default 40,000,000 Hz this produces
+// 40,000, which is what lddecode/compress.py's SAMPLE_RATE was matched to; a
+// different scale here would produce a file ld-decode reads at the wrong
+// speed. The real rate a file was written at, unscaled, is what
+// BuildProvenanceTags writes into DDD_SAMPLE_RATE_HZ — this label is a
+// container-format constraint, not the fact of record.
+inline constexpr uint32_t kFlacLabelScale = 1'000;
+inline constexpr uint32_t kFlacSampleRateLabel =
+    kSampleRateHz / kFlacLabelScale;
 
 // The decimation factors a capture may be written at.
 //
-// The converter always runs at 40 Msps; decimation happens in the FPGA, before
-// the samples reach the USB link. One is every sample, which is what a
-// LaserDisc capture needs. Two halves both the rate and the file — enough for
-// tape RF, whose bandwidth is a fraction of a LaserDisc's, and the reason this
-// exists at all.
+// One is every sample, which is what a LaserDisc capture needs. Two halves
+// both the rate and the file — enough for tape RF, whose bandwidth is a
+// fraction of a LaserDisc's, and the reason this exists at all. Decimation
+// happens in the FPGA, before the samples reach the USB link, and is
+// independent of which rate the converter itself is running at (see
+// PLL_PRESET in the register interface doc) — it always halves whatever
+// that rate is.
 //
-// Not plain selection: the gateware low-passes at 10 MHz with a 63-tap
-// half-band filter first, because dropping alternate samples without that folds
-// everything above 10 MHz down on top of the signal. See
-// fpga/application/halfBandDecimator.v.
+// Not plain selection: the gateware low-passes first with a 63-tap
+// half-band filter at a quarter of the converter's own rate, because
+// dropping alternate samples without that folds everything above the new
+// Nyquist down on top of the signal. See fpga/application/halfBandDecimator.v.
 inline constexpr int kUndecimatedFactor = 1;
 inline constexpr int kTapeDecimationFactor = 2;
 
 // Whether a factor is one this application will write.
 bool IsSupportedDecimationFactor(int factor);
 
-// The rate label for a file written at a given decimation. A 2:1 capture is a
-// real 20 Msps stream and says so, on the same convention as the undecimated
-// label above.
-uint32_t FlacSampleRateLabelFor(int decimation_factor);
+// Whether an ADC rate preset is one the gateware's PLL_PRESET register
+// implements — see kPllPreset40Mhz..kPllPreset75Mhz in wire_protocol.h,
+// which this mirrors. 0 (PllPresetNone, "no override") is deliberately not
+// among these: it means run at the board's own default rate, which is a
+// choice this application can offer without knowing what that rate is,
+// where every other value is a specific claim about the converter that has
+// to be one the gateware actually has a scan sequence for.
+bool IsSupportedPllPreset(uint8_t mhz);
+
+// The rate label for a file written at a given decimation of base_rate_hz —
+// the converter's own rate, defaulting to the device's default 40,000,000 Hz
+// for a build that has not asked for a different one via PLL_PRESET. A 2:1
+// capture at the default rate is a real 20 Msps stream and says so, on the
+// same convention as the undecimated label above.
+uint32_t FlacSampleRateLabelFor(int decimation_factor,
+                                uint32_t base_rate_hz = kSampleRateHz);
 
 // The rate the samples actually arrive at, in hertz.
 //
 // A real measurement, unlike the FLAC label above, and the figure every display
-// that turns samples into time or frequency has to use: a decimated stream is
-// 20 Msps, so its Nyquist is 10 MHz and a sample is 50 ns. Anything that
-// assumes the converter's own rate here draws a tape's 5 MHz carrier at 10 MHz
-// and calls a 1 ms sweep 500 µs.
-uint32_t SampleRateHzFor(int decimation_factor);
+// that turns samples into time or frequency has to use: a decimated stream at
+// the default rate is 20 Msps, so its Nyquist is 10 MHz and a sample is 50 ns.
+// Anything that assumes the converter's own rate here draws a tape's 5 MHz
+// carrier at 10 MHz and calls a 1 ms sweep 500 µs — and anything that assumes
+// the *default* converter rate where a PLL_PRESET is in effect is wrong by
+// whatever that preset changed the rate to, which is why base_rate_hz is a
+// parameter here rather than the kSampleRateHz constant used directly.
+uint32_t SampleRateHzFor(int decimation_factor,
+                         uint32_t base_rate_hz = kSampleRateHz);
 
 // Channels and bit depth in the written file. Mono is definitional: a stereo
 // file is not a Domesday Duplicator capture, and the reader says so rather than

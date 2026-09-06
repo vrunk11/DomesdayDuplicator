@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <cstdint>
 #include <ctime>
 #include <string>
 #include <vector>
 
 #include "flac_writer.h"
+#include "sample_format.h"
 
 namespace ddd::capture {
 
@@ -115,6 +117,16 @@ struct CaptureProvenance {
   // an octave out — which is exactly the sort of thing that gets blamed on the
   // player.
   int decimation_factor = 1;
+
+  // The converter's own rate this capture was taken at, before decimation —
+  // the device's default unless a PLL_PRESET asked for a different one. What
+  // DDD_SAMPLE_RATE_HZ is actually computed from: see BuildProvenanceTags.
+  // Carried here rather than assumed, on the same reasoning as
+  // decimation_factor above and for the same reason it exists at all — a
+  // FLAC header cannot state a rate this high, so the tag is the only record
+  // of it, and a wrong assumption here would be silent in exactly the way a
+  // decimated file with no decimation_factor was.
+  uint32_t base_sample_rate_hz = kSampleRateHz;
 
   // The front-end gain the user declared, as a sentence — or empty for a gain
   // that was never declared.

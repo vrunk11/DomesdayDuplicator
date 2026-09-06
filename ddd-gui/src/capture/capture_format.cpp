@@ -15,6 +15,7 @@
 #include <cctype>
 
 #include "sample_format.h"
+#include "wire_protocol.h"
 
 namespace ddd::capture {
 
@@ -22,23 +23,31 @@ bool IsSupportedDecimationFactor(int factor) {
   return factor == kUndecimatedFactor || factor == kTapeDecimationFactor;
 }
 
-uint32_t FlacSampleRateLabelFor(int decimation_factor) {
-  if (!IsSupportedDecimationFactor(decimation_factor)) {
-    return kFlacSampleRateLabel;
-  }
-  return kFlacSampleRateLabel / static_cast<uint32_t>(decimation_factor);
+bool IsSupportedPllPreset(uint8_t mhz) {
+  return mhz == kPllPreset40Mhz || mhz == kPllPreset45Mhz ||
+         mhz == kPllPreset50Mhz || mhz == kPllPreset55Mhz ||
+         mhz == kPllPreset60Mhz || mhz == kPllPreset65Mhz ||
+         mhz == kPllPreset70Mhz || mhz == kPllPreset75Mhz;
 }
 
-uint32_t SampleRateHzFor(int decimation_factor) {
+uint32_t FlacSampleRateLabelFor(int decimation_factor, uint32_t base_rate_hz) {
+  const uint32_t label = base_rate_hz / kFlacLabelScale;
+  if (!IsSupportedDecimationFactor(decimation_factor)) {
+    return label;
+  }
+  return label / static_cast<uint32_t>(decimation_factor);
+}
+
+uint32_t SampleRateHzFor(int decimation_factor, uint32_t base_rate_hz) {
   // An unsupported factor falls back to the converter's own rate rather than
   // dividing by it. A display is better off stating the undecimated rate — the
   // one the device runs at unless it has been told otherwise — than scaling
   // every frequency on the screen by a number nothing will ever ask the
   // gateware for.
   if (!IsSupportedDecimationFactor(decimation_factor)) {
-    return kSampleRateHz;
+    return base_rate_hz;
   }
-  return kSampleRateHz / static_cast<uint32_t>(decimation_factor);
+  return base_rate_hz / static_cast<uint32_t>(decimation_factor);
 }
 
 const char* CaptureFileSuffix(CaptureOutputFormat format) {

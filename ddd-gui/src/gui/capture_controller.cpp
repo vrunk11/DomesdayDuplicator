@@ -13,6 +13,7 @@
 
 #include <QDir>
 #include <QMetaObject>
+#include <QThread>
 #include <ctime>
 #include <filesystem>
 #include <system_error>
@@ -153,6 +154,7 @@ void CaptureController::CheckFirmware(
     warned_device_path_.clear();
     warned_device_product_.clear();
     fpga_version_ = capture::FpgaVersion{};
+    max_adc_rate_mhz_ = 0;
     return;
   }
 
@@ -171,6 +173,7 @@ void CaptureController::CheckFirmware(
   // predating the register interface, or an FPGA that was never configured,
   // both land here and both capture perfectly well.
   fpga_version_ = ReadFpgaVersion(selected->path);
+  max_adc_rate_mhz_ = ReadMaxAdcRateMhz(selected->path);
 
   const capture::FirmwareIdentity firmware =
       capture::DescribeFirmware(selected->product_string);
@@ -248,12 +251,62 @@ capture::FpgaVersion CaptureController::ReadFpgaVersion(
   return capture::ParseFpgaIdentity(identity);
 }
 
+uint8_t CaptureController::ReadMaxAdcRateMhz(const std::string& path) {
+  if (device_ == nullptr) {
+    return 0;
+  }
+
+  std::vector<uint8_t> value;
+  if (!device_->ReadRegisters(path, capture::kRegisterMaxAdcRateMhz, 1,
+                              value) ||
+      value.empty()) {
+    return 0;
+  }
+
+  return value[0];
+}
+
 void CaptureController::StartMonitoring() {
   if (monitoring_ || device_ == nullptr) {
     return;
   }
 
   const std::string path = settings_.preferred_device_path.toStdString();
+
+  // First of every register written here, and deliberately: a preset change
+  // makes the gateware drop its PLL out of lock while the newly scanned-in
+  // counters settle, and everything else on this register bank - including
+  // the writes just below - shares the PLL's own reset while that happens
+  // (see the reset synchroniser in DomesdayDuplicator.v). Writing this after
+  // the others would risk one of them landing mid-reset and being silently
+  // dropped.
+  //
+  // Only sent when it is actually changing: PllPresetNone (0) is never acted
+  // on by design (see pllPresetController.v) and costs nothing to send
+  // regardless, and repeating the preset already active would trigger a
+  // second unnecessary relock.
+  //
+  // kPllPresetSettleMilliseconds is a conservative placeholder, not a
+  // measurement - the real reconfigure-and-relock time has not been
+  // characterised on hardware yet (see TODO.md). It blocks this thread
+  // rather than the capture, which has not started, so a delay that turns
+  // out to be far too generous costs a one-time pause when the rate is
+  // changed and nothing while capturing.
+  if (settings_.pll_preset_mhz != last_pll_preset_sent_) {
+    if (!device_->WriteRegister(path, capture::kRegisterPllPreset,
+                                settings_.pll_preset_mhz)) {
+      emit Failed(tr("The ADC rate could not be set"),
+                  tr("The device did not accept the sample-rate preset "
+                     "request. It may have been unplugged, or another "
+                     "application may be using it."));
+      return;
+    }
+    last_pll_preset_sent_ = settings_.pll_preset_mhz;
+
+    if (settings_.pll_preset_mhz != 0) {
+      QThread::msleep(kPllPresetSettleMilliseconds);
+    }
+  }
 
   // Written before the device is opened for streaming rather than after. The
   // gateware applies it immediately and there is no acknowledgement, so doing
@@ -283,6 +336,22 @@ void CaptureController::StartMonitoring() {
                 tr("The device did not accept the sample-rate request. It may "
                    "have been unplugged, or another application may be using "
                    "it."));
+    return;
+  }
+
+  // The ADC's input range, on the same terms: applied before the stream
+  // opens, so it is settled before any data is flowing. Gateware built for a
+  // board without the RSEL-capable ADC still stores whatever is written here
+  // — it just has nothing wired to read it back from — so this is safe to
+  // send unconditionally rather than needing a capability check first.
+  if (!device_->WriteRegister(path, capture::kRegisterRangeSelect,
+                              settings_.range_select_2vpp
+                                  ? capture::kRangeSelect2Vpp
+                                  : capture::kRangeSelect1Vpp)) {
+    emit Failed(tr("The input range could not be set"),
+                tr("The device did not accept the input-range request. It "
+                   "may have been unplugged, or another application may be "
+                   "using it."));
     return;
   }
 
@@ -417,7 +486,8 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
   } else {
     capture::FlacWriter::Options options;
     options.compression_level = settings_.compression_level;
-    options.sample_rate_label = capture::FlacSampleRateLabelFor(decimation);
+    options.sample_rate_label = capture::FlacSampleRateLabelFor(
+        decimation, settings_.BaseSampleRateHz());
 
     const capture::DeviceBuild build = CurrentDeviceBuild();
 
@@ -428,6 +498,7 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
     provenance.gateware_version = build.gateware_version;
     provenance.test_mode = settings_.test_mode;
     provenance.decimation_factor = decimation;
+    provenance.base_sample_rate_hz = settings_.BaseSampleRateHz();
     provenance.started = now;
     provenance.disc = disc_provenance_;
 

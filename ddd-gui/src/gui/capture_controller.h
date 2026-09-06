@@ -80,6 +80,16 @@ class CaptureController : public QObject {
   // device is selected or its gateware could not answer.
   const capture::FpgaVersion& fpga_version() const { return fpga_version_; }
 
+  // The fastest ADC rate, in MHz, this connected board's gateware says it can
+  // convert at — MAX_ADC_RATE_MHZ, read alongside the identity block. 0 for
+  // "not known": no device, gateware predating the register, or an FPGA
+  // that has not answered, which is indistinguishable from the register's
+  // own point of view and is why the register interface documentation says
+  // to treat a 0 reading as unknown rather than as a literal claim about a
+  // zero-MHz converter. CapturePanel is what turns this into which presets
+  // are offered.
+  uint8_t max_adc_rate_mhz() const { return max_adc_rate_mhz_; }
+
   const CaptureSettings& settings() const { return settings_; }
 
   // The USB backend, borrowed. Exposed so that the update flow can open the
@@ -159,6 +169,13 @@ class CaptureController : public QObject {
   // that a throughput reading looks live, slow enough that it is nowhere near
   // the cost of anything else the application does.
   static constexpr int kStatsIntervalMilliseconds = 50;
+
+  // How long StartMonitoring() waits after writing a changed PLL_PRESET
+  // before writing anything else or opening the stream — see the comment
+  // there. A conservative placeholder pending a real measurement of the
+  // gateware's reconfigure-and-relock time on hardware, not a measured
+  // figure itself.
+  static constexpr int kPllPresetSettleMilliseconds = 50;
 
  public slots:
   // Open the device and start streaming with no sink attached. This is monitor
@@ -244,6 +261,10 @@ class CaptureController : public QObject {
 
   // Read and parse the gateware identity block from the device at `path`.
   capture::FpgaVersion ReadFpgaVersion(const std::string& path);
+
+  // Read MAX_ADC_RATE_MHZ from the device at `path`, or 0 if it could not be
+  // read — see max_adc_rate_mhz().
+  uint8_t ReadMaxAdcRateMhz(const std::string& path);
 
   // What the device this capture is coming off was built from, for the file's
   // own tags and for the sidecar beside it.
@@ -332,6 +353,17 @@ class CaptureController : public QObject {
 
   // The gateware version that goes with warned_device_path_
   capture::FpgaVersion fpga_version_;
+
+  // The capability reading that goes with it — see max_adc_rate_mhz().
+  uint8_t max_adc_rate_mhz_ = 0;
+
+  // The PLL_PRESET value this controller last actually wrote to the device,
+  // or -1 for "never sent this session". Distinct from
+  // settings_.pll_preset_mhz, which is what the *next* write should ask for:
+  // comparing the two is what tells StartMonitoring() whether a reconfiguration
+  // - and the settling delay it costs - is actually needed, rather than paying
+  // that delay on every monitor start once a preset has ever been chosen.
+  int last_pll_preset_sent_ = -1;
 
   // See SetDiscProvenance. Empty for every capture taken without a player.
   capture::DiscProvenance disc_provenance_;

@@ -60,6 +60,11 @@ exempt=(
     "fpga/common/IPpllGenerator.v"
     "fpga/common/IPpllGenerator_bb.v"
 
+    # Quartus megafunction wizard output for altpll_reconfig - same tool, same reason,
+    # a different megafunction (the runtime PLL-retuning path; see pllPresetController.v).
+    "fpga/common/pllReconfig.v"
+    "fpga/common/pllReconfig_bb.v"
+
     # Cypress SDK support code, compiled into the firmware unmodified.
     "fx3/firmware/src/cyfxtx.c"
     "fx3/firmware/src/cyfx_gcc_startup.S"
