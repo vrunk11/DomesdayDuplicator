@@ -50,6 +50,7 @@ module spiRegisters (
     output       test_mode,
     output       range_select,
     output [7:0] decimation,
+    output [7:0] pll_preset,
     output [7:0] leds,
 
     // The 0x20 to 0x23 window. A write pulses window_write for one clock
@@ -142,6 +143,14 @@ module spiRegisters (
     // what it was speced for.
     parameter [7:0] MaxAdcRateMHz = 8'd75;
 
+    // Whether this image can retune the ADC sampling rate at runtime. Off by
+    // default, and gated the same way DecimationPresent/TelemetryPresent are:
+    // the register exists in the map for every image, but a build with no
+    // ALTPLL_RECONFIG controller behind it has nothing to do with a write, so
+    // 0x15 constant-folds to always reading zero there rather than accepting
+    // a request it cannot act on.
+    parameter [0:0] PllPresetPresent = 1'b0;
+
     // The register map this bank implements, reported at 0x01. Version 2
     // adds IMAGE_ROLE and the 0x20 to 0x23 window; everything version 1
     // defined is unchanged, and the identity block is frozen across all
@@ -173,6 +182,30 @@ module spiRegisters (
     localparam [7:0] EverySample = 8'h01;
     localparam [7:0] EverySecondSample = 8'h02;
     localparam [7:0] EveryFourthSample = 8'h04;
+
+    // The ADC rate presets this gateware knows how to scan the PLL to, in MHz.
+    // Zero is not a preset - it means "no override", the reset value, which
+    // leaves the ADC at the rate this build was statically compiled for.
+    // Fixed for now rather than derived from MaxAdcRateMHz, because the
+    // preset table names specific known-good scan configurations, not every
+    // integer up to the fastest one; a value not in this list is not a
+    // request for an intermediate rate, it is not a request this gateware can
+    // act on.
+    localparam [7:0] PllPresetNone = 8'h00;
+    localparam [7:0] PllPreset40MHz = 8'd40;
+    localparam [7:0] PllPreset60MHz = 8'd60;
+    localparam [7:0] PllPreset66MHz = 8'd66;
+    localparam [7:0] PllPreset70MHz = 8'd70;
+    localparam [7:0] PllPreset75MHz = 8'd75;
+
+    function is_known_pll_preset;
+        input [7:0] value;
+        begin
+            is_known_pll_preset = (value == PllPreset40MHz) || (value == PllPreset60MHz) ||
+                (value == PllPreset66MHz) || (value == PllPreset70MHz) ||
+                (value == PllPreset75MHz);
+        end
+    endfunction
 
     // Input synchronisers ---------------------------------------------------
 
@@ -233,6 +266,7 @@ module spiRegisters (
     reg [7:0] test_mode_register;
     reg [7:0] range_select_register;
     reg [7:0] decimation_register;
+    reg [7:0] pll_preset_register;
     reg [7:0] led_register;
 
     // Unmapped addresses read as zero. That is what lets the map grow without
@@ -259,6 +293,7 @@ module spiRegisters (
                 7'h12:   read_register = DecimationPresent ? decimation_register : 8'h00;
                 7'h13:   read_register = range_select_register;
                 7'h14:   read_register = MaxAdcRateMHz;
+                7'h15:   read_register = PllPresetPresent ? pll_preset_register : 8'h00;
                 7'h20:   read_register = window_read_data[7:0];
                 7'h21:   read_register = window_read_data[15:8];
                 7'h22:   read_register = window_read_data[23:16];
@@ -338,6 +373,7 @@ module spiRegisters (
     assign test_mode           = (test_mode_register != 8'h00);
     assign range_select        = (range_select_register != 8'h00);
     assign decimation          = decimation_register;
+    assign pll_preset          = PllPresetPresent ? pll_preset_register : PllPresetNone;
     assign leds                = led_register;
 
     assign window_write        = window_write_pulse;
@@ -372,6 +408,10 @@ module spiRegisters (
             // Every sample, which is the only reset value that cannot produce
             // a file at a rate nobody asked for.
             decimation_register   <= EverySample;
+
+            // No override, which is the only reset value that does not ask a
+            // build with no reconfig controller behind it to act on a preset.
+            pll_preset_register   <= PllPresetNone;
 
             // One LED lit, which says "configured and running, but the FX3 has
             // not written here yet". An unconfigured FPGA shows none, because
@@ -461,6 +501,24 @@ module spiRegisters (
                                     end
                                 end
                                 7'h13: range_select_register <= shift_in_next;
+                                7'h15: begin
+                                    // Gated the same way DECIMATION is: a
+                                    // build with no reconfig controller holds
+                                    // this at PllPresetNone, so the register
+                                    // folds away there. A value that is not
+                                    // one of the known presets, or that asks
+                                    // for a rate above what this board's ADC
+                                    // is speced for, is normalised to
+                                    // PllPresetNone rather than stored - the
+                                    // host cannot be trusted to pick a
+                                    // preset this hardware cannot run.
+                                    if (PllPresetPresent) begin
+                                        pll_preset_register <=
+                                            (is_known_pll_preset(shift_in_next) &&
+                                             (shift_in_next <= MaxAdcRateMHz)) ?
+                                            shift_in_next : PllPresetNone;
+                                    end
+                                end
                                 default: begin
                                     if (address_in_window) begin
                                         window_write_pulse   <= 1'b1;

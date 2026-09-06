@@ -135,7 +135,8 @@ Map version `0x02`, which is what both gateware images in this repository report
 | `0x12` | `DECIMATION` | RW | `0x01` | yes |
 | `0x13` | `RANGE_SELECT` | RW | `0xFF` | yes |
 | `0x14` | `MAX_ADC_RATE_MHZ` | RO | — | — |
-| `0x15` to `0x1F` | — | unmapped | | |
+| `0x15` | `PLL_PRESET` | RW | `0x00` | yes |
+| `0x16` to `0x1F` | — | unmapped | | |
 | `0x20` | `BRIDGE_UNLOCK` | RW | `0x00` | no |
 | `0x21` | `BRIDGE_CONTROL` | RW | `0x00` | no |
 | `0x22` | `BRIDGE_DATA` | RW | — | no |
@@ -152,7 +153,7 @@ The identity block at `0x00` to `0x0A` is frozen across all map versions, so a h
 
 "Host-writable" is a firmware policy, not a gateware one. The gateware accepts a write to any read/write register from whoever is on the link; the FX3 is what declines to relay some of them.
 
-**`TEST_MODE`, `DECIMATION`, and `RANGE_SELECT` are the only host-writable registers, and the flash bridge is the reason that matters.** All three select what the capture path does with the samples before they reach the buffer, all three are meaningless to the firmware, and the host is the only thing that knows which the user asked for. A new one of these is a firmware change as well as a gateware change: `fpgaRegisterIsHostWritable()` is a list of addresses, and a write to an address it does not name is refused with a stall however willing the gateware would have been. `0x20` to `0x23` are refused as firmly as the LED register and for a stronger reason: the firmware owns the bridge during an update, and a host writing to `BRIDGE_DATA` between two of the firmware's own writes would shift an unaccounted byte into a flash command in progress. The bridge's four-byte unlock is what stands between a *stray* write and an unbootable board; refusing to relay the write at all is what stands between a deliberate one and the same result. Everything a host legitimately wants from the bridge — write this gateware, reload the FPGA — it asks for through `0xD1`–`0xD3` and `0xD5`, where the firmware is the one holding the sequence.
+**`TEST_MODE`, `DECIMATION`, `RANGE_SELECT`, and `PLL_PRESET` are the only host-writable registers, and the flash bridge is the reason that matters.** All four select what the capture path does with the samples before they reach the buffer, all four are meaningless to the firmware, and the host is the only thing that knows which the user asked for. A new one of these is a firmware change as well as a gateware change: `fpgaRegisterIsHostWritable()` is a list of addresses, and a write to an address it does not name is refused with a stall however willing the gateware would have been. `0x20` to `0x23` are refused as firmly as the LED register and for a stronger reason: the firmware owns the bridge during an update, and a host writing to `BRIDGE_DATA` between two of the firmware's own writes would shift an unaccounted byte into a flash command in progress. The bridge's four-byte unlock is what stands between a *stray* write and an unbootable board; refusing to relay the write at all is what stands between a deliberate one and the same result. Everything a host legitimately wants from the bridge — write this gateware, reload the FPGA — it asks for through `0xD1`–`0xD3` and `0xD5`, where the firmware is the one holding the sequence.
 
 ### Identity block, `0x00` to `0x0A`
 
@@ -221,6 +222,14 @@ Only gateware built for a board carrying the RSEL-capable ADC drives this to a p
 The fastest rate, in MHz, this build's board can actually convert at — a build-time constant, not something read off the ADC at runtime, because two speed grades of the same converter family are pin-compatible and electrically indistinguishable to the FPGA. A host uses this to grey out sample-rate choices the hardware in front of it cannot do, rather than discovering the limit by asking for a rate that produces garbage.
 
 Gateware predating this register reads `0x00` here, the same as any unmapped address. A front end should treat that as "unknown", not as a literal claim that the board converts at zero MHz.
+
+### `PLL_PRESET`, `0x15`
+
+Retunes the ADC sampling rate at runtime. `0x00` is the reset value and means no override: the ADC runs at the rate this build was statically compiled for. Any other value asks the gateware to scan the system PLL to that many MHz.
+
+**The register holds the rate, not an index**, on the same reasoning as `DECIMATION`: reading it back is a statement of what the capture path is doing rather than an echo of a request, and a value this gateware cannot honour is distinguishable from `PLL_PRESET_NONE` meaning "no override" and from a stored rate meaning "running at that rate". A value that is not one of the presets the gateware actually has a scan sequence for, or one above `MAX_ADC_RATE_MHZ`, is normalised to `0x00` rather than stored — the host cannot be trusted to ask for a rate this specific board's ADC was not speced for, any more than it can be trusted to pick an unimplemented `DECIMATION` factor.
+
+Only gateware built with an `ALTPLL_RECONFIG` controller behind this register acts on it; a build with no such controller holds it at `0x00` whatever is written, the same way the factory image holds `DECIMATION` at its reset value. This document will name the specific preset rates once that controller exists — see the project's own tracking notes for the current state of that work.
 
 ### `LED`, `0x11`
 

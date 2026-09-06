@@ -142,6 +142,7 @@ inline constexpr uint8_t kRangeSelect2Vpp = 0x01;
 // address - a front end that cares should treat that as "unknown" rather
 // than as a literal zero-MHz ADC.
 inline constexpr uint8_t kRegisterMaxAdcRateMhz = 0x14;
+inline constexpr uint8_t kRegisterPllPreset = 0x15;
 
 // What the decimation register holds: the factor, not a flag, so that reading
 // it back is a statement of what the capture path is doing rather than an echo
@@ -151,6 +152,20 @@ inline constexpr uint8_t kRegisterMaxAdcRateMhz = 0x14;
 inline constexpr uint8_t kDecimationEverySample = 0x01;
 inline constexpr uint8_t kDecimationHalfRate = 0x02;
 inline constexpr uint8_t kDecimationQuarterRate = 0x04;
+
+// What the PLL preset register holds: zero means no override, which leaves
+// the ADC at the rate the gateware was statically compiled for; any other
+// value asks it to scan the PLL to that rate in MHz. The gateware refuses a
+// value that is not one of these, or one above kRegisterMaxAdcRateMhz, the
+// same way it refuses a decimation factor it cannot do - by reading back
+// kPllPresetNone rather than storing the request. A device predating this
+// register reads 0x00 here too, indistinguishably from "no override".
+inline constexpr uint8_t kPllPresetNone = 0x00;
+inline constexpr uint8_t kPllPreset40Mhz = 40;
+inline constexpr uint8_t kPllPreset60Mhz = 60;
+inline constexpr uint8_t kPllPreset66Mhz = 66;
+inline constexpr uint8_t kPllPreset70Mhz = 70;
+inline constexpr uint8_t kPllPreset75Mhz = 75;
 
 // The identity block: signature, map version, build flags, eight commit
 // characters and the image role, contiguous so that one request fetches all of
@@ -256,6 +271,12 @@ inline constexpr uint16_t MakeDecimationWrite(uint8_t factor) {
 inline constexpr uint16_t MakeRangeSelectWrite(bool is2Vpp) {
   return MakeRegisterWrite(kRegisterRangeSelect,
                            is2Vpp ? kRangeSelect2Vpp : kRangeSelect1Vpp);
+}
+
+// Build the wValue that selects a PLL preset, or kPllPresetNone to return to
+// the rate the gateware was statically compiled for.
+inline constexpr uint16_t MakePllPresetWrite(uint8_t preset) {
+  return MakeRegisterWrite(kRegisterPllPreset, preset);
 }
 
 // The device update agent.

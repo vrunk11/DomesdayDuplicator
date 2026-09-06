@@ -145,6 +145,8 @@ static void testHostWritable(void)
           "the host may write the decimation factor");
     check(fpgaRegisterIsHostWritable(FPGA_REGISTER_RANGE_SELECT),
           "the host may write the ADC input range");
+    check(fpgaRegisterIsHostWritable(FPGA_REGISTER_PLL_PRESET),
+          "the host may write the PLL preset");
 
     // The gateware would accept this write. The firmware refuses to relay it,
     // because the LEDs are a status output with exactly one owner.
@@ -156,15 +158,19 @@ static void testHostWritable(void)
     check(!fpgaRegisterIsHostWritable(0x20u),
           "the host may not write an unmapped register");
 
-    // The addresses either side of the three that are permitted, so that a
-    // whitelist which had become a range would fail here. 0x14 rather than
-    // 0x13: RANGE_SELECT moved the boundary when it became host-writable,
-    // and testing the old boundary would no longer prove anything - it
-    // would pass whether or not the whitelist stayed a whitelist.
+    // The addresses either side of the four that are permitted, so that a
+    // whitelist which had become a range would fail here. 0x16 rather than
+    // 0x14: PLL_PRESET moved the boundary when it became host-writable, and
+    // testing the old boundary would no longer prove anything - it would
+    // pass whether or not the whitelist stayed a whitelist. 0x14
+    // (MAX_ADC_RATE_MHZ) sits between RANGE_SELECT and PLL_PRESET and is
+    // read-only, so it is worth its own check rather than being assumed.
     check(!fpgaRegisterIsHostWritable(0x0Fu),
           "the host may not write the address below test mode");
-    check(!fpgaRegisterIsHostWritable(0x14u),
-          "the host may not write the address above range select");
+    check(!fpgaRegisterIsHostWritable(FPGA_REGISTER_MAX_ADC_RATE_MHZ),
+          "the host may not write the read-only max ADC rate register");
+    check(!fpgaRegisterIsHostWritable(0x16u),
+          "the host may not write the address above the PLL preset");
 }
 
 static void testReadRequests(void)
@@ -194,6 +200,7 @@ static void testWriteRequests(void)
     // Turning test mode on and off, which is the only write the host makes
     check(fpgaWriteRequestIsValid(0x1001u), "test mode on is accepted");
     check(fpgaWriteRequestIsValid(0x1000u), "test mode off is accepted");
+    check(fpgaWriteRequestIsValid(0x1528u), "a PLL preset write is accepted");
 
     check(!fpgaWriteRequestIsValid(0x1101u), "a write to the LED register is refused");
     check(!fpgaWriteRequestIsValid(0x0044u), "a write to a read-only register is refused");

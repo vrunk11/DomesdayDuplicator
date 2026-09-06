@@ -205,6 +205,12 @@ module DomesdayDuplicatorFactory (
     // the resulting signal: it has no ADC and drives no such pin.
     wire        range_select_unused;
 
+    // PLL_PRESET is gated the same way DECIMATION is (PllPresetPresent left at
+    // its default), because this image has no ALTPLL_RECONFIG controller to
+    // hand a preset to - it does not even have the capture-side static PLL
+    // running at more than one rate.
+    wire [ 7:0] pll_preset_unused;
+
     spiRegisters #(
         .CommitText(`GATEWARE_COMMIT_TEXT),
         .BuildFlags(`GATEWARE_BUILD_FLAGS),
@@ -232,6 +238,7 @@ module DomesdayDuplicatorFactory (
         .test_mode          (test_mode_unused),
         .range_select       (range_select_unused),
         .decimation         (decimation_unused),
+        .pll_preset         (pll_preset_unused),
         .leds               (leds),
         .window_write       (window_write_registers),
         .window_address     (window_address_registers),

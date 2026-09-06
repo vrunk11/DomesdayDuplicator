@@ -36,6 +36,7 @@
 #define FPGA_REGISTER_DECIMATION        (0x12u)
 #define FPGA_REGISTER_RANGE_SELECT      (0x13u)
 #define FPGA_REGISTER_MAX_ADC_RATE_MHZ  (0x14u)
+#define FPGA_REGISTER_PLL_PRESET        (0x15u)
 
 // Any non-zero value means 2Vpp, on the same convention as TEST_MODE, so a
 // host writing 1 and a host writing 0xFF agree about what they asked for.
@@ -48,6 +49,19 @@
 #define FPGA_DECIMATION_EVERY_SAMPLE    (0x01u)
 #define FPGA_DECIMATION_HALF_RATE       (0x02u)
 #define FPGA_DECIMATION_QUARTER_RATE    (0x04u)
+
+// PLL_PRESET values. Zero means "no override" - the ADC runs at the rate this
+// build was statically compiled for. Anything else asks the gateware to scan
+// the PLL to that rate in MHz, and a value that is not one of these, or that
+// asks for more than FPGA_REGISTER_MAX_ADC_RATE_MHZ reports, is refused and
+// read back as PLL_PRESET_NONE - the gateware normalises it the same way it
+// normalises an unimplemented decimation factor.
+#define FPGA_PLL_PRESET_NONE            (0x00u)
+#define FPGA_PLL_PRESET_40MHZ           (40u)
+#define FPGA_PLL_PRESET_60MHZ           (60u)
+#define FPGA_PLL_PRESET_66MHZ           (66u)
+#define FPGA_PLL_PRESET_70MHZ           (70u)
+#define FPGA_PLL_PRESET_75MHZ           (75u)
 
 // Map version 2's flash bridge and reconfiguration control. These are the
 // only registers whose writes have an effect outside the register bank:

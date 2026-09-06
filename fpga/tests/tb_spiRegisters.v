@@ -53,6 +53,7 @@ module tb_spiRegisters;
     wire           test_mode;
     wire           range_select;
     wire    [ 7:0] decimation;
+    wire    [ 7:0] pll_preset;
     wire    [ 7:0] leds;
 
     // The 0x20 to 0x23 window, which in a real image reaches the flash
@@ -103,6 +104,7 @@ module tb_spiRegisters;
     wire            test_mode_absent;
     wire            range_select_absent;
     wire    [  7:0] decimation_absent;
+    wire    [  7:0] pll_preset_absent;
     wire    [  7:0] leds_absent;
     wire            window_write_absent;
     wire    [  1:0] window_address_absent;
@@ -119,6 +121,7 @@ module tb_spiRegisters;
         .ImageRole        (IMAGE_ROLE),
         .TelemetryPresent (1'b1),
         .DecimationPresent(1'b1),
+        .PllPresetPresent (1'b1),
         .MaxAdcRateMHz    (MAX_ADC_RATE_MHZ)
     ) dut (
         .reset_n            (reset_n),
@@ -134,6 +137,7 @@ module tb_spiRegisters;
         .test_mode          (test_mode),
         .range_select       (range_select),
         .decimation         (decimation),
+        .pll_preset         (pll_preset),
         .leds               (leds),
         .window_write       (window_write),
         .window_address     (window_address),
@@ -162,6 +166,7 @@ module tb_spiRegisters;
         .test_mode          (test_mode_absent),
         .range_select       (range_select_absent),
         .decimation         (decimation_absent),
+        .pll_preset         (pll_preset_absent),
         .leds               (leds_absent),
         .window_write       (window_write_absent),
         .window_address     (window_address_absent),
@@ -330,6 +335,10 @@ module tb_spiRegisters;
         // where a range wider than the input needs only costs resolution.
         check(range_select, 1'b1, "range select is 2Vpp after reset");
 
+        // No override: a board that has just come out of reset runs at the
+        // rate it was statically compiled for.
+        check(pll_preset, 8'h00, "pll preset is none after reset");
+
         // --- Identity block ---
         //
         // Eleven bytes in one transaction: the signature, the map version, the
@@ -457,6 +466,52 @@ module tb_spiRegisters;
         // The image without a capture path holds it at every sample whatever
         // is written, which is what makes the whole register fold away there.
         check(decimation_absent, 8'h01, "no capture path means no decimation");
+
+        // --- PLL preset ---
+        //
+        // Gated by PllPresetPresent the same way DECIMATION is gated by
+        // DecimationPresent - this build has the register, but no
+        // ALTPLL_RECONFIG controller behind it yet, which is exactly the
+        // state a build with no reconfigurable PLL at all is also in. Three
+        // things have to be normalised away rather than stored: a known
+        // preset above MaxAdcRateMHz, a value that is not a known preset at
+        // all, and zero, which means "no override" rather than a rate.
+        check(pll_preset, 8'h00, "pll preset resets to no override");
+        spi_read(7'h15, 8'd1);
+        check(read_data[0], 8'h00, "pll preset reads back its reset value");
+
+        spi_write_one(7'h15, 8'd40);
+        check(pll_preset, 8'd40, "40 MHz preset selected");
+        spi_read(7'h15, 8'd1);
+        check(read_data[0], 8'd40, "and reads back");
+
+        spi_write_one(7'h15, 8'd66);
+        check(pll_preset, 8'd66, "66 MHz preset selected, exactly at the cap");
+
+        // 75 MHz is a preset this gateware knows, but this build's ADC is
+        // only speced to MAX_ADC_RATE_MHZ (66) - the host cannot be trusted
+        // to pick a rate this hardware cannot run.
+        spi_write_one(7'h15, 8'd75);
+        check(pll_preset, 8'h00, "a preset above the board's own cap is refused");
+        spi_read(7'h15, 8'd1);
+        check(read_data[0], 8'h00, "and reads back as no override");
+
+        // 50 is not one of the known presets at all - not a request for an
+        // intermediate rate, just not a scan sequence this gateware has.
+        spi_write_one(7'h15, 8'd66);
+        spi_write_one(7'h15, 8'd50);
+        check(pll_preset, 8'h00, "an unknown value is refused, not stored as-is");
+
+        spi_write_one(7'h15, 8'd60);
+        check(pll_preset, 8'd60, "60 MHz preset selected");
+        spi_write_one(7'h15, 8'h00);
+        check(pll_preset, 8'h00, "writing zero clears the override");
+
+        // The image with no reconfig controller behind the register holds it
+        // at PllPresetNone whatever is written, the same way DECIMATION does
+        // for the image with no capture path.
+        spi_write_one(7'h15, 8'd40);
+        check(pll_preset_absent, 8'h00, "no reconfig controller means no pll preset");
 
         // --- LEDs ---
         spi_write_one(7'h11, 8'hA5);
@@ -667,6 +722,7 @@ module tb_spiRegisters;
         check(leds, 8'h01, "reset restores the LED register");
         check(test_mode, 1'b0, "reset clears test mode");
         check(range_select, 1'b1, "reset restores range select to 2Vpp");
+        check(pll_preset, 8'h00, "reset restores pll preset to no override");
 
         if (errors == 0) begin
             $display("tb_spiRegisters: PASS");

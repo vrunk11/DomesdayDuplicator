@@ -193,6 +193,7 @@ module DomesdayDuplicator #(
     wire       fx3_test_mode;
     wire       fx3_range_select;
     wire [7:0] fx3_decimation;
+    wire [7:0] fx3_pll_preset_unused;
 
     // Signal outputs to FX3
     assign fx3_control[00]       = fx3_data_available;
@@ -588,6 +589,10 @@ module DomesdayDuplicator #(
         // carrying a slower part in the same family overrides this alone -
         // everything else in this file is shared between them.
         .MaxAdcRateMHz(8'd75)
+
+        // PllPresetPresent is left at its default (off): the register exists
+        // in the map but there is no ALTPLL_RECONFIG controller behind it in
+        // this build yet, so a write to 0x15 has nothing to act on.
     ) spi_registers_0 (
         // Inputs
         .reset_n           (reset_n),
@@ -605,6 +610,7 @@ module DomesdayDuplicator #(
         .test_mode          (fx3_test_mode),          // 1 = test data generator selected
         .range_select       (fx3_range_select),       // 1 = 2Vpp, 0 = 1Vpp on the ADS828
         .decimation         (fx3_decimation),         // Samples kept out of every n
+        .pll_preset         (fx3_pll_preset_unused),  // Not acted on until 3 lands
         .leds               (LED),                    // Driven by the FX3, for status
         .window_write       (window_write),
         .window_address     (window_address),
