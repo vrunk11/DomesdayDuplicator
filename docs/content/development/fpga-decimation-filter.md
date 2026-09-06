@@ -5,9 +5,14 @@ capturing tape RF where a LaserDisc's bandwidth is not needed and half the sampl
 the file. This page describes the filter that makes that safe to do.
 
 It is enabled by writing 2 to the [`DECIMATION` register](fpga-register-interface.md), which
-is what the capture application's [Sample rate](../capture-gui/capture-control.md#sample-rate)
+is what the capture application's [Decimation](../capture-gui/capture-control.md#decimation)
 control does. The source is `fpga/application/halfBandDecimator.v`, and the coefficients come
 from `fpga/make-halfband-coefficients.py`.
+
+Quarter rate (writing 4) is not a second filter: it is two instances of the same stage in
+series, the second one fed the first's output, each halving whatever rate reaches it. Every
+figure below describes one stage, at whatever rate is feeding it — halving 40 Msps to 20 Msps
+for the first stage of a quarter-rate capture, then 20 Msps to 10 Msps for the second.
 
 ## Why there is a filter at all
 
