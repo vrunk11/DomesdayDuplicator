@@ -13,6 +13,7 @@
 
 #include <QCommandLineOption>
 #include <QString>
+#include <cstdint>
 #include <optional>
 
 #include "capture_format.h"
@@ -64,6 +65,8 @@ struct CaptureCliOptionSet {
   QCommandLineOption capture_directory;
   QCommandLineOption capture_name;
   QCommandLineOption sample_rate;
+  QCommandLineOption adc_rate;
+  QCommandLineOption input_range;
   QCommandLineOption duration_limit;
   QCommandLineOption output_format;
 };
@@ -90,6 +93,19 @@ struct CaptureCliOptions {
   // typed, because the factor is what a setting is and the rate is how it is
   // spelled. See capture_format.h.
   std::optional<int> decimation_factor;
+
+  // The converter's own rate to ask for via PLL_PRESET, in MHz - independent
+  // of decimation_factor above, which is how much further to divide it down.
+  // Not validated against the connected board's MAX_ADC_RATE_MHZ here: that
+  // capability is only known once a device answers, which has not happened
+  // yet when a command line is parsed, so the refusal a preset above it gets
+  // is spiRegisters.v's, the same as it is for the window.
+  std::optional<uint8_t> pll_preset_mhz;
+
+  // The ADC's input range: true for 2Vpp, false for 1Vpp - see
+  // CaptureSettings::range_select_2vpp, which this overrides on the same
+  // terms as every other attribute here.
+  std::optional<bool> range_select_2vpp;
 
   std::optional<int> duration_limit_seconds;
   std::optional<capture::CaptureOutputFormat> output_format;

@@ -16,6 +16,8 @@
 #include <QLatin1String>
 #include <QStringList>
 
+#include "wire_protocol.h"
+
 namespace ddd::gui {
 namespace {
 
@@ -27,6 +29,8 @@ constexpr const char* kHeadlessName = "headless";
 constexpr const char* kCaptureDirectoryName = "capture-directory";
 constexpr const char* kCaptureNameName = "capture-name";
 constexpr const char* kSampleRateName = "sample-rate";
+constexpr const char* kAdcRateName = "adc-rate";
+constexpr const char* kInputRangeName = "input-range";
 constexpr const char* kDurationLimitName = "duration-limit";
 constexpr const char* kOutputFormatName = "output-format";
 
@@ -38,6 +42,13 @@ constexpr const char* kOutputFormatName = "output-format";
 // wrote FLAC when it asked for raw samples would be found out much later.
 constexpr const char* kFlacFormatWord = "flac";
 constexpr const char* kSigned16BitFormatWord = "s16";
+
+// The input-range words. "2vpp"/"1vpp" rather than true/false, on the same
+// reasoning as the format words above: what somebody actually knows at the
+// command line is the range printed on the source they are capturing, not
+// which boolean the setting happens to be.
+constexpr const char* k2VppWord = "2vpp";
+constexpr const char* k1VppWord = "1vpp";
 
 // The rates this build can capture at, derived from the decimation factors
 // rather than written out beside them: a factor added to capture_format.h
@@ -69,6 +80,26 @@ QString SupportedRateWords() {
   return rates.join(QStringLiteral(" or "));
 }
 
+// The ADC rates PLL_PRESET can ask for - see kPllPreset40Mhz..kPllPreset75Mhz
+// in wire_protocol.h, which this mirrors, on the same terms
+// kSupportedDecimationFactors mirrors capture_format.h above: named here
+// rather than derived from IsSupportedPllPreset, which answers "is this one
+// of them" rather than "what are they" - this list is only ever walked in
+// the direction of listing them.
+constexpr uint8_t kKnownPllPresets[] = {
+    capture::kPllPreset40Mhz, capture::kPllPreset45Mhz,
+    capture::kPllPreset50Mhz, capture::kPllPreset55Mhz,
+    capture::kPllPreset60Mhz, capture::kPllPreset65Mhz,
+    capture::kPllPreset70Mhz, capture::kPllPreset75Mhz};
+
+QString SupportedPllPresetWords() {
+  QStringList rates;
+  for (const uint8_t preset : kKnownPllPresets) {
+    rates.append(QString::number(preset));
+  }
+  return rates.join(QStringLiteral(" or "));
+}
+
 // Whether a raw argument is this option, in either of the spellings Qt's parser
 // accepts for a long name.
 bool IsOptionToken(const QString& token, const char* name) {
@@ -81,7 +112,8 @@ bool IsOptionToken(const QString& token, const char* name) {
 
 bool CaptureCliOptions::HasAttributeOverrides() const {
   return capture_directory.has_value() || capture_name.has_value() ||
-         decimation_factor.has_value() || duration_limit_seconds.has_value() ||
+         decimation_factor.has_value() || pll_preset_mhz.has_value() ||
+         range_select_2vpp.has_value() || duration_limit_seconds.has_value() ||
          output_format.has_value();
 }
 
@@ -117,6 +149,23 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
               .arg(SupportedRateWords()),
           QStringLiteral("msps")),
       QCommandLineOption(
+          QLatin1String(kAdcRateName),
+          QStringLiteral(
+              "Ask the device's PLL to run the converter itself at this rate "
+              "in MHz, before --sample-rate's decimation: %1. Only takes "
+              "effect on gateware built with a reconfigurable PLL; refused "
+              "by the device if it is above what the board can do.")
+              .arg(SupportedPllPresetWords()),
+          QStringLiteral("mhz")),
+      QCommandLineOption(
+          QLatin1String(kInputRangeName),
+          QStringLiteral("Set the ADC's input range to %1 or %2. 2Vpp is the "
+                         "safe default: clipping the input loses signal "
+                         "irrecoverably, where a range wider than the "
+                         "source's own level only costs resolution.")
+              .arg(QLatin1String(k2VppWord), QLatin1String(k1VppWord)),
+          QStringLiteral("range")),
+      QCommandLineOption(
           QLatin1String(kDurationLimitName),
           QStringLiteral("Stop automatically after this many seconds. Omit it "
                          "to run until stopped."),
@@ -134,6 +183,8 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
   parser.addOption(set.capture_directory);
   parser.addOption(set.capture_name);
   parser.addOption(set.sample_rate);
+  parser.addOption(set.adc_rate);
+  parser.addOption(set.input_range);
   parser.addOption(set.duration_limit);
   parser.addOption(set.output_format);
 
@@ -208,6 +259,34 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
     options.decimation_factor = factor;
   }
 
+  if (parser.isSet(set.adc_rate)) {
+    const QString text = parser.value(set.adc_rate).trimmed();
+    bool numeric = false;
+    const int mhz = text.toInt(&numeric);
+    if (!numeric || mhz < 0 || mhz > 0xFF ||
+        !capture::IsSupportedPllPreset(static_cast<uint8_t>(mhz))) {
+      result.error = QStringLiteral("Unknown --adc-rate '%1'. Use %2, in MHz.")
+                         .arg(text, SupportedPllPresetWords());
+      return result;
+    }
+    options.pll_preset_mhz = static_cast<uint8_t>(mhz);
+  }
+
+  if (parser.isSet(set.input_range)) {
+    const QString word = parser.value(set.input_range).trimmed().toLower();
+    if (word == QLatin1String(k2VppWord)) {
+      options.range_select_2vpp = true;
+    } else if (word == QLatin1String(k1VppWord)) {
+      options.range_select_2vpp = false;
+    } else {
+      result.error =
+          QStringLiteral("Unknown --input-range '%1'. Use %2 or %3.")
+              .arg(parser.value(set.input_range), QLatin1String(k2VppWord),
+                   QLatin1String(k1VppWord));
+      return result;
+    }
+  }
+
   if (parser.isSet(set.duration_limit)) {
     const QString text = parser.value(set.duration_limit).trimmed();
     bool numeric = false;
@@ -277,6 +356,12 @@ void ApplyCliOverrides(CaptureSettings& settings,
   }
   if (options.decimation_factor.has_value()) {
     settings.decimation_factor = *options.decimation_factor;
+  }
+  if (options.pll_preset_mhz.has_value()) {
+    settings.pll_preset_mhz = *options.pll_preset_mhz;
+  }
+  if (options.range_select_2vpp.has_value()) {
+    settings.range_select_2vpp = *options.range_select_2vpp;
   }
   if (options.duration_limit_seconds.has_value()) {
     settings.duration_limit_seconds = *options.duration_limit_seconds;
