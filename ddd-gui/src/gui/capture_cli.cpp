@@ -28,7 +28,7 @@ constexpr const char* kStopCaptureName = "stop-capture";
 constexpr const char* kHeadlessName = "headless";
 constexpr const char* kCaptureDirectoryName = "capture-directory";
 constexpr const char* kCaptureNameName = "capture-name";
-constexpr const char* kSampleRateName = "sample-rate";
+constexpr const char* kDecimationName = "decimation";
 constexpr const char* kAdcRateName = "adc-rate";
 constexpr const char* kInputRangeName = "input-range";
 constexpr const char* kDurationLimitName = "duration-limit";
@@ -50,39 +50,52 @@ constexpr const char* kSigned16BitFormatWord = "s16";
 constexpr const char* k2VppWord = "2vpp";
 constexpr const char* k1VppWord = "1vpp";
 
-// The rates this build can capture at, derived from the decimation factors
-// rather than written out beside them: a factor added to capture_format.h
-// appears on the command line without anything having to be kept in step.
-constexpr int kSupportedDecimationFactors[] = {capture::kUndecimatedFactor,
-                                               capture::kTapeDecimationFactor};
+// The decimation choices this build offers, each a word rather than a rate:
+// this option divides the ADC rate (--adc-rate, a separate setting) further,
+// and is not a rate itself. Spelling a choice as an absolute number of
+// samples per second was tried and was wrong the moment the ADC rate became
+// selectable — "20" stopped meaning "half of 40" and started meaning "half
+// of whatever --adc-rate was", which nothing at parse time can resolve: the
+// board's own default rate is not known until a device answers, which has
+// not happened yet when a command line is parsed. A word for the divisor
+// keeps the two settings independent, which is what they actually are.
+constexpr const char* kFullDecimationWord = "full";
+constexpr const char* kHalfDecimationWord = "half";
+constexpr const char* kQuarterDecimationWord = "quarter";
 
-constexpr uint32_t kHzPerMsps = 1'000'000;
+struct DecimationChoice {
+  const char* word;
+  int factor;
+};
 
-int MegasamplesPerSecondFor(int decimation_factor) {
-  return static_cast<int>(capture::SampleRateHzFor(decimation_factor) /
-                          kHzPerMsps);
-}
+// A factor added to capture_format.h appears on the command line by adding
+// its word here — nothing else has to be kept in step.
+constexpr DecimationChoice kSupportedDecimationChoices[] = {
+    {kFullDecimationWord, capture::kUndecimatedFactor},
+    {kHalfDecimationWord, capture::kTapeDecimationFactor},
+    {kQuarterDecimationWord, capture::kQuarterDecimationFactor},
+};
 
-std::optional<int> DecimationFactorForRate(int megasamples_per_second) {
-  for (const int factor : kSupportedDecimationFactors) {
-    if (MegasamplesPerSecondFor(factor) == megasamples_per_second) {
-      return factor;
+std::optional<int> DecimationFactorForWord(const QString& word) {
+  for (const DecimationChoice& choice : kSupportedDecimationChoices) {
+    if (word == QLatin1String(choice.word)) {
+      return choice.factor;
     }
   }
   return std::nullopt;
 }
 
-QString SupportedRateWords() {
-  QStringList rates;
-  for (const int factor : kSupportedDecimationFactors) {
-    rates.append(QString::number(MegasamplesPerSecondFor(factor)));
+QString SupportedDecimationWords() {
+  QStringList words;
+  for (const DecimationChoice& choice : kSupportedDecimationChoices) {
+    words.append(QLatin1String(choice.word));
   }
-  return rates.join(QStringLiteral(" or "));
+  return words.join(QStringLiteral(", "));
 }
 
 // The ADC rates PLL_PRESET can ask for - see kPllPreset40Mhz..kPllPreset75Mhz
 // in wire_protocol.h, which this mirrors, on the same terms
-// kSupportedDecimationFactors mirrors capture_format.h above: named here
+// kSupportedDecimationChoices mirrors capture_format.h above: named here
 // rather than derived from IsSupportedPllPreset, which answers "is this one
 // of them" rather than "what are they" - this list is only ever walked in
 // the direction of listing them.
@@ -143,18 +156,20 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
                          "the configured or generated name."),
           QStringLiteral("name")),
       QCommandLineOption(
-          QLatin1String(kSampleRateName),
-          QStringLiteral("Capture at this rate in Msps: %1. Decimation is done "
-                         "by the device.")
-              .arg(SupportedRateWords()),
-          QStringLiteral("msps")),
+          QLatin1String(kDecimationName),
+          QStringLiteral("Divide the ADC's own rate by this much in the "
+                         "device: %1. Independent of --adc-rate below - this "
+                         "is how much further to divide whatever rate that "
+                         "is, not a rate of its own.")
+              .arg(SupportedDecimationWords()),
+          QStringLiteral("choice")),
       QCommandLineOption(
           QLatin1String(kAdcRateName),
           QStringLiteral(
               "Ask the device's PLL to run the converter itself at this rate "
-              "in MHz, before --sample-rate's decimation: %1. Only takes "
-              "effect on gateware built with a reconfigurable PLL; refused "
-              "by the device if it is above what the board can do.")
+              "in MHz, before --decimation divides it further: %1. Only "
+              "takes effect on gateware built with a reconfigurable PLL; "
+              "refused by the device if it is above what the board can do.")
               .arg(SupportedPllPresetWords()),
           QStringLiteral("mhz")),
       QCommandLineOption(
@@ -182,7 +197,7 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
   parser.addOption(set.headless);
   parser.addOption(set.capture_directory);
   parser.addOption(set.capture_name);
-  parser.addOption(set.sample_rate);
+  parser.addOption(set.decimation);
   parser.addOption(set.adc_rate);
   parser.addOption(set.input_range);
   parser.addOption(set.duration_limit);
@@ -244,16 +259,13 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
     options.capture_name = name;
   }
 
-  if (parser.isSet(set.sample_rate)) {
-    const QString text = parser.value(set.sample_rate).trimmed();
-    bool numeric = false;
-    const int rate = text.toInt(&numeric);
-    const std::optional<int> factor =
-        numeric ? DecimationFactorForRate(rate) : std::nullopt;
+  if (parser.isSet(set.decimation)) {
+    const QString word = parser.value(set.decimation).trimmed().toLower();
+    const std::optional<int> factor = DecimationFactorForWord(word);
     if (!factor.has_value()) {
       result.error =
-          QStringLiteral("Unknown --sample-rate '%1'. Use %2, in Msps.")
-              .arg(text, SupportedRateWords());
+          QStringLiteral("Unknown --decimation '%1'. Use %2.")
+              .arg(parser.value(set.decimation), SupportedDecimationWords());
       return result;
     }
     options.decimation_factor = factor;

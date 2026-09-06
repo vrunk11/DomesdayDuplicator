@@ -287,10 +287,11 @@ TEST_F(AutoCaptureWizardTest, TheDestinationIsHereRatherThanOnAnotherPanel) {
   EXPECT_NE(Find<QLabel>(AutoCaptureWizard::kSampleRateLabelName), nullptr);
 }
 
-// 20 MSPS exists for tape, whose RF is a fraction of a LaserDisc's bandwidth.
-// This window drives a LaserDisc player, so a decimated capture here would fold
-// everything above 10 MHz down on top of the signal — and a drop-down with one
-// entry would only invite somebody to look for the setting that adds the other.
+// Decimating exists for tape, whose RF is a fraction of a LaserDisc's
+// bandwidth. This window drives a LaserDisc player, so a decimated capture
+// here would fold everything above the new Nyquist down on top of the signal
+// — and a drop-down with one entry would only invite somebody to look for
+// the setting that adds the others.
 TEST_F(AutoCaptureWizardTest, TheHalfRateIsNotOfferedForALaserDisc) {
   Build();
   WithDisc(CavDisc());
@@ -300,11 +301,12 @@ TEST_F(AutoCaptureWizardTest, TheHalfRateIsNotOfferedForALaserDisc) {
 
   auto* const stated = Find<QLabel>(AutoCaptureWizard::kSampleRateLabelName);
   ASSERT_NE(stated, nullptr);
-  EXPECT_TRUE(stated->text().contains(QStringLiteral("40")));
-  EXPECT_FALSE(stated->text().contains(QStringLiteral("20")));
+  EXPECT_TRUE(stated->text().contains(QStringLiteral("Every sample")));
+  EXPECT_FALSE(
+      stated->text().contains(QStringLiteral("decimat"), Qt::CaseInsensitive));
 }
 
-// And a Capture panel left at 20 MSPS from some tape work does not quietly
+// And a Capture panel left decimated from some tape work does not quietly
 // carry that into a LaserDisc capture.
 TEST_F(AutoCaptureWizardTest, ADecimatedSettingIsPutBackForTheCapture) {
   CaptureSettings decimated;

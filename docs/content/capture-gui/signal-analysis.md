@@ -69,17 +69,21 @@ was ever stored in the derived units.
 ## At 20 Msps
 
 Every figure on these three panels is a property of the stream, so all of them follow the
-[Sample rate](capture-control.md#sample-rate) setting. Choose **20 MSPS for VHS** and:
+[Decimation](capture-control.md#decimation) setting. Choose **Half rate (VHS and other
+tape)** and:
 
-| Reading | At 40 Msps | At 20 Msps |
-| --- | --- | --- |
-| Top of the frequency axis | 20 MHz | **10 MHz** |
-| Default span, in time | 200 µs | **400 µs** |
-| Default resolution | 9.8 kHz bins | **4.9 kHz bins** |
-| Encoder backlog | ms of signal | the same ms, from half the samples |
+| Reading | At 40 Msps | At 20 Msps (half rate) | At 10 Msps (quarter rate) |
+| --- | --- | --- | --- |
+| Top of the frequency axis | 20 MHz | **10 MHz** | **5 MHz** |
+| Default span, in time | 200 µs | **400 µs** | **800 µs** |
+| Default resolution | 9.8 kHz bins | **4.9 kHz bins** | **2.45 kHz bins** |
+| Encoder backlog | ms of signal | the same ms, from half the samples | the same ms, from a quarter of the samples |
 
 The numbers quoted throughout the rest of this page are the 40 Msps ones, because that is
-what a LaserDisc capture uses. Halve every frequency and double every time for the other.
+what a LaserDisc capture uses at the converter's default rate. Halve every frequency and
+double every time for half rate, or quarter and quadruple for quarter rate. A build whose ADC
+rate has been changed from that default (see [ADC rate](capture-control.md#adc-rate)) scales
+all of these from whatever that rate actually is, not from 40 Msps.
 
 Two things change in kind rather than in scale. The **filter corner** marker is not drawn at
 20 Msps: it marks the board's analogue filter at 13.2 MHz, which is above the 10 MHz Nyquist

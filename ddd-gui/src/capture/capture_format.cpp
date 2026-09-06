@@ -20,7 +20,8 @@
 namespace ddd::capture {
 
 bool IsSupportedDecimationFactor(int factor) {
-  return factor == kUndecimatedFactor || factor == kTapeDecimationFactor;
+  return factor == kUndecimatedFactor || factor == kTapeDecimationFactor ||
+         factor == kQuarterDecimationFactor;
 }
 
 bool IsSupportedPllPreset(uint8_t mhz) {

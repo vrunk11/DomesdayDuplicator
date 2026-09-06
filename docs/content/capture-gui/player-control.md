@@ -253,17 +253,17 @@ The plan, and the destination — folder and format — together, so that settin
 does not mean a detour to the Capture panel and back. Both are the same settings that panel
 shows: change one here and it changes there, because there is one settings file and not two.
 
-**The sample rate is stated rather than offered: 40 MSPS, a LaserDisc's full rate.** The
-20 MSPS setting exists for VHS and other tape formats, whose RF is a fraction of a
-LaserDisc's bandwidth, and this window drives a LaserDisc player — a decimated capture here
-would fold everything above 10 MHz down on top of the signal, and nothing downstream could
-tell the alias from the disc. If the Capture panel was left at 20 MSPS from some tape work,
-opening this window puts it back to 40.
+**Decimation is stated rather than offered: every sample, a LaserDisc's full rate.**
+Decimating exists for VHS and other tape formats, whose RF is a fraction of a LaserDisc's
+bandwidth, and this window drives a LaserDisc player — a decimated capture here would fold
+everything above the new Nyquist down on top of the signal, and nothing downstream could tell
+the alias from the disc. If the Capture panel was left decimated from some tape work, opening
+this window puts it back to every sample.
 
-The one case it cannot fix is a stream that is already running: the rate is written to the
+The one case it cannot fix is a stream that is already running: decimation is written to the
 device before the stream opens and cannot be changed under a running one. If you are
-monitoring at 20 MSPS, this page says so and asks you to stop monitoring first, rather than
-quietly taking the capture at half rate.
+monitoring decimated, this page says so and asks you to stop monitoring first, rather than
+quietly taking the capture at less than full rate.
 
 Three shapes, and they are the three a player can actually be asked for:
 

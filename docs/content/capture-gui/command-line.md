@@ -116,7 +116,7 @@ to the panel and the console and says so.
 
 ### Capture options
 
-Eight options start, stop and set up a capture, so that a script can do what the window
+Ten options start, stop and set up a capture, so that a script can do what the window
 does. They are listed here for completeness and covered properly — with the exit codes, the
 worked examples and what each platform needs — in
 **[Scripting captures](scripting.md)**.
@@ -128,12 +128,19 @@ worked examples and what each platform needs — in
 | `--stop-capture` | Stop the capture a running instance is taking, wait for its file to be finished, print it and exit |
 | `--capture-directory <folder>` | Write here instead of the configured folder. Created if it is not there |
 | `--capture-name <name>` | Call the capture this, without a suffix |
-| `--sample-rate <msps>` | `40` or `20` |
+| `--decimation <choice>` | `full`, `half` or `quarter` — how much further to divide the ADC rate below, in the device |
+| `--adc-rate <mhz>` | The converter's own rate, in MHz — independent of `--decimation` above. Only takes effect on gateware built with a reconfigurable PLL |
+| `--input-range <range>` | `2vpp` or `1vpp` — the ADC's input range |
 | `--duration-limit <seconds>` | 1 to 86400. Leave it out to capture until stopped |
 | `--output-format <format>` | `flac` or `s16` |
 
-Given without `--start-capture` or `--stop-capture`, the last five simply fill the window in
+Given without `--start-capture` or `--stop-capture`, the last seven simply fill the window in
 and start nothing. Whatever they set applies to that run only and is never saved.
+
+`--decimation` and `--adc-rate` are deliberately separate: the first is a divisor applied in
+the FPGA, the second is the converter's own rate before that division, and neither can be
+worked out from the other. Naming the *result* of dividing a selectable rate — "20 Msps" — was
+tried and was wrong the moment `--adc-rate` existed to change what it was dividing.
 
 ```bash
 ddd-gui --headless --start-capture --capture-name disc-42-side-1 --duration-limit 1800

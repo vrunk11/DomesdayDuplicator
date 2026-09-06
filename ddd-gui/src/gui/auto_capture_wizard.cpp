@@ -339,21 +339,26 @@ QWidget* AutoCaptureWizard::BuildSettingsPage() {
       static_cast<int>(capture::CaptureOutputFormat::kSigned16Bit));
   destination_form->addRow(tr("Format"), format_combo_);
 
-  // Stated rather than offered, and the half rate is not among the choices
-  // because there are no choices. 20 MSPS exists for tape, whose RF is a
+  // Stated rather than offered, and decimation is not among the choices
+  // because there are no choices. Decimating exists for tape, whose RF is a
   // fraction of a LaserDisc's bandwidth; this window drives a LaserDisc player,
-  // so a decimated capture here would fold everything above 10 MHz down on top
-  // of the signal and nothing downstream could tell the alias from the disc. A
-  // drop-down with one entry in it would only invite somebody to look for the
-  // setting that adds the other one.
-  sample_rate_label_ =
-      new QLabel(tr("40 MSPS — a LaserDisc's full rate"), destination);
+  // so a decimated capture here would fold everything above the new Nyquist
+  // down on top of the signal and nothing downstream could tell the alias
+  // from the disc. A drop-down with one entry in it would only invite
+  // somebody to look for the setting that adds the others.
+  //
+  // No rate is named here, deliberately: the ADC's own rate is a separate,
+  // independently selectable setting (see the Capture panel's ADC rate
+  // control), and stating a number here would be true only until somebody
+  // changed that.
+  sample_rate_label_ = new QLabel(tr("Every sample"), destination);
   sample_rate_label_->setObjectName(QLatin1String(kSampleRateLabelName));
   sample_rate_label_->setToolTip(
-      tr("The 20 MSPS setting is for VHS and other tape formats, and is not "
-         "offered here: an automatic capture drives a LaserDisc player. If the "
-         "Capture panel is set to 20 MSPS, this capture puts it back to 40."));
-  destination_form->addRow(tr("Sample rate"), sample_rate_label_);
+      tr("Decimation is for VHS and other tape formats, and is not offered "
+         "here: an automatic capture drives a LaserDisc player. If the "
+         "Capture panel is set to decimate, this capture puts it back to "
+         "every sample."));
+  destination_form->addRow(tr("Decimation"), sample_rate_label_);
 
   sample_rate_warning_ = new QLabel(destination);
   sample_rate_warning_->setObjectName(QLatin1String(kSampleRateWarningName));
@@ -677,15 +682,16 @@ void AutoCaptureWizard::ForceFullSampleRate() {
 
   // Settled when the window opens rather than when somebody changes something,
   // because there is nothing here to change: an automatic capture is a
-  // LaserDisc capture, and 20 MSPS is for tape. A Capture panel left decimated
-  // from some tape work would otherwise carry that silently into a LaserDisc
-  // capture, which is the whole failure this prevents.
+  // LaserDisc capture, and decimating is for tape. A Capture panel left
+  // decimated from some tape work would otherwise carry that silently into a
+  // LaserDisc capture, which is the whole failure this prevents.
   //
-  // Not while a stream is open. The rate is written to the device before the
-  // stream is opened and cannot be changed under a running one, so writing it
-  // here would change what the settings say without changing what the device
-  // is doing — and a file labelled 40 MSPS carrying half-rate samples is worse
-  // than a warning. ShowSampleRateWarning raises that warning instead.
+  // Not while a stream is open. The decimation is written to the device
+  // before the stream is opened and cannot be changed under a running one, so
+  // writing it here would change what the settings say without changing what
+  // the device is doing — and a file labelled full rate carrying decimated
+  // samples is worse than a warning. ShowSampleRateWarning raises that
+  // warning instead.
   if (capture_->monitoring()) {
     return;
   }
@@ -703,12 +709,12 @@ void AutoCaptureWizard::ShowSampleRateWarning() {
     return;
   }
 
-  // The rate is written to the device before the stream is opened, so it is
+  // Decimation is written to the device before the stream is opened, so it is
   // fixed from the moment monitoring starts — the Capture panel locks its own
   // control for the same reason. Forcing the setting here would change what the
   // panel says without changing what the device is doing, which is the one
-  // outcome worse than saying nothing: a file labelled 40 MSPS carrying half
-  // rate samples.
+  // outcome worse than saying nothing: a file labelled full rate carrying
+  // decimated samples.
   const bool decimated =
       capture_->settings().decimation_factor != capture::kUndecimatedFactor;
   const bool stuck = decimated && capture_->monitoring();
@@ -716,9 +722,9 @@ void AutoCaptureWizard::ShowSampleRateWarning() {
   sample_rate_warning_->setVisible(stuck);
   if (stuck) {
     sample_rate_warning_->setText(
-        tr("Monitoring is running at 20 MSPS, and the rate cannot be changed "
-           "while a stream is open. Stop monitoring first — otherwise this "
-           "capture is taken at half a LaserDisc's rate."));
+        tr("Monitoring is running decimated, and it cannot be changed while "
+           "a stream is open. Stop monitoring first — otherwise this capture "
+           "is taken at less than a LaserDisc's full rate."));
   }
 }
 

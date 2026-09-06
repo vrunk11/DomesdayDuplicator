@@ -140,39 +140,48 @@ walkthrough, and what to do about the tags the conversion cannot recover, is on
 
 Both are read back by **Tools → Test data → Analyse test data…** and by `--analyse-test-data`.
 
-### Sample rate
+### Decimation
 
 | Choice | What you get |
 | --- | --- |
-| **40 MSPS for LaserDisc** | Every sample, the converter's own rate. The default |
-| **20 MSPS for VHS** | Half the rate, half the file |
+| **Every sample (LaserDisc)** | The converter's own rate, undivided. The default |
+| **Half rate (VHS and other tape)** | Half the rate, half the file |
+| **Quarter rate** | A quarter of the rate, a quarter of the file |
 
-The choices are named by what they are for rather than by what they do to the samples: "2:1
-decimated" is a fact about the implementation, and the decision being made here is which
-format is going through the machine. **VHS names the common case rather than the only one** —
-Betamax, Video8 and any other tape format are the same choice, because what they share is a
-bandwidth that is a fraction of a LaserDisc's.
+The choices are named by what they are for and by how much they divide, rather than by an
+absolute number: this setting divides the [ADC rate](#adc-rate) below, and that rate is
+itself a separate, independently selectable setting — a build with a reconfigurable PLL is
+not always running at 40 Msps, so a fixed number here would only be true for the default rate.
+"Half" always means half of whatever the ADC rate is, however that was chosen.
 
-The converter always runs at 40 Msps. **Decimation happens in the FPGA, not on this
-machine**, and that is what makes it worth having: halving the rate correctly means
-low-passing the signal at 10 MHz first, and the gateware does that with a 63-tap half-band
-filter costing 13% of the FPGA's logic and no CPU at all. The application asks
-for the rate over the register link and receives a stream that is already half rate — so the
-USB link carries half the data too.
+**VHS names the common case for half rate rather than the only one** — Betamax, Video8 and
+any other tape format are the same choice, because what they share is a bandwidth that is a
+fraction of a LaserDisc's. Quarter rate is for sources narrower still, or for when the disk
+budget does not allow half.
 
-Without the filter, decimation would fold everything above 10 MHz down on top of the signal:
-a 15 MHz component would reappear at 5 MHz, directly on top of a tape's luma FM carrier, and
-nothing downstream could tell the alias from the signal. The filter is flat to within
-0.0015 dB up to 8 MHz and 85 dB down at 15 MHz, so that fold lands well below the converter's
-own noise floor. It also delays every frequency by the same amount, so an FM carrier and its
-sidebands arrive together rather than being smeared apart.
+**Decimation happens in the FPGA, not on this machine**, and that is what makes it worth
+having: dividing the rate correctly means low-passing the signal first, at half of whatever
+rate feeds each stage, and the gateware does that with a 63-tap half-band filter costing 13%
+of the FPGA's logic and no CPU at all — cascaded a second time for quarter rate. The
+application asks for the division over the register link and receives a stream that is
+already divided — so the USB link carries proportionally less data too.
+
+Without the filter, decimation would fold everything above the new Nyquist down on top of the
+signal: at half rate, a component just above the ADC rate's quarter would reappear just below
+it, directly on top of a tape's luma FM carrier, and nothing downstream could tell the alias
+from the signal. The filter is flat to within 0.0015 dB up to 80% of its passband and 85 dB
+down beyond it, so that fold lands well below the converter's own noise floor. It also delays
+every frequency by the same amount, so an FM carrier and its sidebands arrive together rather
+than being smeared apart.
 
 What no filter can do is protect the band edge itself. The response passes −6 dB at exactly
-10 MHz and is symmetric about it, so energy just above 10 MHz still folds down to just below
-it. **A signal with real content near 10 MHz should be captured at the full rate** — that is
-a property of halving a sampling rate, not a shortcoming of this implementation.
+the new Nyquist and is symmetric about it, so energy just above it still folds down to just
+below it. **A signal with real content near the new Nyquist should be captured at a lower
+decimation instead** — that is a property of halving a sampling rate, not a shortcoming of
+this implementation.
 
-Tape RF has a fraction of a LaserDisc's bandwidth, which is what makes 20 Msps enough for it.
+Tape RF has a fraction of a LaserDisc's bandwidth, which is what makes half rate enough for
+it.
 
 The design, the coefficients and the measured response and phase are on
 [The decimation filter](../development/fpga-decimation-filter.md).
@@ -182,19 +191,56 @@ moment monitoring starts** rather than only for the duration of a capture — th
 to change it under a running stream, and a control that stayed live would appear to work and
 do nothing. Stop monitoring to change it.
 
-The [signal analysis](signal-analysis.md#at-20-msps) panels follow it: at 20 Msps the
-spectrum's axis tops out at 10 MHz, the scope's spans cover twice the time, and the bins are
-half as wide. A display that kept the converter's rate would put a tape's 5 MHz carrier at
-10 MHz.
+The [signal analysis](signal-analysis.md#at-20-msps) panels follow it, scaled to whatever the
+resulting rate actually is: the spectrum's axis tops out at the new Nyquist, the scope's spans
+cover proportionally more time, and the bins are proportionally narrower. A display that kept
+the converter's undivided rate would put a tape's 5 MHz carrier at the wrong place on the
+axis.
 
-A decimated FLAC capture carries the rate label for 20 Msps and a `DDD_DECIMATION` tag. A
-decimated `.ddd.s16` carries nothing at all, because there is nowhere to put it: write the
-rate down.
+A decimated FLAC capture carries the rate label for the resulting rate and a `DDD_DECIMATION`
+tag. A decimated `.ddd.s16` carries nothing at all, because there is nowhere to put it: write
+the rate down.
 
 It works in test mode too. The gateware generates its test pattern downstream of the
-decimator, so a decimated test capture is an unbroken ramp at 20 Msps and
+decimator, so a decimated test capture is an unbroken ramp at the decimated rate and
 **Tools → Test data → Analyse test data…** checks the decimated path exactly as it checks the
 full-rate one.
+
+### Input range
+
+| Choice | What you get |
+| --- | --- |
+| **2Vpp (default)** | The wider range. The safe default until the source's own level is known |
+| **1Vpp** | The narrower range, for a source that never approaches 2Vpp |
+
+The ADC's input range, sent to the device as RSEL. Clipping the input loses signal
+irrecoverably, where a range wider than the source's own output level only costs resolution —
+so 2Vpp is the default, and 1Vpp is a choice to make deliberately once the source is known to
+need it, not a default to guess at.
+
+Only takes effect on gateware built for a board with the RSEL-capable ADC (ADS828 and later);
+gateware built for the earlier ADS825 board stores whatever is written here but has nothing
+wired to read it back from, so the setting is harmless to leave alone on either board.
+
+Written to the device before the stream is opened, on the same terms as decimation above:
+fixed from the moment monitoring starts, and not changeable under a running stream.
+
+### ADC rate
+
+The converter's own rate, before decimation above divides it further — sent to the device as
+PLL_PRESET. **Board default** is whatever rate this build's gateware was compiled for, and is
+the only choice offered by a board or gateware build that cannot report which other rates it
+supports; a board built with a reconfigurable PLL offers every rate up to its own
+`MAX_ADC_RATE_MHZ` capability instead.
+
+This is a property of the converter, not of the capture: decimation above always divides
+whatever this is set to, and nothing in the application assumes it is any particular number.
+A capture's real rate — after both settings are applied — is what is written into the FLAC
+label and the `DDD_SAMPLE_RATE_HZ` tag, not a number baked into either control.
+
+Refused by the device if it is above what the connected board can do, on the same terms as
+every other register write here: fixed from the moment monitoring starts, and not changeable
+under a running stream.
 
 ### Compression
 

@@ -967,8 +967,8 @@ TEST_F(CapturePanelTest, WhatTheCommandLineNamedIsWhatThePanelOpensShowing) {
   ASSERT_TRUE(parser.parse(QStringList{
       QStringLiteral("ddd-gui"), QStringLiteral("--capture-directory"),
       directory, QStringLiteral("--capture-name"),
-      QStringLiteral("Casper side 1"), QStringLiteral("--sample-rate"),
-      QStringLiteral("20"), QStringLiteral("--duration-limit"),
+      QStringLiteral("Casper side 1"), QStringLiteral("--decimation"),
+      QStringLiteral("half"), QStringLiteral("--duration-limit"),
       QStringLiteral("300"), QStringLiteral("--output-format"),
       QStringLiteral("s16")}))
       << parser.errorText().toStdString();

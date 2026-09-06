@@ -43,7 +43,9 @@ outside: see [Running it from a Flatpak](#running-it-from-a-flatpak) and
 | `--stop-capture` | | Stop the capture a running instance is taking. Cannot be combined with any of the others |
 | `--capture-directory <folder>` | a folder | Write here instead of the configured folder. Created if it is not there |
 | `--capture-name <name>` | a name | Call the capture this, without a suffix |
-| `--sample-rate <msps>` | `40` or `20` | Capture at this rate. The decimation is done by the device |
+| `--decimation <choice>` | `full`, `half` or `quarter` | Divide the ADC rate below by this much, in the device. Independent of `--adc-rate` |
+| `--adc-rate <mhz>` | a rate this build knows, in MHz | The converter's own rate, before `--decimation` divides it. Refused by the device if the board cannot run that fast |
+| `--input-range <range>` | `2vpp` or `1vpp` | The ADC's input range |
 | `--duration-limit <seconds>` | 1 to 86400 | Stop by itself after this long. Leave it out to capture until stopped |
 | `--output-format <format>` | `flac` or `s16` | Write [FLAC, or uncompressed `.ddd.s16`](capture-files.md) |
 
@@ -54,7 +56,7 @@ nothing else.
 ### What the command line sets, it does not save
 
 Values given on the command line apply to that run and are then forgotten. Nothing is
-written to your settings, so a scripted capture at 20 Msps into a scratch folder does not
+written to your settings, so a scripted capture decimated into a scratch folder does not
 quietly become what the window opens showing tomorrow.
 
 !!! note "The one way that can bite you"
@@ -63,8 +65,8 @@ quietly become what the window opens showing tomorrow.
     are kept apart from your settings while the application runs — the window is showing
     them because they really are the settings this run is using.
 
-    So if you start with `--start-capture --sample-rate 20` and then change something else
-    in the window, what gets saved is what the window is showing, 20 Msps included. That is
+    So if you start with `--start-capture --decimation half` and then change something else
+    in the window, what gets saved is what the window is showing, half rate included. That is
     only reachable with a window in front of you; a `--headless` run saves nothing whatever
     happens.
 
@@ -257,7 +259,7 @@ status=0
 file=$(ddd-gui --headless --start-capture \
                --capture-directory /captures/disc-42 \
                --capture-name disc-42-side-1 \
-               --sample-rate 20 \
+               --decimation half \
                --duration-limit 1800) || status=$?
 
 if (( status != 0 )); then

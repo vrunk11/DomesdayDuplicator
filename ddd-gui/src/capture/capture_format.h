@@ -68,20 +68,27 @@ inline constexpr uint32_t kFlacSampleRateLabel =
 
 // The decimation factors a capture may be written at.
 //
-// One is every sample, which is what a LaserDisc capture needs. Two halves
-// both the rate and the file — enough for tape RF, whose bandwidth is a
-// fraction of a LaserDisc's, and the reason this exists at all. Decimation
-// happens in the FPGA, before the samples reach the USB link, and is
-// independent of which rate the converter itself is running at (see
-// PLL_PRESET in the register interface doc) — it always halves whatever
-// that rate is.
+// One is every sample, which is what a LaserDisc capture needs. Two and four
+// divide both the rate and the file by that much — enough for tape RF, whose
+// bandwidth is a fraction of a LaserDisc's, and the reason this exists at
+// all; four is the choice when the source is narrow enough, or the disk
+// budget tight enough, that halving once is not enough. Decimation happens
+// in the FPGA, before the samples reach the USB link, and is independent of
+// which rate the converter itself is running at (see PLL_PRESET in the
+// register interface doc) — a factor here always divides whatever that rate
+// is, not some fixed number. That independence is deliberate: this factor
+// says how much further to divide the converter's own rate, and the
+// converter's own rate is a separate choice (see
+// CaptureSettings::BaseSampleRateHz()) — nothing in this file or its callers
+// may assume what that rate is.
 //
 // Not plain selection: the gateware low-passes first with a 63-tap
-// half-band filter at a quarter of the converter's own rate, because
-// dropping alternate samples without that folds everything above the new
+// half-band filter at a quarter of its input rate, cascaded a second time for
+// four, because dropping samples without that folds everything above the new
 // Nyquist down on top of the signal. See fpga/application/halfBandDecimator.v.
 inline constexpr int kUndecimatedFactor = 1;
 inline constexpr int kTapeDecimationFactor = 2;
+inline constexpr int kQuarterDecimationFactor = 4;
 
 // Whether a factor is one this application will write.
 bool IsSupportedDecimationFactor(int factor);

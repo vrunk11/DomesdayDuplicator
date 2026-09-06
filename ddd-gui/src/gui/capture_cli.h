@@ -64,7 +64,7 @@ struct CaptureCliOptionSet {
   QCommandLineOption headless;
   QCommandLineOption capture_directory;
   QCommandLineOption capture_name;
-  QCommandLineOption sample_rate;
+  QCommandLineOption decimation;
   QCommandLineOption adc_rate;
   QCommandLineOption input_range;
   QCommandLineOption duration_limit;

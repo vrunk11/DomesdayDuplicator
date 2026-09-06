@@ -168,8 +168,9 @@ of gigabytes over a disc side. Encoding after the fact is not racing the device,
 no argument at all for a lower one.
 
 `--sample-rate=40000` is the **label**, not the rate — the same 40,000 Hz stand-in the
-application writes, for the reason given above. A capture taken at **20 MSPS for VHS** takes
-`--sample-rate=20000` instead. Nothing in the raw file distinguishes the two, so this is the
+application writes, for the reason given above. A capture taken at **Half rate (VHS and
+other tape)** takes `--sample-rate=20000` instead, and one taken at **Quarter rate** takes
+`--sample-rate=10000`. Nothing in the raw file distinguishes any of these, so this is the
 step that the rate has to have been written down for.
 
 Verify before deleting the raw file:

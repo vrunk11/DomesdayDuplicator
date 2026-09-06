@@ -171,23 +171,31 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
 
   sample_rate_combo_ = new QComboBox(contents);
   sample_rate_combo_->setObjectName(QLatin1String(kSampleRateComboName));
-  // Named by what each rate is for rather than by what it does to the samples.
-  // "2:1 decimated" is a fact about the implementation, and the choice being
-  // made here is which format is being captured — which is the thing the user
-  // actually knows when they arrive at this control.
-  sample_rate_combo_->addItem(tr("40 MSPS for LaserDisc"),
+  // Named by what each choice is for rather than by an absolute rate: this is
+  // a divisor of the ADC rate set below, not a rate of its own, and the two
+  // are independent settings. Stating a number here ("40 MSPS", "20 MSPS")
+  // was only ever true while the converter's own rate was fixed at 40 MSPS —
+  // once it became selectable via ADC rate, the same label would lie for
+  // every other choice there.
+  sample_rate_combo_->addItem(tr("Every sample (LaserDisc)"),
                               capture::kUndecimatedFactor);
-  sample_rate_combo_->addItem(tr("20 MSPS for VHS"),
+  sample_rate_combo_->addItem(tr("Half rate (VHS and other tape)"),
                               capture::kTapeDecimationFactor);
+  sample_rate_combo_->addItem(tr("Quarter rate"),
+                              capture::kQuarterDecimationFactor);
   sample_rate_combo_->setToolTip(
-      tr("The converter always runs at 40 MSPS. Decimating halves that in the "
-         "FPGA, which low-passes the signal at 10 MHz first and then keeps "
-         "every second sample — half the file, and enough for any tape RF, "
-         "whose bandwidth is a fraction of a LaserDisc's. VHS names the common "
-         "case rather than the only one: Betamax and Video8 are the same "
-         "choice. Energy close to 10 MHz still folds down around it, so a "
-         "signal with content up there should be captured at the full rate."));
-  form->addRow(tr("Sample rate"), sample_rate_combo_);
+      tr("How much further to divide the ADC rate set below, in the FPGA, "
+         "before samples reach this machine. Decimating low-passes the "
+         "signal first — at half its input rate for each step — so halving "
+         "twice for quarter rate costs two stages rather than one. Half "
+         "rate is enough for any tape RF, whose bandwidth is a fraction of a "
+         "LaserDisc's: VHS names the common case rather than the only one, "
+         "Betamax and Video8 are the same choice. Quarter rate is for "
+         "sources narrower still, or when the disk budget does not allow "
+         "half. Energy close to the new Nyquist still folds down around it, "
+         "so a signal with content up there should be captured at a lower "
+         "decimation instead."));
+  form->addRow(tr("Decimation"), sample_rate_combo_);
 
   range_select_combo_ = new QComboBox(contents);
   range_select_combo_->setObjectName(QLatin1String(kRangeSelectComboName));
@@ -205,8 +213,8 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
   pll_preset_combo_ = new QComboBox(contents);
   pll_preset_combo_->setObjectName(QLatin1String(kPllPresetComboName));
   pll_preset_combo_->setToolTip(
-      tr("The ADC's own converter rate, before the sample-rate control "
-         "above decimates it further. \"Board default\" is whatever rate "
+      tr("The ADC's own converter rate, before the Decimation control "
+         "above divides it further. \"Board default\" is whatever rate "
          "this build's gateware was compiled for, and is the only option "
          "offered by a board or gateware build that cannot report which "
          "other rates it supports."));

@@ -151,7 +151,7 @@ TEST(CaptureCliTest, AttributesWithNoStartCommandAreForTheWindow) {
 
 TEST(CaptureCliTest, TheTapeRateIsTheDecimatedOne) {
   const Parsed parsed =
-      Parse({QStringLiteral("--sample-rate"), QStringLiteral("20")});
+      Parse({QStringLiteral("--decimation"), QStringLiteral("half")});
 
   ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
   EXPECT_EQ(parsed.options.decimation_factor,
@@ -160,29 +160,40 @@ TEST(CaptureCliTest, TheTapeRateIsTheDecimatedOne) {
 
 TEST(CaptureCliTest, TheDiscRateIsNoDecimationAtAll) {
   const Parsed parsed =
-      Parse({QStringLiteral("--sample-rate"), QStringLiteral("40")});
+      Parse({QStringLiteral("--decimation"), QStringLiteral("full")});
 
   ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
   EXPECT_EQ(parsed.options.decimation_factor,
             std::optional<int>(capture::kUndecimatedFactor));
 }
 
-// The message names the rates that would have worked. A script author reading
-// it in a log has no application in front of them to go and look at.
+TEST(CaptureCliTest, QuarterRateIsTheDoublyDecimatedOne) {
+  const Parsed parsed =
+      Parse({QStringLiteral("--decimation"), QStringLiteral("quarter")});
+
+  ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
+  EXPECT_EQ(parsed.options.decimation_factor,
+            std::optional<int>(capture::kQuarterDecimationFactor));
+}
+
+// The message names the choices that would have worked. A script author
+// reading it in a log has no application in front of them to go and look at.
 TEST(CaptureCliTest, ARateTheDeviceCannotCaptureAtIsRefused) {
   const Parsed parsed =
-      Parse({QStringLiteral("--sample-rate"), QStringLiteral("30")});
+      Parse({QStringLiteral("--decimation"), QStringLiteral("30")});
 
   EXPECT_TRUE(parsed.accepted);
-  EXPECT_TRUE(parsed.error.contains(QStringLiteral("40")))
+  EXPECT_TRUE(parsed.error.contains(QStringLiteral("full")))
       << parsed.error.toStdString();
-  EXPECT_TRUE(parsed.error.contains(QStringLiteral("20")))
+  EXPECT_TRUE(parsed.error.contains(QStringLiteral("half")))
+      << parsed.error.toStdString();
+  EXPECT_TRUE(parsed.error.contains(QStringLiteral("quarter")))
       << parsed.error.toStdString();
 }
 
 TEST(CaptureCliTest, ARateThatIsNotANumberIsRefused) {
   const Parsed parsed =
-      Parse({QStringLiteral("--sample-rate"), QStringLiteral("fast")});
+      Parse({QStringLiteral("--decimation"), QStringLiteral("fast")});
 
   EXPECT_TRUE(parsed.accepted);
   EXPECT_FALSE(parsed.error.isEmpty());

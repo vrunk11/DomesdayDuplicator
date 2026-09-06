@@ -321,7 +321,7 @@ void CaptureController::StartMonitoring() {
     return;
   }
 
-  // The sample rate, on the same terms and for the same reason: the gateware
+  // Decimation, on the same terms and for the same reason: the gateware
   // applies it immediately and without acknowledgement, so it is settled
   // before any data is flowing rather than somewhere unpredictable in it.
   //
@@ -332,8 +332,8 @@ void CaptureController::StartMonitoring() {
   if (!device_->WriteRegister(
           path, capture::kRegisterDecimation,
           static_cast<uint8_t>(settings_.decimation_factor))) {
-    emit Failed(tr("The sample rate could not be set"),
-                tr("The device did not accept the sample-rate request. It may "
+    emit Failed(tr("The decimation could not be set"),
+                tr("The device did not accept the decimation request. It may "
                    "have been unplugged, or another application may be using "
                    "it."));
     return;
