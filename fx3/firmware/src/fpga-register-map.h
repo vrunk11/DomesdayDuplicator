@@ -58,8 +58,11 @@
 // normalises an unimplemented decimation factor.
 #define FPGA_PLL_PRESET_NONE            (0x00u)
 #define FPGA_PLL_PRESET_40MHZ           (40u)
+#define FPGA_PLL_PRESET_45MHZ           (45u)
+#define FPGA_PLL_PRESET_50MHZ           (50u)
+#define FPGA_PLL_PRESET_55MHZ           (55u)
 #define FPGA_PLL_PRESET_60MHZ           (60u)
-#define FPGA_PLL_PRESET_66MHZ           (66u)
+#define FPGA_PLL_PRESET_65MHZ           (65u)
 #define FPGA_PLL_PRESET_70MHZ           (70u)
 #define FPGA_PLL_PRESET_75MHZ           (75u)
 

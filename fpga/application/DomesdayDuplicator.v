@@ -193,7 +193,7 @@ module DomesdayDuplicator #(
     wire       fx3_test_mode;
     wire       fx3_range_select;
     wire [7:0] fx3_decimation;
-    wire [7:0] fx3_pll_preset_unused;
+    wire [7:0] fx3_pll_preset;
 
     // Signal outputs to FX3
     assign fx3_control[00]       = fx3_data_available;
@@ -259,12 +259,157 @@ module DomesdayDuplicator #(
     // 60 MHz was not.
     wire system_clock;
 
+    // The scan chain between the two PLL-side IP cores: pllReconfig drives
+    // it, IPpllGenerator's reconfiguration port answers on it. Named for
+    // the signal they carry rather than for either core, since both sides
+    // already have their own prefix (pll_* on one, plain names on the
+    // other) and repeating either would say less than the wire's own name
+    // does.
+    wire pll_scan_data;
+    wire pll_scan_clock;
+    wire pll_scan_clock_enable;
+    wire pll_config_update;
+    wire pll_scan_data_out;
+    wire pll_scan_done;
+    wire pll_area_reset;
+
+    // Feeds the reset synchroniser below. A reconfiguration takes the PLL
+    // out of lock while it relocks to the newly scanned-in counters, and
+    // system_clock is not trustworthy for that whole window - so nothing
+    // clocked by it should be running, which is exactly what holding
+    // reset_n low does. See the synchroniser for why folding this in
+    // there, rather than adding a second reset network, is the right
+    // amount of change for what is a rare, deliberate event.
+    wire pll_locked;
+
     IPpllGenerator pll_generator_0 (
         // Inputs
-        .inclk0(CLOCK_50),
+        .inclk0      (CLOCK_50),
+        .areset      (pll_area_reset),
+        .configupdate(pll_config_update),
+        .scanclk     (pll_scan_clock),
+        .scanclkena  (pll_scan_clock_enable),
+        .scandata    (pll_scan_data),
 
         // Outputs
-        .c0(system_clock)  // 80 MHz system clock
+        .c0         (system_clock),       // 80 MHz system clock
+        .locked     (pll_locked),
+        .scandataout(pll_scan_data_out),
+        .scandone   (pll_scan_done)
+    );
+
+    // The runtime PLL retuning path: pllReconfig is the MegaWizard-generated
+    // scan-chain sequencer (ALTPLL_RECONFIG, "write to the scan chain from
+    // external ROM" mode), and pllPresetController is the hand-written logic
+    // that answers its ROM interface with the right one of eight known-good
+    // configurations - see pllPresetController.v for where those come from
+    // and why nothing here computes a PLL counter value itself.
+    //
+    // Neither core can be simulated with free tools - pllReconfig no more
+    // than IPpllGenerator can, for the same altera_mf reason (fpga/README.md)
+    // - so this wiring, and the handshake pllPresetController drives it
+    // with, are unverified until real hardware. tb_pllPresetController.v
+    // covers everything that can be checked without the real core: the FSM
+    // against a model of its busy/rom_address_out contract.
+    wire [8:0] pll_reconfig_data_out_unused;
+    wire       pll_reconfig_write_rom_ena_unused;
+    wire       pll_reconfig_busy;
+    wire [7:0] pll_reconfig_rom_address;
+    wire       pll_reconfig_reset_rom_address;
+    wire       pll_reconfig_write_from_rom;
+    wire       pll_reconfig_rom_data;
+    wire       pll_reconfig_reconfig;
+
+    // reset_n releases synchronously to system_clock, which says nothing
+    // about CLOCK_50 - pllReconfig and pllPresetController are clocked by
+    // CLOCK_50 (see below for why), so they get their own release,
+    // asynchronously asserted by the same reset_n edge.
+    reg  [1:0] reset_n_clock50_sync;
+
+    always @(posedge CLOCK_50, negedge reset_n) begin
+        if (!reset_n) begin
+            reset_n_clock50_sync <= 2'b00;
+        end else begin
+            reset_n_clock50_sync <= {reset_n_clock50_sync[0], 1'b1};
+        end
+    end
+
+    wire reset_n_clock50 = reset_n_clock50_sync[1];
+
+    pllReconfig pll_reconfig_0 (
+        // Inputs
+        //
+        // CLOCK_50, not system_clock: this becomes scanclk on the PLL it
+        // reconfigures, and the Cyclone IV datasheet caps fSCANCLK at
+        // 100 MHz - see pllPresetController.v's header for how running it
+        // from system_clock instead was found (a Minimum Pulse Width
+        // violation on the PLL's own output that tracked exactly 10 ns
+        // regardless of which counter values produced the target
+        // frequency, and disappeared below 100 MHz).
+        .clock        (CLOCK_50),
+        .reset        (~reset_n_clock50),
+        .counter_type (4'd0),
+        .counter_param(3'd0),
+        .data_in      (9'd0),
+        .read_param   (1'b0),
+        .write_param  (1'b0),
+
+        // No external reset into the reconfig sequencer itself - it has
+        // nothing to recover from that a request simply not arriving does
+        // not already leave it idle for.
+        .pll_areset_in    (1'b0),
+        .reset_rom_address(pll_reconfig_reset_rom_address),
+        .write_from_rom   (pll_reconfig_write_from_rom),
+        .rom_data_in      (pll_reconfig_rom_data),
+        .reconfig         (pll_reconfig_reconfig),
+        .pll_scandataout  (pll_scan_data_out),
+        .pll_scandone     (pll_scan_done),
+
+        // Outputs
+        .busy            (pll_reconfig_busy),
+        .data_out        (pll_reconfig_data_out_unused),
+        .pll_areset      (pll_area_reset),
+        .pll_configupdate(pll_config_update),
+        .pll_scanclk     (pll_scan_clock),
+        .pll_scanclkena  (pll_scan_clock_enable),
+        .pll_scandata    (pll_scan_data),
+        .rom_address_out (pll_reconfig_rom_address),
+        .write_rom_ena   (pll_reconfig_write_rom_ena_unused)
+    );
+
+    // Crosses fx3_pll_preset from system_clock into the CLOCK_50 domain
+    // pllPresetController runs in. A toggle rather than a pulse or the raw
+    // bus: fx3_pll_preset is a register that only changes alongside a host
+    // write and holds for a whole SPI transaction afterwards, orders of
+    // magnitude longer than the two-flop synchroniser in
+    // pllPresetController.v takes to settle - so once the toggle has been
+    // seen there, reading fx3_pll_preset directly is safe, and a single
+    // synchronised bit cannot be sampled torn the way a multi-bit
+    // synchroniser on the bus itself could be.
+    reg [7:0] pll_preset_seen;
+    reg       pll_preset_toggle;
+
+    always @(posedge system_clock, negedge reset_n) begin
+        if (!reset_n) begin
+            pll_preset_seen   <= 8'h00;
+            pll_preset_toggle <= 1'b0;
+        end else if (fx3_pll_preset != pll_preset_seen) begin
+            pll_preset_seen   <= fx3_pll_preset;
+            pll_preset_toggle <= ~pll_preset_toggle;
+        end
+    end
+
+    pllPresetController pll_preset_controller_0 (
+        .reset_n              (reset_n_clock50),
+        .clock                (CLOCK_50),
+        .preset_request       (fx3_pll_preset),
+        .preset_request_toggle(pll_preset_toggle),
+        .reset_rom_address    (pll_reconfig_reset_rom_address),
+        .write_from_rom       (pll_reconfig_write_from_rom),
+        .rom_data_in          (pll_reconfig_rom_data),
+        .rom_address_out      (pll_reconfig_rom_address),
+        .reconfig             (pll_reconfig_reconfig),
+        .busy                 (pll_reconfig_busy)
     );
 
     // ADC sampling clock and the sampling instant
@@ -324,10 +469,21 @@ module DomesdayDuplicator #(
     // is what makes a reset work with no clock; releasing it synchronously is
     // new, and is what stops two registers coming out of reset on different
     // cycles because they resolved the same asynchronous edge differently.
+    //
+    // pll_locked going low asserts it the same way fx3_reset_n does. A PLL
+    // reconfiguration is the other event, besides the FX3 asking, that
+    // makes system_clock unfit to run anything on: the PLL is out of lock
+    // for the whole time it takes the newly scanned-in counters to settle,
+    // and holding this design's own reset down for that window is what
+    // stops the capture path, the FX3 state machine and everything else
+    // from running on a clock that is mid-change. A capture depends on one
+    // sample rate throughout in any case, so a reconfiguration having the
+    // same effect as the FX3 resetting the device is the correct behaviour
+    // here, not a side effect being tolerated.
     reg  [1:0] reset_n_sync;
 
-    always @(posedge system_clock, negedge fx3_reset_n) begin
-        if (!fx3_reset_n) begin
+    always @(posedge system_clock, negedge fx3_reset_n, negedge pll_locked) begin
+        if (!fx3_reset_n || !pll_locked) begin
             reset_n_sync <= 2'b00;
         end else begin
             reset_n_sync <= {reset_n_sync[0], 1'b1};
@@ -588,11 +744,11 @@ module DomesdayDuplicator #(
         // This board's ADS828 converts up to 75 MHz. A build for a board
         // carrying a slower part in the same family overrides this alone -
         // everything else in this file is shared between them.
-        .MaxAdcRateMHz(8'd75)
+        .MaxAdcRateMHz(8'd75),
 
-        // PllPresetPresent is left at its default (off): the register exists
-        // in the map but there is no ALTPLL_RECONFIG controller behind it in
-        // this build yet, so a write to 0x15 has nothing to act on.
+        // pllPresetController is now behind this register - see the PLL
+        // reconfiguration wiring above.
+        .PllPresetPresent(1'b1)
     ) spi_registers_0 (
         // Inputs
         .reset_n           (reset_n),
@@ -610,7 +766,7 @@ module DomesdayDuplicator #(
         .test_mode          (fx3_test_mode),          // 1 = test data generator selected
         .range_select       (fx3_range_select),       // 1 = 2Vpp, 0 = 1Vpp on the ADS828
         .decimation         (fx3_decimation),         // Samples kept out of every n
-        .pll_preset         (fx3_pll_preset_unused),  // Not acted on until 3 lands
+        .pll_preset         (fx3_pll_preset),         // MHz to scan the PLL to, or 0 for none
         .leds               (LED),                    // Driven by the FX3, for status
         .window_write       (window_write),
         .window_address     (window_address),

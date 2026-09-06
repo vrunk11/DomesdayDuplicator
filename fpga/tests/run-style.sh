@@ -59,6 +59,7 @@ files=(
     "$fpga/common/flashBridge.v"
     "$fpga/common/asmiBlock.v"
     "$fpga/common/remoteUpdate.v"
+    "$fpga/common/pllPresetController.v"
     "$fpga/common/sim/altremote_update.v"
     "$fpga/common/sim/cycloneive_asmiblock.v"
     "$fpga/common/sim/epcsFlashModel.v"
@@ -75,6 +76,7 @@ files=(
     "$tests/tb_fx3StateMachine.v"
     "$tests/tb_spiRegisters.v"
     "$tests/tb_wordPacker.v"
+    "$tests/tb_pllPresetController.v"
 )
 
 failed=0

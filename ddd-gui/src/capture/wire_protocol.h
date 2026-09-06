@@ -162,8 +162,11 @@ inline constexpr uint8_t kDecimationQuarterRate = 0x04;
 // register reads 0x00 here too, indistinguishably from "no override".
 inline constexpr uint8_t kPllPresetNone = 0x00;
 inline constexpr uint8_t kPllPreset40Mhz = 40;
+inline constexpr uint8_t kPllPreset45Mhz = 45;
+inline constexpr uint8_t kPllPreset50Mhz = 50;
+inline constexpr uint8_t kPllPreset55Mhz = 55;
 inline constexpr uint8_t kPllPreset60Mhz = 60;
-inline constexpr uint8_t kPllPreset66Mhz = 66;
+inline constexpr uint8_t kPllPreset65Mhz = 65;
 inline constexpr uint8_t kPllPreset70Mhz = 70;
 inline constexpr uint8_t kPllPreset75Mhz = 75;
 

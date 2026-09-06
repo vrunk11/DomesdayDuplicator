@@ -24,10 +24,10 @@ fpga="${1:-$(dirname "$here")}"
 waivers="$fpga/verilator-waivers.vlt"
 
 # The project-authored modules, each with the directory it lives in.
-# IPpllGenerator.v is deliberately absent: it instantiates Altera's altpll,
-# which has no free simulation model, so there is nothing to lint it against.
-# The black-box declaration beside it is enough for the two top levels, which
-# are the only modules that instantiate the IP.
+# IPpllGenerator.v and pllReconfig.v are deliberately absent: both
+# instantiate Altera primitives from altera_mf, which has no free simulation
+# model, so there is nothing to lint either against. The black-box
+# declaration beside each is enough for the modules that instantiate them.
 #
 # The FIFO used to need the same treatment. fifo.v replaced the dcfifo it was
 # built on, so it is an ordinary module in the list below.
@@ -49,6 +49,7 @@ modules=(
     "common:flashBridge"
     "common:asmiBlock"
     "common:remoteUpdate"
+    "common:pllPresetController"
     "factory:DomesdayDuplicatorFactory"
     "factory:bootLoader"
     "factory:crc32"
@@ -56,6 +57,7 @@ modules=(
 
 blackboxes=(
     "$fpga/common/IPpllGenerator_bb.v"
+    "$fpga/common/pllReconfig_bb.v"
 )
 
 # Every module the list above may instantiate, so a top level elaborates
@@ -66,12 +68,12 @@ sources=(
     "$fpga"/factory/*.v
 )
 
-# The IP itself is not linted, so it must not be compiled either: the black box
-# above is what stands in for it.
+# Neither IP is linted, so neither must be compiled either: the black boxes
+# above are what stand in for them.
 filtered=()
 for source in "${sources[@]}"; do
     case "$source" in
-    */IPpllGenerator.v | */IPpllGenerator_bb.v) continue ;;
+    */IPpllGenerator.v | */IPpllGenerator_bb.v | */pllReconfig.v | */pllReconfig_bb.v) continue ;;
     esac
     filtered+=("$source")
 done

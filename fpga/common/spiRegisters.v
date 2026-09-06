@@ -193,17 +193,21 @@ module spiRegisters (
     // act on.
     localparam [7:0] PllPresetNone = 8'h00;
     localparam [7:0] PllPreset40MHz = 8'd40;
+    localparam [7:0] PllPreset45MHz = 8'd45;
+    localparam [7:0] PllPreset50MHz = 8'd50;
+    localparam [7:0] PllPreset55MHz = 8'd55;
     localparam [7:0] PllPreset60MHz = 8'd60;
-    localparam [7:0] PllPreset66MHz = 8'd66;
+    localparam [7:0] PllPreset65MHz = 8'd65;
     localparam [7:0] PllPreset70MHz = 8'd70;
     localparam [7:0] PllPreset75MHz = 8'd75;
 
     function is_known_pll_preset;
         input [7:0] value;
         begin
-            is_known_pll_preset = (value == PllPreset40MHz) || (value == PllPreset60MHz) ||
-                (value == PllPreset66MHz) || (value == PllPreset70MHz) ||
-                (value == PllPreset75MHz);
+            is_known_pll_preset = (value == PllPreset40MHz) || (value == PllPreset45MHz) ||
+                (value == PllPreset50MHz) || (value == PllPreset55MHz) ||
+                (value == PllPreset60MHz) || (value == PllPreset65MHz) ||
+                (value == PllPreset70MHz) || (value == PllPreset75MHz);
         end
     endfunction
 
@@ -513,10 +517,9 @@ module spiRegisters (
                                     // host cannot be trusted to pick a
                                     // preset this hardware cannot run.
                                     if (PllPresetPresent) begin
-                                        pll_preset_register <=
-                                            (is_known_pll_preset(shift_in_next) &&
-                                             (shift_in_next <= MaxAdcRateMHz)) ?
-                                            shift_in_next : PllPresetNone;
+                                        pll_preset_register <= (is_known_pll_preset(shift_in_next)
+                                                                && (shift_in_next <= MaxAdcRateMHz))
+                                            ? shift_in_next : PllPresetNone;
                                     end
                                 end
                                 default: begin

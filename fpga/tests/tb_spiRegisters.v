@@ -485,21 +485,21 @@ module tb_spiRegisters;
         spi_read(7'h15, 8'd1);
         check(read_data[0], 8'd40, "and reads back");
 
-        spi_write_one(7'h15, 8'd66);
-        check(pll_preset, 8'd66, "66 MHz preset selected, exactly at the cap");
+        spi_write_one(7'h15, 8'd65);
+        check(pll_preset, 8'd65, "65 MHz preset selected, just below the cap");
 
-        // 75 MHz is a preset this gateware knows, but this build's ADC is
+        // 70 MHz is a preset this gateware knows, but this build's ADC is
         // only speced to MAX_ADC_RATE_MHZ (66) - the host cannot be trusted
         // to pick a rate this hardware cannot run.
-        spi_write_one(7'h15, 8'd75);
+        spi_write_one(7'h15, 8'd70);
         check(pll_preset, 8'h00, "a preset above the board's own cap is refused");
         spi_read(7'h15, 8'd1);
         check(read_data[0], 8'h00, "and reads back as no override");
 
-        // 50 is not one of the known presets at all - not a request for an
+        // 51 is not one of the known presets at all - not a request for an
         // intermediate rate, just not a scan sequence this gateware has.
-        spi_write_one(7'h15, 8'd66);
-        spi_write_one(7'h15, 8'd50);
+        spi_write_one(7'h15, 8'd65);
+        spi_write_one(7'h15, 8'd51);
         check(pll_preset, 8'h00, "an unknown value is refused, not stored as-is");
 
         spi_write_one(7'h15, 8'd60);

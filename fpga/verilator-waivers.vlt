@@ -42,13 +42,20 @@
 // altera_mf library, which has no free simulation model, so it is not linted at
 // all — see fpga/README.md.
 //
-// There were two of these until fifo.v replaced the dcfifo the buffer was built
-// on. One black box is left, so these are scoped to it by name rather than to
-// any file ending in _bb.v.
+// pllReconfig_bb.v is the same situation for pllReconfig.v, the
+// ALTPLL_RECONFIG variation that drives IPpllGenerator's scan chain at
+// runtime (see pllPresetController.v) - a second black box, not the one
+// fifo.v replaced when it took the place of the buffer's dcfifo pair.
+// Both are scoped by name rather than by any file ending in _bb.v, for the
+// reason given below.
 
 lint_off -rule DECLFILENAME -file "*IPpllGenerator_bb.v"
 lint_off -rule UNUSEDSIGNAL -file "*IPpllGenerator_bb.v"
 lint_off -rule UNDRIVEN     -file "*IPpllGenerator_bb.v"
+
+lint_off -rule DECLFILENAME -file "*pllReconfig_bb.v"
+lint_off -rule UNUSEDSIGNAL -file "*pllReconfig_bb.v"
+lint_off -rule UNDRIVEN     -file "*pllReconfig_bb.v"
 
 // ---------------------------------------------------------------------------
 // 1b. The device primitives, and the models that stand in for them

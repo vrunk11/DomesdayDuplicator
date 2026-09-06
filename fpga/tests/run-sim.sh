@@ -51,6 +51,7 @@ benches=(
     "tb_wordPacker:application/wordPacker"
     "tb_fx3StateMachine:application/fx3StateMachine"
     "tb_spiRegisters:common/spiRegisters"
+    "tb_pllPresetController:common/pllPresetController"
     "tb_crc32:factory/crc32"
     "tb_flashBridge:common/flashBridge,common/sim/epcsFlashModel"
     "tb_bootLoader:factory/bootLoader,factory/crc32,common/flashBridge,common/asmiBlock,common/remoteUpdate,common/sim/cycloneive_asmiblock,common/sim/epcsFlashModel,common/sim/altremote_update"
