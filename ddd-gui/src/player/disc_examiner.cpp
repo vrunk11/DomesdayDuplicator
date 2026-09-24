@@ -211,7 +211,7 @@ ExamineStep DiscExaminer::StepFor(ExamineStage stage) const {
       break;
     case ExamineStage::kReadingEnd:
     case ExamineStage::kReadingStart:
-      step.command = PlayerCommand::kQueryAddress;
+      step.command = AddressQueryFor(*definition_, addressing());
       break;
     case ExamineStage::kSettling:
       step.command = PlayerCommand::kPause;
@@ -292,10 +292,12 @@ void DiscExaminer::Apply(const Reply& reply) {
       ApplyTvSystem(reply);
       break;
     case ExamineStage::kReadingPioneerUserCode:
-      ApplyUserCode(reply, profile_.pioneer_user_code);
+      ApplyUserCode(reply, profile_.pioneer_user_code,
+                    definition_->user_code_error_policy);
       break;
     case ExamineStage::kReadingStandardUserCode:
-      ApplyUserCode(reply, profile_.standard_user_code);
+      ApplyUserCode(reply, profile_.standard_user_code,
+                    definition_->user_code_error_policy);
       break;
     case ExamineStage::kCheckingChapters:
       ApplyChapters(reply);
@@ -454,12 +456,16 @@ void DiscExaminer::ApplyTvSystem(const Reply& reply) {
   profile_.video_standard.Record(system.disc, Provenance::kReported);
 }
 
-void DiscExaminer::ApplyUserCode(const Reply& reply, UserCodeReading& into) {
+void DiscExaminer::ApplyUserCode(const Reply& reply, UserCodeReading& into,
+                                 UserCodeErrorPolicy error_policy) {
   if (reply.ok() && IsErrorCode(reply.text)) {
-    // "E04" and the like. The LD-V4400 manual documents it as no user code
-    // being encoded on the disc, which is a fact about the disc and not a fault
-    // — so it is recorded rather than discarded, and the report says which.
-    into.outcome = UserCodeReading::Outcome::kNotEncoded;
+    // "E04" and the like. The Level III manuals document it as no user code
+    // encoded on the disc, but the LD-V2200's meaning has not been established.
+    // Preserve the reply either way; only definitions with documented semantics
+    // turn it into a fact about the disc.
+    into.outcome = error_policy == UserCodeErrorPolicy::kNotEncoded
+                       ? UserCodeReading::Outcome::kNotEncoded
+                       : UserCodeReading::Outcome::kRefused;
     into.text = reply.text;
     return;
   }
@@ -493,7 +499,8 @@ void DiscExaminer::ApplyEndAddress(const Reply& reply) {
     return;
   }
 
-  const DiscAddress address = ParseAddress(reply.text, addressing());
+  const DiscAddress address =
+      ParseAddress(reply.text, addressing(), definition_->time_code_format);
   if (address.valid) {
     profile_.programme_end.Record(address.value, Provenance::kMeasured);
   }
@@ -504,7 +511,8 @@ void DiscExaminer::ApplyStartAddress(const Reply& reply) {
     return;
   }
 
-  const DiscAddress address = ParseAddress(reply.text, addressing());
+  const DiscAddress address =
+      ParseAddress(reply.text, addressing(), definition_->time_code_format);
 
   // Only where the reply said something about where the player is. A reply that
   // carried neither an address nor a lead-in marker says nothing, and recording

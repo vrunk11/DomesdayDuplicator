@@ -881,14 +881,23 @@ void gpifDmaEventCB(CyU3PGpifEventType Event, uint8_t State)
 // leaves endpoint 0 to be stalled, which is how a device tells a host that it cannot
 // do something. *sendAck is set for the requests that have no data stage of their own.
 //
-// A refusal is reported through UPDATE_STATUS rather than through a stalled endpoint,
-// and that is a deliberate asymmetry with the capture requests. The SDK completes a
-// control-OUT transfer with a positive acknowledgement as soon as the last byte of its
-// data stage has been read, so a request whose payload has been read cannot then be
-// stalled - but more to the point, "the update failed and here is which check caught
-// it" is worth far more to whoever is looking at the screen than an endpoint that
-// simply stopped answering. Only a request whose *shape* is wrong stalls, because that
-// one can be refused before its data is taken.
+// A refusal is reported through UPDATE_STATUS rather than through a stalled endpoint
+// wherever it can only be decided late, and that is a deliberate asymmetry with the
+// capture requests. The SDK completes a control-OUT transfer with a positive
+// acknowledgement as soon as the last byte of its data stage has been read, so a
+// request whose payload has been read cannot then be stalled - and "the update failed
+// and here is which check caught it" is worth far more to whoever is looking at the
+// screen than an endpoint that simply stopped answering.
+//
+// What stalls, then, is whatever can be refused before its data is taken: a request
+// whose *shape* is wrong, and a chunk the transfer's own state says cannot be accepted.
+// The second of those is not a nicety. Without it a transfer that has already failed
+// goes on acknowledging every remaining chunk, and the host - which is watching the
+// only signal a control-OUT gives it - sends the rest of an image nobody is writing
+// before UPDATE_STATUS tells it what happened and where. Stalling costs no diagnosis:
+// the host reads UPDATE_STATUS on a failed write anyway, and the first error recorded
+// is the one kept, so what it finds there is the failure itself and not the refusal
+// that followed from it.
 static CyBool_t domDupHandleUpdateRequest(uint8_t bRequest, uint16_t wValue,
 	uint16_t wIndex, uint16_t wLength, CyBool_t *sendAck)
 {
@@ -916,6 +925,17 @@ static CyBool_t domDupHandleUpdateRequest(uint8_t bRequest, uint16_t wValue,
 
 	case UPDATE_REQUEST_DATA:
 		if (wLength == 0 || wLength > UPDATE_MAX_CHUNK) return CyFalse;
+
+		// Whether this chunk can be taken at all is decided before its payload is
+		// read, because that is the last moment at which the answer can be a stall.
+		// Everything the decision needs - the phase, the target, the chunk index and
+		// the length - is in the request's own fields, so none of it has to wait for
+		// the data stage. A transfer that has already failed therefore stops the host
+		// on the next chunk instead of accepting the remaining tens of thousands of
+		// bytes it is no longer writing.
+		if (updateAgentChunkRefusal((uint8_t)wIndex, wValue, wLength) != UPDATE_ERROR_NONE) {
+			return CyFalse;
+		}
 
 		status = CyU3PUsbGetEP0Data(wLength, glUpdateChunkBuffer, &readCount);
 		if (status != CY_U3P_SUCCESS) return CyFalse;

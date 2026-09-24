@@ -59,7 +59,7 @@ namespace ddd::gui {
 //     because an empty EEPROM puts it there just as readily and the wizard
 //     cannot tell the two apart.
 
-// The nine pages, in the order they are worked through. Here rather than
+// The eight pages, in the order they are worked through. Here rather than
 // inside the wizard so that the wording functions can be asked about a page
 // without a window existing.
 //
@@ -76,18 +76,31 @@ enum class BringUpPage {
   // done once or three times.
   kOverview,
 
-  // Live status for both boards, each opened rather than merely enumerated.
+  // Both boards, each opened rather than merely enumerated — and the FX3 in
+  // its boot ROM, which is where everything after this needs it.
+  //
+  // **The jumper is asked for on this page rather than two pages later**,
+  // and that is not a tidying-up. The page used to wait for the FX3 to be
+  // *seen*, whatever it was running, and that could not be got past on
+  // Windows by the very boards this wizard exists for: an application sees a
+  // device there only when its USB identifier is bound to WinUSB, and a
+  // legacy board presents 1d50:603b — an identifier nobody has any other
+  // reason to bind. So the row read *nothing found*, **Next ›** stayed dead,
+  // and the page that would have said what to do about it was two steps
+  // further on. Waiting for the boot ROM instead waits for 04b4:00f3, which
+  // this flow needs bound in any case and which the jumper reaches from every
+  // state a board can be in.
+  //
+  // The jumper is asked for on every run, including one whose FX3 is
+  // reporting the boot ROM already: a kit with an empty EEPROM comes up there
+  // with or without one, and a board that got there without it leaves again
+  // at the first restart. So the page waits for the restart as well as for
+  // the personality — the board has to be seen to go away and come back.
   kConnect,
 
   // The update file: signature, digests, channel, and whether it carries
   // everything a bring-up needs.
   kImage,
-
-  // Fit the jumper and power-cycle, to reach the FX3's boot ROM. Asked for on
-  // every run, including one whose FX3 is reporting the boot ROM already: a
-  // kit with an empty EEPROM comes up there with or without the jumper, and
-  // one that got there without it leaves again at the first restart.
-  kJumper,
 
   // Play the vectors into the FPGA over the USB-Blaster. Volatile: it writes
   // nothing, and it is what gives the firmware a flash bridge to write
@@ -109,7 +122,7 @@ enum class BringUpPage {
   kVerify,
 };
 
-// "3 of 9", and the page's own title. Every run visits all nine, so the
+// "3 of 8", and the page's own title. Every run visits all eight, so the
 // numbering is the same in every telling of the procedure — which is what lets
 // two runs of it be talked about in the same words.
 QString BringUpPageTitle(BringUpPage page);
@@ -146,6 +159,17 @@ QString BringUpDurationText();
 
 // --- the connectivity page ------------------------------------------------
 
+// The connectivity page's instructions: fit the jumper, pull both cables,
+// connect both boards — numbered, in that order, because the first does
+// nothing until the other two happen and a jumper fitted without a reboot is
+// the commonest way to be stuck on this page while everything looks correct.
+//
+// The unplug comes before the connect rather than after it so that the page
+// sees the board go away: that disappearance is the whole of what this
+// application can observe about a jumper, and a page told to connect first
+// would have nothing to watch for on a board that was already plugged in.
+QString BringUpConnectText();
+
 // What one status row is saying.
 enum class BringUpRowState {
   // Found, opened, and ready to be worked on.
@@ -178,8 +202,8 @@ QString BringUpMarkColour(BringUpRowState state);
 // What the three marks mean, shown above the rows.
 //
 // Worth a line of its own because the amber one is the state somebody is most
-// likely to misread: it says the wizard will ask something of that board later
-// on, not that anything is wrong with it.
+// likely to misread: it says there is something on this page still to do to
+// that board, not that anything is wrong with it.
 QString BringUpConnectLegend();
 
 // The FX3 row.
@@ -191,18 +215,27 @@ QString BringUpConnectLegend();
 // named when it reports one, so that "running the Duplicator's firmware"
 // cannot be read as "running some Duplicator firmware or other".
 //
-// **This row informs and decides nothing.** Every personality below is a
-// personality the wizard can bring up, because the jumper reaches the boot ROM
-// from all of them; what the row is for is telling somebody what they have in
-// front of them, and — for a board that already works — that they may be in
-// the wrong window.
+// **This row decides the page**: it is green exactly when the connectivity
+// page is satisfied with the FX3, so a user is never held on a step whose row
+// is ticked. Every personality below is one the wizard can bring up, because
+// the jumper reaches the boot ROM from all of them — what the row says is what
+// still has to happen to this particular board, and, for a board that already
+// works, that they may be in the wrong window.
+//
+// `restarted` is whether the board has been seen to leave the bus during this
+// run, which is the only evidence this application can have that a jumper was
+// fitted: a jumper takes effect on a boot, and a boot is a disappearance. A
+// board sitting in its boot ROM without that observation may simply have an
+// empty EEPROM — the state every kit leaves the factory in — so it is amber
+// rather than green, and the row says why.
 //
 // `debug_bridge` is whether the kit's on-board USB-UART answered, which is the
 // one thing that distinguishes an unpowered kit from a powered one whose USB
 // 3.0 link is not working — a distinction worth a great deal, because the two
 // send somebody to different ends of the bench.
 BringUpStatusRow BringUpFx3Row(const std::optional<capture::DeviceInfo>& fx3,
-                               capture::UsbPresence debug_bridge);
+                               capture::UsbPresence debug_bridge,
+                               bool restarted);
 
 // The FPGA row.
 //
@@ -221,19 +254,13 @@ BringUpStatusRow BringUpFpgaRow(bool opened, capture::UsbPresence presence,
 
 // --- the physical pages ---------------------------------------------------
 
-// Fit the jumper, then pull both cables, then put them back — numbered, in
-// that order, because the first does nothing until the other two happen and a
-// jumper fitted without a reboot is the commonest way to be stuck on this
-// page while everything looks correct.
-QString BringUpFitJumperText();
-
 // Take it off again, and touch nothing else. No power cycle here: there is one
 // on the next page and it serves everything, and somebody who pulls the cables
 // twice has done the physical work twice.
 QString BringUpRemoveJumperText();
 
-// Unplug both cables, wait, plug them back in. Numbered like the jumper page,
-// and for the same reason.
+// Unplug both cables, wait, plug them back in. Numbered like the
+// connectivity page, and for the same reason.
 QString BringUpPowerCycleText();
 
 // Shown when nothing has changed on the bus at all. Leads with the partial

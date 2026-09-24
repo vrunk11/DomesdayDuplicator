@@ -23,6 +23,7 @@
 #include <cmath>
 
 #include "capture_controller.h"
+#include "cursor_readout.h"
 #include "sample_format.h"
 #include "theme_color_tokens.h"
 
@@ -688,12 +689,13 @@ WaveformPanel::WaveformPanel(CaptureController* controller, QWidget* parent)
   persistence_label_->setFixedWidth(34);
   controls->addWidget(persistence_label_);
 
-  controls->addStretch();
-
-  cursor_ = new QLabel(this);
+  // No spacer before it, and the whole of the row's slack given to it: the
+  // readout is what fills the end of the row. It asks the layout for no width
+  // of its own, which is what keeps the dock from being re-laid out every time
+  // the pointer moves — see CursorReadout.
+  cursor_ = new CursorReadout(this);
   cursor_->setObjectName(QLatin1String(kCursorLabelName));
-  cursor_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-  controls->addWidget(cursor_);
+  controls->addWidget(cursor_, 1);
 
   layout->addLayout(controls);
 
@@ -774,12 +776,12 @@ void WaveformPanel::ApplyPersistence() {
 }
 
 void WaveformPanel::ShowCursor(qint64 sample_index, double code) {
-  cursor_->setText(
+  cursor_->SetReadout(
       FormatWaveformCursor(sample_index, code, gain_, plot_->sample_rate_hz()));
 }
 
 void WaveformPanel::ClearCursor() {
-  cursor_->setText(tr("Point at the trace to read a sample"));
+  cursor_->SetReadout(tr("Point at the trace to read a sample"));
 }
 
 }  // namespace ddd::gui

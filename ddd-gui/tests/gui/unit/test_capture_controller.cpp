@@ -36,8 +36,9 @@ namespace {
 using namespace std::chrono_literals;
 
 // Small enough that a test runs in milliseconds. The slot has to be at least
-// one sequence-counter period (65,536 samples) or the validator can never lock
-// on, so 256 KiB is the floor rather than a preference.
+// one sequence-counter block (65,535 samples, and 65,536 for legacy gateware)
+// or the validator can never lock on, so 256 KiB is the floor rather than a
+// preference.
 constexpr size_t kTestSlotBytes = size_t{256} << 10;
 constexpr size_t kTestSlotCount = 6;
 

@@ -152,6 +152,7 @@ constexpr PlayerDefinition LevelIII() {
   // bytes and may perfectly well contain an 'E'.
   commands[Index(PlayerCommand::kQueryActiveMode)] = Query("?P");
   commands[Index(PlayerCommand::kQueryAddress)] = Query("?F");
+  commands[Index(PlayerCommand::kQueryTimeCode)] = Query("?T");
   commands[Index(PlayerCommand::kQueryDiscStatus)] = Query("?D");
   commands[Index(PlayerCommand::kQueryStandardUserCode)] = Query("$Y");
 

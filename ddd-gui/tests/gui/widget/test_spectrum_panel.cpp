@@ -11,11 +11,13 @@
 
 #include <gtest/gtest.h>
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
 #include <QImage>
 #include <QLabel>
+#include <QLayout>
 #include <QMouseEvent>
 #include <QPixmap>
 #include <QPushButton>
@@ -26,6 +28,7 @@
 #include <vector>
 
 #include "capture_format.h"
+#include "cursor_readout.h"
 #include "frequency_axis.h"
 #include "sample_format.h"
 #include "spectrogram_history.h"
@@ -1148,6 +1151,123 @@ TEST(SpectrumPanelTest, TheReadoutChangesWithTheSegmentCountItIsGiven) {
   EXPECT_NE(averaged, silent)
       << "the panel drew the same thing whether or not it was told how many "
          "segments were averaged";
+}
+
+TEST(SpectrumPanelTest, WhatTheCursorSaysDoesNotChangeWhatThePanelAsksFor) {
+  // Issue #180: the readout is the last thing in the widest row in the panel,
+  // so if it asked the layout for room to hold its text, the panel's minimum
+  // width — and with it the dock's — moved with every reading the pointer
+  // produced. See CursorReadout.
+  SpectrumPanel panel(nullptr);
+  panel.resize(600, 300);
+  panel.show();
+  QApplication::processEvents();
+
+  auto* const cursor =
+      Named<CursorReadout>(panel, SpectrumPanel::kCursorLabelName);
+  ASSERT_NE(cursor, nullptr);
+
+  panel.layout()->activate();
+  const int minimum = panel.minimumSizeHint().width();
+  const int preferred = panel.sizeHint().width();
+
+  cursor->SetReadout(
+      QStringLiteral("8.123456 MHz \u00b7 \u221242.5 dBFS \u00b7 1.25 s ago, "
+                     "and more besides"));
+  panel.layout()->activate();
+
+  EXPECT_EQ(panel.minimumSizeHint().width(), minimum);
+  EXPECT_EQ(panel.sizeHint().width(), preferred);
+}
+
+// Issue #181: the control row was a QHBoxLayout, so the panel's minimum width
+// was the sum of ten controls — 959 pixels on the machine this was found on,
+// two thirds of the default window. Nothing chose that figure: it was whatever
+// the widest entry of every combo box happened to measure. The panels that had
+// to give the space up were the Capture and Statistics panels, because a dock
+// column with a modest minimum is the one that yields.
+//
+// The budget is in characters rather than pixels because the row is wider in
+// macOS's system font than in this one, wider again at a larger display scale,
+// and wider again in a translation whose words are longer. A pixel figure here
+// would only be true on the machine that wrote it.
+TEST(SpectrumPanelTest, ThePanelDoesNotDemandWidthTheWindowCannotSpare) {
+  SpectrumPanel panel(nullptr);
+  panel.resize(900, 400);
+  panel.show();
+  QApplication::processEvents();
+
+  const int character = panel.fontMetrics().horizontalAdvance(QLatin1Char('0'));
+  const int budget = 32 * character;
+
+  auto* const view = Named<QComboBox>(panel, SpectrumPanel::kViewComboName);
+  ASSERT_NE(view, nullptr);
+
+  // Both views. The spectrogram was the wider of the two — it has the contrast
+  // controls — and a fix that only held for the one the panel opens in would
+  // be no fix at all.
+  for (int index = 0; index < view->count(); ++index) {
+    view->setCurrentIndex(index);
+    QApplication::processEvents();
+    panel.layout()->activate();
+
+    EXPECT_LE(panel.minimumSizeHint().width(), budget)
+        << "the " << view->itemText(index).toStdString() << " view demands "
+        << panel.minimumSizeHint().width() << " px of a " << budget
+        << " px budget";
+  }
+}
+
+// The other half of it: what the panel gives up instead. A row that could not
+// be narrowed was the fault; a row that is narrowed by becoming two rows is
+// the fix, and the plot — whose size policy is Expanding — is what pays for
+// the extra row.
+TEST(SpectrumPanelTest, TheControlRowWrapsRatherThanRefusingToBeNarrow) {
+  SpectrumPanel panel(nullptr);
+  panel.show();
+
+  auto* const view = Named<QComboBox>(panel, SpectrumPanel::kViewComboName);
+  auto* const reset =
+      Named<QPushButton>(panel, SpectrumPanel::kResetButtonName);
+  ASSERT_NE(view, nullptr);
+  ASSERT_NE(reset, nullptr);
+
+  const auto settle = [&panel](int width) {
+    panel.resize(width, 400);
+    QApplication::processEvents();
+    panel.layout()->activate();
+  };
+
+  // Room for one row: the last control sits beside the first.
+  settle(panel.sizeHint().width() + 100);
+  EXPECT_EQ(reset->y(), view->y());
+
+  // And at the narrowest the panel will go, it has gone below instead.
+  settle(panel.minimumSizeHint().width());
+  EXPECT_GT(reset->y(), view->y());
+}
+
+// The readout still fills the end of the row, which is the arrangement issue
+// #180 settled: no spacer before it, and nothing after it.
+TEST(SpectrumPanelTest, TheReadoutTakesWhatIsLeftOfTheRow) {
+  SpectrumPanel panel(nullptr);
+  panel.resize(1000, 400);
+  panel.show();
+  QApplication::processEvents();
+  panel.layout()->activate();
+
+  auto* const cursor =
+      Named<CursorReadout>(panel, SpectrumPanel::kCursorLabelName);
+  auto* const reset =
+      Named<QPushButton>(panel, SpectrumPanel::kResetButtonName);
+  ASSERT_NE(cursor, nullptr);
+  ASSERT_NE(reset, nullptr);
+
+  EXPECT_GT(cursor->x(), reset->x());
+
+  // Up to the panel's own margin, which is the only thing between it and the
+  // edge.
+  EXPECT_GE(cursor->geometry().right(), panel.width() - 16);
 }
 
 TEST(SpectrumPanelTest, TheCursorLabelSaysWhatToDoBeforeItIsUsed) {

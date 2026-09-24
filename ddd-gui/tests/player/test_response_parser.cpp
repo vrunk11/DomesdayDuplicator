@@ -133,6 +133,16 @@ TEST(ResponseParserTest, ATimeCodeIsReadInTimeCodeMode) {
   EXPECT_EQ(address.value, 1234500);
 }
 
+TEST(ResponseParserTest, AShortTimeCodeIsExpandedToTheCanonicalForm) {
+  // The LD-V2200 reports five-digit HMMSS rather than the usual HMMSSFF. The
+  // application restores the zero frame field as it reads it, so its plans and
+  // reports can stay independent of the player model.
+  const DiscAddress address =
+      ParseAddress("00100\r", AddressMode::kTimeCode, TimeCodeFormat::kHMMSS);
+  EXPECT_TRUE(address.valid);
+  EXPECT_EQ(address.value, 10000);  // 0:01:00
+}
+
 TEST(ResponseParserTest, ZeroPaddingIsPaddingRatherThanWidth) {
   // Exactly what an LD-V4300D on the bench answers: seven zero-padded digits,
   // whatever the disc is. Counting the padding as significant would make every

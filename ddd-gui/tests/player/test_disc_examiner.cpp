@@ -19,6 +19,7 @@
 
 #include "disc_examiner.h"
 #include "player_registry.h"
+#include "players/pioneer_ld_v2200.h"
 #include "players/pioneer_level_iii.h"
 
 namespace ddd::player {
@@ -250,9 +251,18 @@ TEST(DiscExaminerTest, ACavDiscIsSeekedByFrameWithTheOldApplicationsAddresses) {
   ASSERT_NE(start, nullptr);
   EXPECT_EQ(start->command, PlayerCommand::kSeekFrame);
   EXPECT_EQ(start->argument.value_or(-1), 1);
+
+  const ExamineStep* const end_address = Find(sent, ExamineStage::kReadingEnd);
+  ASSERT_NE(end_address, nullptr);
+  EXPECT_EQ(end_address->command, PlayerCommand::kQueryAddress);
+
+  const ExamineStep* const start_address =
+      Find(sent, ExamineStage::kReadingStart);
+  ASSERT_NE(start_address, nullptr);
+  EXPECT_EQ(start_address->command, PlayerCommand::kQueryAddress);
 }
 
-TEST(DiscExaminerTest, AClvDiscIsSeekedByTimeCodeInstead) {
+TEST(DiscExaminerTest, ANormalClvDiscIsSeekedByTimeCodeAndReadByFrameAddress) {
   DiscExaminer examiner(LevelIIIModel(), "A1");
   const std::vector<ExamineStep> sent = Drive(examiner, ClvScript());
 
@@ -260,6 +270,34 @@ TEST(DiscExaminerTest, AClvDiscIsSeekedByTimeCodeInstead) {
   ASSERT_NE(end, nullptr);
   EXPECT_EQ(end->command, PlayerCommand::kSeekTimeCode);
   EXPECT_EQ(end->argument.value_or(-1), 1595900);
+
+  const ExamineStep* const end_address = Find(sent, ExamineStage::kReadingEnd);
+  ASSERT_NE(end_address, nullptr);
+  EXPECT_EQ(end_address->command, PlayerCommand::kQueryAddress);
+
+  const ExamineStep* const start_address =
+      Find(sent, ExamineStage::kReadingStart);
+  ASSERT_NE(start_address, nullptr);
+  EXPECT_EQ(start_address->command, PlayerCommand::kQueryAddress);
+}
+
+TEST(DiscExaminerTest, AnLdV2200ClvDiscIsReadByTimeCode) {
+  DiscExaminer examiner(pioneer::kLdV2200, "A1");
+  Script script = ClvScript();
+  script[ExamineStage::kReadingEnd] = Answered("05045");
+  script[ExamineStage::kReadingStart] = Answered("<00000");
+  const std::vector<ExamineStep> sent = Drive(examiner, script);
+
+  const ExamineStep* const end_address = Find(sent, ExamineStage::kReadingEnd);
+  ASSERT_NE(end_address, nullptr);
+  EXPECT_EQ(end_address->command, PlayerCommand::kQueryTimeCode);
+
+  const ExamineStep* const start_address =
+      Find(sent, ExamineStage::kReadingStart);
+  ASSERT_NE(start_address, nullptr);
+  EXPECT_EQ(start_address->command, PlayerCommand::kQueryTimeCode);
+
+  EXPECT_EQ(examiner.profile().programme_end.value, 504500);
 }
 
 TEST(DiscExaminerTest, APlayerAlreadyPlayingIsNotSpunUpAgain) {
@@ -771,6 +809,23 @@ TEST(DiscExaminerTest, AnErrorCodeIsRecordedAsNoUserCodeRatherThanAsOne) {
   EXPECT_EQ(code.outcome, UserCodeReading::Outcome::kNotEncoded);
   EXPECT_FALSE(code.read());
   EXPECT_EQ(code.text, "E04");
+}
+
+TEST(DiscExaminerTest, TheLdV2200DoesNotClaimAnErrorMeansTheDiscHasNoUserCode) {
+  DiscExaminer examiner(pioneer::kLdV2200, "A1");
+  Script script = ClvScript();
+  script[ExamineStage::kReadingEnd] = Answered("04448");
+  script[ExamineStage::kReadingStart] = Answered("<00000");
+  script[ExamineStage::kReadingPioneerUserCode] = Answered("E04");
+  script[ExamineStage::kReadingStandardUserCode] = Answered("E04");
+  Drive(examiner, script);
+
+  for (const UserCodeReading* code : {&examiner.profile().pioneer_user_code,
+                                      &examiner.profile().standard_user_code}) {
+    EXPECT_EQ(code->outcome, UserCodeReading::Outcome::kRefused);
+    EXPECT_FALSE(code->read());
+    EXPECT_EQ(code->text, "E04");
+  }
 }
 
 TEST(DiscExaminerTest, AUserCodeTheDiscHasIsRecordedEvenWhereItCouldNotBeRead) {

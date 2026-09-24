@@ -17,6 +17,7 @@
 #include "fake_serial_port.h"
 #include "player_registry.h"
 #include "player_session.h"
+#include "players/pioneer_ld_v2200.h"
 #include "players/pioneer_ld_v4300d.h"
 #include "players/pioneer_ld_v8000.h"
 
@@ -29,6 +30,10 @@ constexpr const char* kLdV8000Reply = "P1506A9";
 
 // An LD-V4300D, for the cases that want a player without that capability.
 constexpr const char* kLdV4300DReply = "P1515A1";
+
+// An LD-V2200, whose CLV time-code wire format differs from the Level III
+// default.
+constexpr const char* kLdV2200Reply = "P1507A1";
 
 class PlayerSessionTest : public testing::Test {
  protected:
@@ -265,6 +270,24 @@ TEST_F(PlayerSessionTest, ACommandIsSentAndItsAcknowledgementRead) {
 
   EXPECT_EQ(reply.status, ReplyStatus::kOk);
   EXPECT_EQ(port_.writes().back(), "PL\r");
+}
+
+TEST_F(PlayerSessionTest, TheLdV2200ProfileIsSelectedAndEncodesItsTimeCode) {
+  ConnectAt(9600, kLdV2200Reply);
+  ASSERT_EQ(session_.identity().definition, &pioneer::kLdV2200);
+  port_.AddResponse(9600, "TM00100SE\r", "R\r");
+  port_.AddResponse(9600, "?T\r", "00002\r");
+
+  const Reply reply = session_.Execute(PlayerCommand::kSeekTimeCode, 10000);
+
+  EXPECT_EQ(reply.status, ReplyStatus::kOk);
+  EXPECT_EQ(reply.sent, "TM00100SE\r");
+  EXPECT_EQ(port_.writes().back(), "TM00100SE\r");
+
+  const Reply address = session_.Execute(PlayerCommand::kQueryTimeCode);
+  EXPECT_EQ(address.status, ReplyStatus::kOk);
+  EXPECT_EQ(address.sent, "?T\r");
+  EXPECT_EQ(address.text, "00002");
 }
 
 TEST_F(PlayerSessionTest, EveryReplyCarriesTheBytesThatProvokedIt) {

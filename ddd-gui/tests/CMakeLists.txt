@@ -307,6 +307,8 @@ ddd_add_test(ddd_gui_widget_tests "unit"
     gui/widget/test_settings_dialog.cpp
     gui/widget/test_log_panel.cpp
     gui/widget/test_statistics_panel.cpp
+    gui/widget/test_cursor_readout.cpp
+    gui/widget/test_flow_layout.cpp
     gui/widget/test_waveform_panel.cpp
     gui/widget/test_spectrum_panel.cpp
     gui/widget/test_amplitude_panel.cpp

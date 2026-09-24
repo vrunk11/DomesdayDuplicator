@@ -2,7 +2,7 @@
 
     board_bringup_wizard.h
 
-    Programming a board from nothing to fully up to date, in nine pages
+    Programming a board from nothing to fully up to date, in eight pages
     Domesday Duplicator - LaserDisc RF sampler
     SPDX-FileCopyrightText: 2026 Simon Inns
     SPDX-License-Identifier: GPL-3.0-or-later
@@ -60,9 +60,10 @@ class BringUpWorker;
 // running together — while the reverse mixture leaves the net undriven from
 // both ends, which is merely a floating input. What keeps a board out of the
 // bad pairing is where the FX3 is while the FPGA changes: in its boot ROM,
-// with every shared pin idle. So the configure page comes before the page that
-// writes, and no firmware runs again until it is the firmware out of the
-// bundle. That rule is not enforced here — it is enforced in
+// with every shared pin idle. So the connectivity page does not let the flow
+// past until the FX3 is in its boot ROM, the configure page comes before the
+// page that writes, and no firmware runs again until it is the firmware out of
+// the bundle. That rule is not enforced here — it is enforced in
 // BringUpOrchestrator, which refuses to write anything until the FPGA has been
 // configured, so a page wired up wrongly is a refused operation rather than
 // two outputs on one wire. What this class owes it is the page order, and
@@ -75,6 +76,16 @@ class BringUpWorker;
 // the jumper pages used to be skipped for a board already in its boot ROM, and
 // that was wrong for a freshly built kit, which arrives there on an empty
 // EEPROM whether or not a jumper is fitted.
+//
+// **The jumper is asked for on the connectivity page**, rather than on one of
+// its own two pages further on, and that is what makes this flow usable on
+// Windows at all. A page that waited for the FX3 to be *seen* could not be got
+// past by a board running the original firmware: Windows shows this
+// application only devices whose USB identifier is bound to WinUSB, 1d50:603b
+// is an identifier nobody binds, and the row therefore read *nothing found*
+// beside a board that was plainly attached. Waiting for the boot ROM instead
+// asks for 04b4:00f3 — an identifier this flow needs bound in any case — and
+// puts the instruction that reaches it on the page that is stuck.
 //
 // **Every page tells the user where it has got to, in the same two shapes.**
 // A page that is not finished says what it is waiting for; a page that is
@@ -188,11 +199,13 @@ class BoardBringUpWizard : public QDialog {
   static constexpr const char* kOverviewPhotographName =
       "bringup_overview_photo";
 
+  static constexpr const char* kConnectTextName = "bringup_connect";
   static constexpr const char* kFx3RowName = "bringup_fx3_row";
   static constexpr const char* kFpgaRowName = "bringup_fpga_row";
   static constexpr const char* kConnectLegendName = "bringup_connect_legend";
   static constexpr const char* kCheckAgainButtonName = "bringup_check_again";
   static constexpr const char* kConnectStatusName = "bringup_connect_status";
+  static constexpr const char* kConnectPhotographName = "bringup_connect_photo";
 
   static constexpr const char* kChooseButtonName = "bringup_choose";
   static constexpr const char* kUseBundledButtonName = "bringup_use_bundled";
@@ -201,10 +214,6 @@ class BoardBringUpWizard : public QDialog {
   static constexpr const char* kImageLabelName = "bringup_image";
   static constexpr const char* kImageBannerName = "bringup_image_banner";
   static constexpr const char* kImageStatusName = "bringup_image_status";
-
-  static constexpr const char* kJumperTextName = "bringup_jumper";
-  static constexpr const char* kJumperPhotographName = "bringup_jumper_photo";
-  static constexpr const char* kJumperStatusName = "bringup_jumper_status";
 
   static constexpr const char* kConfigureTextName = "bringup_configure";
   static constexpr const char* kConfigureStatusName =
@@ -269,7 +278,6 @@ class BoardBringUpWizard : public QDialog {
   QWidget* BuildOverviewPage();
   QWidget* BuildConnectPage();
   QWidget* BuildImagePage();
-  QWidget* BuildJumperPage();
   QWidget* BuildConfigurePage();
   QWidget* BuildProgramPage();
   QWidget* BuildRemoveJumperPage();
@@ -292,7 +300,7 @@ class BoardBringUpWizard : public QDialog {
   // Whether the page in hand has finished what it is for.
   bool PageIsSatisfied(BringUpPage page) const;
 
-  // The next and previous pages, which are all nine of them in order.
+  // The next and previous pages, which are all eight of them in order.
   std::optional<BringUpPage> After(BringUpPage page) const;
   std::optional<BringUpPage> Before(BringUpPage page) const;
 
@@ -372,14 +380,14 @@ class BoardBringUpWizard : public QDialog {
   // How long the running step has taken, for the line logged when it ends.
   QElapsedTimer task_clock_;
 
-  // Whether the board has been seen to leave the bus while the jumper page
-  // was in front of somebody. That is the whole of what this window can know
-  // about a jumper: the part it can see is the restart, and a board that has
-  // restarted into its boot ROM is a board with the jumper fitted.
+  // Whether the board has been seen to leave the bus while the connectivity
+  // page was in front of somebody. That is the whole of what this window can
+  // know about a jumper: the part it can see is the restart, and a board that
+  // has restarted into its boot ROM is a board with the jumper fitted.
   //
-  // Without it the jumper page is satisfied the instant it opens for the one
-  // board that most needs it — a new kit, in its boot ROM because its EEPROM
-  // is empty rather than because anybody fitted anything.
+  // Without it that page is satisfied the instant it opens for the one board
+  // that most needs it — a new kit, in its boot ROM because its EEPROM is
+  // empty rather than because anybody fitted anything.
   bool jumper_restart_seen_ = false;
 
   // The chosen update file: the bytes, so the worker can verify them again
@@ -452,8 +460,6 @@ class BoardBringUpWizard : public QDialog {
   QLabel* image_banner_ = nullptr;
   QLabel* image_status_ = nullptr;
   QPushButton* use_bundled_ = nullptr;
-
-  QLabel* jumper_status_ = nullptr;
 
   QLabel* configure_text_ = nullptr;
   QLabel* configure_status_ = nullptr;

@@ -28,11 +28,19 @@ namespace ddd::capture::test {
 class WireStreamBuilder {
  public:
   // sample_values are 10-bit; the sequence counter is applied on top.
+  //
+  // samples_until_increment is how far into the first block the stream starts,
+  // which is what lets a fixture begin mid-block the way a real buffer does.
+  // samples_per_counter is the block length every block after that one uses:
+  // the current gateware's by default, and the legacy one for the fixtures
+  // that prove a board running it still captures.
   explicit WireStreamBuilder(
       uint8_t starting_counter = 0,
-      uint32_t samples_until_increment = kSamplesPerSequenceCounter)
+      uint32_t samples_until_increment = kSamplesPerSequenceCounter,
+      uint32_t samples_per_counter = kSamplesPerSequenceCounter)
       : counter_(starting_counter),
-        samples_until_increment_(samples_until_increment) {}
+        samples_until_increment_(samples_until_increment),
+        samples_per_counter_(samples_per_counter) {}
 
   // Append one sample.
   void Append(uint16_t sample_value) {
@@ -78,12 +86,13 @@ class WireStreamBuilder {
     if (counter_ >= kSequenceCounterValues) {
       counter_ = 0;
     }
-    samples_until_increment_ = kSamplesPerSequenceCounter;
+    samples_until_increment_ = samples_per_counter_;
   }
 
   std::vector<uint8_t> bytes_;
   uint8_t counter_ = 0;
   uint32_t samples_until_increment_ = kSamplesPerSequenceCounter;
+  uint32_t samples_per_counter_ = kSamplesPerSequenceCounter;
   uint16_t ramp_ = 0;
 };
 

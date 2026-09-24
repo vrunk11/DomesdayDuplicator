@@ -6,7 +6,7 @@ Programming a Domesday Duplicator from nothing to fully up to date: the FX3's fi
 
 **It does not matter what the board is running now.** A newly built unit whose FX3 has never been programmed and whose DE0-Nano still holds whatever Terasic shipped on it; a unit running the original Duplicator firmware from before this application existed; a unit that already works; a unit left half-programmed by a run of this that was stopped. This asks for the same things and does the same work in every case, and running it twice is harmless.
 
-The reason is one physical fact: **fitting jumper J4 puts the FX3 into its boot ROM whatever it was doing**, and a JTAG configuration replaces whatever the FPGA is running whatever its flash holds. So nothing here has to diagnose your board, and nothing branches on what it finds — every board goes through the same nine pages, including one that is already sitting in its boot ROM.
+The reason is one physical fact: **fitting jumper J4 puts the FX3 into its boot ROM whatever it was doing**, and a JTAG configuration replaces whatever the FPGA is running whatever its flash holds. So nothing here has to diagnose your board, and nothing branches on what it finds — every board goes through the same eight pages, including one that is already sitting in its boot ROM.
 
 If your board already answers this application and you only want the current release on it, **Tools ▸ Firmware ▸ Update firmware…** does that with no cables moved and no case opened. That is [updating](updating-your-domesday-duplicator.md), and it is what you want nearly every time.
 
@@ -78,29 +78,36 @@ A checklist rather than an explanation: what to have ready before starting, and 
 
 It also states where you end up: **a working Duplicator running the release you chose, ready to capture.** Nothing follows it.
 
-### 2 · Both boards, connected
+### 2 · Both boards, and jumper J4
 
-Two live status rows, one per board. Each device is **opened**, not merely noticed, so that a permissions problem turns up here — while nothing is half-programmed — rather than in the middle of writing a flash.
+Three numbered instructions and two live status rows.
 
-These rows inform; they decide nothing. Every state below is one the wizard can bring up.
+The instructions: **fit jumper J4** across the FX3 board's two-pin `PMODE` header — a photograph at the foot of the page shows exactly which — then **unplug both cables**, then **plug both back in**. The jumper only takes effect on a boot, and the unit does not boot while either cable still feeds it, which is why all three steps are needed and why doing only the first looks exactly like success.
+
+**Fit it whatever the board is running**, including one the page reports as already waiting in its boot ROM. That is the state a newly built kit arrives in, and it arrives there because its EEPROM is empty rather than because anything is holding it there. Without the jumper it leaves the boot ROM again at the first restart — part way through step 5, which is where the bring-up fails with nothing obvious to point at. Nothing in software can see a jumper, so the wizard cannot tell the two cases apart and does not try to.
+
+The two rows, one per board, are what the page waits for. Each device is **opened**, not merely noticed, so that a permissions problem turns up here — while nothing is half-programmed — rather than in the middle of writing a flash. The FX3 row ticks when the board has been seen to **go away and come back in its boot ROM**: going away is the half the application can actually see, and it is what proves both cables came out.
+
+This is the page that makes your board's previous state irrelevant. Whatever it was running, the jumper reaches the same boot ROM, and everything after this works from there.
 
 Each row carries a mark, and the middle one is the one people misread:
 
 | Mark | Means |
 | --- | --- |
-| Green tick | That board is ready as it is |
-| **Amber dot** | The wizard will ask you to do something to that board later on — fit a jumper, or pull both cables. **Not** that anything is wrong with it |
+| Green tick | That board is ready |
+| **Amber dot** | That board is there, and the three steps above have still to be done to it. **Not** that anything is wrong with it |
 | Red cross | Something to put right before going on |
 
 What the FX3 row can say:
 
 | Row says | Meaning | Mark |
 | --- | --- | --- |
-| *Waiting in its boot ROM* | A newly built kit, whose EEPROM is empty. **The jumper is still needed**, and step 4 still asks for it: an empty board comes up in its boot ROM whether or not one is fitted | Amber |
+| *In its boot ROM after restarting* | The jumper is fitted and both cables came out. This is what the page is waiting for | Green |
+| *Waiting in its boot ROM* | A newly built kit, whose EEPROM is empty. **The jumper is still needed**: an empty board comes up in its boot ROM whether or not one is fitted, and the row ticks only once the board has been seen to go away and come back | Amber |
 | *Running this application's own firmware (commit)* | A board that already works. **You probably want [Update firmware](updating-your-domesday-duplicator.md) instead.** Carrying on is safe and reprograms everything | Amber |
 | *Running the **original** Duplicator firmware … 1d50:603b* | The firmware from before this application existed | Amber |
 | *The kit's debug serial port is answering* | The board has power and its USB 3.0 link is not answering. Check that cable and that it is in a USB 3.0 socket | Red |
-| *Nothing found* | No cable, no power, or no permissions | Red |
+| *Nothing found* | No cable, no power, no permissions — **or, on Windows, a board that is plainly attached and running firmware.** See below | Red |
 
 And the FPGA row:
 
@@ -114,9 +121,11 @@ And the FPGA row:
 
 **On Windows it needs WinUSB bound to up to three USB identifiers**, and the first two are not the one a working Duplicator uses: `04B4:00F3` for the FX3 in its boot ROM, and `09FB:6001` for the DE0-Nano's on-board USB-Blaster. Windows binds drivers by USB identifier, so a board in either of those states is a *different device* as far as Windows is concerned. An unbound FX3 is invisible to this application rather than merely unopenable, so its row reads as nothing found; the USB-Blaster is seen on the bus whatever driver holds it, so an unbound cable reads as *attached but could not be opened* and names the binding. Do both before starting: [Windows — MSI](install-msi.md#if-the-board-does-not-show-up-as-a-domesday-duplicator) walks through it. macOS needs nothing.
 
-The third is `1209:2347`, the Duplicator the board becomes, and it is needed *part way through* — step 6 restarts the board into its new firmware and then reopens it under that identifier. On any machine that has ever had a working Duplicator plugged in it is already bound and there is nothing to do. On one that has not, the board presents nothing for Zadig to pick until step 6 has already run, so this binding is made a different way: **Zadig's Device → Create New Device** installs a driver for an identifier nothing is presenting, and Windows matches it when the board appears. Do it in the same session as the other two, before starting — [Binding an identifier the board is not presenting yet](install-msi.md#binding-an-identifier-the-board-is-not-presenting-yet) has the fields to enter — and the wizard runs straight through.
+**A board running the original firmware reads as *nothing found* on Windows, and that is the state this page is built around.** `1D50:603B` is an identifier nobody has any reason to bind, so such a board is absent as far as this application is concerned even though it is plainly attached and lit. The remedy is the one the page asks for anyway: fit jumper J4, pull both cables, plug them back in, and the board returns as `04B4:00F3` — the identifier to bind, and the only one this flow needs from the FX3.
 
-Reaching step 6 without it costs nothing but the run. The step stops after thirty seconds, having written nothing permanently, and it names what happened rather than reporting an absence — the board *is attached as a Duplicator (1209:2347) and cannot be opened under that identifier* — because the board is on the bus at that point doing exactly what it was told to, and the only thing missing is the driver binding. Leave the board plugged in, bind `1209:2347` the ordinary way now that it is visible, and run the wizard again. The application does not need restarting; it re-reads the device list five times a second.
+The third is `1209:2347`, the Duplicator the board becomes, and it is needed *part way through* — step 5 restarts the board into its new firmware and then reopens it under that identifier. On any machine that has ever had a working Duplicator plugged in it is already bound and there is nothing to do. On one that has not, the board presents nothing for Zadig to pick until step 5 has already run, so this binding is made a different way: **Zadig's Device → Create New Device** installs a driver for an identifier nothing is presenting, and Windows matches it when the board appears. Do it in the same session as the other two, before starting — [Binding an identifier the board is not presenting yet](install-msi.md#binding-an-identifier-the-board-is-not-presenting-yet) has the fields to enter — and the wizard runs straight through.
+
+Reaching step 5 without it costs nothing but the run. The step stops after thirty seconds, having written nothing permanently, and it names what happened rather than reporting an absence — the board *is attached as a Duplicator (1209:2347) and cannot be opened under that identifier* — because the board is on the bus at that point doing exactly what it was told to, and the only thing missing is the driver binding. Leave the board plugged in, bind `1209:2347` the ordinary way now that it is visible, and run the wizard again. The application does not need restarting; it re-reads the device list five times a second.
 
 ### 3 · The update file
 
@@ -124,17 +133,7 @@ The file your copy of the application carries, already chosen, with its version 
 
 If your copy carries none, this is the one page that needs something from elsewhere: the file to download and where from.
 
-### 4 · Fit jumper J4
-
-Three numbered instructions: fit the jumper across the FX3 board's two-pin `PMODE` header, unplug both cables, plug both back in. A photograph shows exactly which header. The jumper only takes effect on a boot, and the unit does not boot while either cable still feeds it — which is why all three steps are needed and why doing only the first looks exactly like success.
-
-**Fit it even if step 2 reported the FX3 as already waiting in its boot ROM.** That is the state a newly built kit arrives in, and it arrives there because its EEPROM is empty rather than because anything is holding it there. Without the jumper it leaves the boot ROM again at the first restart — part way through step 6, which is where the bring-up fails with nothing obvious to point at. Nothing in software can see a jumper, so the wizard cannot tell the two cases apart and does not try to.
-
-The page waits for the board to **go away and come back in its boot ROM**, and says so until it does. Going away is the half it can actually see, and it is what proves both cables came out.
-
-This is the page that makes your board's previous state irrelevant.
-
-### 5 · Load the gateware into the FPGA
+### 4 · Load the gateware into the FPGA
 
 Press **Load the gateware**. It plays the gateware into the FPGA through the DE0-Nano's own USB-Blaster — the only route to a board whose flash holds nothing this application can talk to. About three seconds.
 
@@ -144,7 +143,7 @@ Because nothing is written, an attempt that does not take can simply be made aga
 
 The FX3 is sitting in its boot ROM while this happens, with every shared pin idle. That is why this comes before the firmware rather than after it — see *Why this order* below.
 
-### 6 · Program the board
+### 5 · Program the board
 
 Press **Program the board**. Everything permanent happens in this one step: the FX3's boot ROM is handed the firmware and runs it from memory, and that firmware then writes three things — the same protocol, the same digests and the same readback an ordinary update uses:
 
@@ -158,20 +157,20 @@ Nothing is restarted at the end. The jumper is still fitted, and a restart would
 
 The flash writes pause every few seconds while a block is erased; that is the flash doing its job, not something stuck. **Stop** is safe at any point.
 
-### 7 · Remove jumper J4
+### 6 · Remove jumper J4
 
 Same board, same photograph, header bare. **Do not unplug anything yet.**
 
 Nothing here can detect a jumper, and the page says so rather than pretending to wait for something: click **Next ›** once it is off.
 
-### 8 · Power cycle
+### 7 · Power cycle
 
 Three numbered instructions again: unplug both, wait a couple of seconds, plug both back in. That is what makes the three images you have just written the running ones — the FX3 re-reads where it boots from, and the FPGA loads the factory image, which hands over to the application image beside it.
 
 **This page cannot go by whether a Duplicator is attached**, and that is worth knowing because one is. The previous step handed the firmware to the FX3's boot ROM and ran it out of memory, so the board is enumerating as a working Duplicator before you touch anything. What the page waits for instead is two things it can observe:
 
 - the device **going away**, which is what proves a cable came out;
-- it coming back **on the application image**, which is what proves the board lost power. The gateware loaded over JTAG in step 5 is the *factory* image, and only a power cycle makes the FPGA reload from flash.
+- it coming back **on the application image**, which is what proves the board lost power. The gateware loaded over JTAG in step 4 is the *factory* image, and only a power cycle makes the FPGA reload from flash.
 
 That second check catches the failure this page has always warned about. Pulling the USB 3.0 cable alone makes the device vanish and return while the mini-USB keeps the board alive — the firmware in memory survives, the gateware in the FPGA survives, and every outward sign is of a power cycle that worked. The page says so:
 
@@ -183,9 +182,9 @@ That second check catches the failure this page has always warned about. Pulling
 | **The board has come back in its boot ROM** | Jumper J4 is still fitted. Go back a page and take it off |
 | **✓ All done** | It restarted and is running from its own flash |
 
-**Both go back in, even though the USB 3.0 cable alone would boot the board.** It would: with both cables out the unit is dead, so the USB 3.0 cable on its own is a real cold start, and nothing on this page or the next one is read over the mini-USB. It goes back in so that the instruction is the same one every time — the half people get wrong is the *unplug* half — and so that the USB-Blaster is still there if this page sends you back a step. The mini-USB comes off at the end of step 9, when the case goes back on.
+**Both go back in, even though the USB 3.0 cable alone would boot the board.** It would: with both cables out the unit is dead, so the USB 3.0 cable on its own is a real cold start, and nothing on this page or the next one is read over the mini-USB. It goes back in so that the instruction is the same one every time — the half people get wrong is the *unplug* half — and so that the USB-Blaster is still there if this page sends you back a step. The mini-USB comes off at the end of step 8, when the case goes back on.
 
-### 9 · What the device is running now
+### 8 · What the device is running now
 
 Four things, read off the device rather than assumed:
 
@@ -196,13 +195,13 @@ Four things, read off the device rather than assumed:
 
 That last one is what separates a finished board from one that is most of the way there. A board that comes back on its factory image works and is not damaged, but it cannot capture — and the page says so rather than reporting success.
 
-Then: **unplug the DE0-Nano's mini-USB cable, put the case back on and click Close.** The mini-USB was only ever the way in to a board that could not yet be reached over USB 3.0, and nothing from step 6 onwards uses it; the kit's USB 3.0 cable stays where it is, because that is the one you capture through. From now on this board updates itself.
+Then: **unplug the DE0-Nano's mini-USB cable, put the case back on and click Close.** The mini-USB was only ever the way in to a board that could not yet be reached over USB 3.0, and nothing from step 5 onwards uses it; the kit's USB 3.0 cable stays where it is, because that is the one you capture through. From now on this board updates itself.
 
 ## Why this order
 
 The FX3 and the FPGA share one interconnect, and one line changed direction between the original design and the current one. Under the original firmware `CTL_07` is driven by the FX3; under the current gateware the same wire is driven by the FPGA. Those two must never run together.
 
-What keeps a board out of that pairing is not care — it is where the FX3 is while the FPGA changes. In its boot ROM every shared pin is idle, so the gateware can change underneath it with nothing to contend with, and by the time any firmware runs again it is the firmware out of the file you chose. That is why the jumper page comes before the gateware is loaded, and why the wizard refuses to write anything until it has been.
+What keeps a board out of that pairing is not care — it is where the FX3 is while the FPGA changes. In its boot ROM every shared pin is idle, so the gateware can change underneath it with nothing to contend with, and by the time any firmware runs again it is the firmware out of the file you chose. That is why the page that asks for the jumper comes before the gateware is loaded, and why the wizard refuses to write anything until it has been.
 
 ## If something goes wrong
 
@@ -217,13 +216,14 @@ The commonest failures, in order:
 | What you see | What it usually is |
 | --- | --- |
 | A page waiting for a board that never comes back | Only one cable came out. Unplug **both**, count to three, reconnect |
-| *The board did not lose power* on page 8 | The same thing, caught rather than guessed at — the USB 3.0 cable alone came out while the mini-USB kept the board alive |
+| *The board did not lose power* on page 7 | The same thing, caught rather than guessed at — the USB 3.0 cable alone came out while the mini-USB kept the board alive |
 | *Nothing found* on the FPGA row | A charge-only mini-USB cable |
 | The cable is attached and will not open | Quartus's `jtagd` is running, or the udev rules are not installed |
 | A page waiting for the boot ROM after fitting the jumper | The jumper is on the wrong header, or the power cycle did not happen |
+| *Nothing found* on the FX3 row, on Windows, with the board plainly attached | The board is running firmware under an identifier nothing is bound to. Fit jumper J4 and pull both cables: it comes back as `04B4:00F3`, which is the identifier to bind |
 | The file is refused on page 3 | It is a release from before the bring-up payloads existed. The page names what is missing |
-| *The device restarted … and is attached as a Duplicator (1209:2347), but this application cannot open it*, on page 6, on Windows | WinUSB has never been bound to `1209:2347` on this machine. Nothing was written; bind it with Zadig and run the wizard again. Creating that binding before starting avoids the run entirely — see [Both boards, connected](#2-both-boards-connected) above |
-| *The device did not come back after being given its firmware*, on page 6 | The board did not re-enumerate at all, which is a different failure from the one above and is not a driver binding: nothing with those identifiers is on the bus. Nothing was written — unplug both cables, plug them back in, and run the wizard again |
+| *The device restarted … and is attached as a Duplicator (1209:2347), but this application cannot open it*, on page 5, on Windows | WinUSB has never been bound to `1209:2347` on this machine. Nothing was written; bind it with Zadig and run the wizard again. Creating that binding before starting avoids the run entirely — see [Both boards, and jumper J4](#2-both-boards-and-jumper-j4) above |
+| *The device did not come back after being given its firmware*, on page 5 | The board did not re-enumerate at all, which is a different failure from the one above and is not a driver binding: nothing with those identifiers is on the bus. Nothing was written — unplug both cables, plug them back in, and run the wizard again |
 
 ## What this replaces
 

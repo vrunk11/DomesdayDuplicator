@@ -2,7 +2,7 @@
 
     board_bringup_wizard.cpp
 
-    Programming a board from nothing to fully up to date, in nine pages
+    Programming a board from nothing to fully up to date, in eight pages
     Domesday Duplicator - LaserDisc RF sampler
     SPDX-FileCopyrightText: 2026 Simon Inns
     SPDX-License-Identifier: GPL-3.0-or-later
@@ -176,7 +176,6 @@ BoardBringUpWizard::BoardBringUpWizard(Access access, QWidget* parent)
   pages_->addWidget(BuildOverviewPage());
   pages_->addWidget(BuildConnectPage());
   pages_->addWidget(BuildImagePage());
-  pages_->addWidget(BuildJumperPage());
   pages_->addWidget(BuildConfigurePage());
   pages_->addWidget(BuildProgramPage());
   pages_->addWidget(BuildRemoveJumperPage());
@@ -297,13 +296,9 @@ QWidget* BoardBringUpWizard::BuildConnectPage() {
   QScrollArea* const scroll = MakeScrollingPage(this, &page);
   auto* layout = new QVBoxLayout(page);
 
-  layout->addWidget(MakeBody(
-      page,
-      tr("<p><b>Connect both boards now</b> — the kit's USB 3.0 cable and the "
-         "DE0-Nano's mini-USB — and leave both connected until the end.</p>"
-         "<p>Each is <b>opened</b> here rather than merely noticed, so that a "
-         "permissions problem turns up now rather than in the middle of "
-         "writing a flash.</p>")));
+  QLabel* const text = MakeBody(page, BringUpConnectText());
+  text->setObjectName(QLatin1String(kConnectTextName));
+  layout->addWidget(text);
 
   fx3_row_ = MakeBody(page);
   fx3_row_->setObjectName(QLatin1String(kFx3RowName));
@@ -336,6 +331,14 @@ QWidget* BoardBringUpWizard::BuildConnectPage() {
   connect_status_ = MakeBody(page);
   connect_status_->setObjectName(QLatin1String(kConnectStatusName));
   layout->addWidget(connect_status_);
+
+  // Last, under the rows and the status line rather than above them. The
+  // picture is portrait and fills the page, and what somebody comes back to
+  // this page for after fitting the jumper is the two rows — so the reference
+  // photograph is the thing they scroll to, not the live status.
+  layout->addWidget(MakePhotograph(
+      page, BringUpPhotographPath(BringUpPage::kConnect),
+      BringUpPhotographCaption(BringUpPage::kConnect), kConnectPhotographName));
 
   layout->addStretch(1);
   return scroll;
@@ -406,31 +409,6 @@ QWidget* BoardBringUpWizard::BuildImagePage() {
   image_status_ = MakeBody(page);
   image_status_->setObjectName(QLatin1String(kImageStatusName));
   layout->addWidget(image_status_);
-
-  layout->addStretch(1);
-  return scroll;
-}
-
-QWidget* BoardBringUpWizard::BuildJumperPage() {
-  QWidget* page = nullptr;
-  QScrollArea* const scroll = MakeScrollingPage(this, &page);
-  auto* layout = new QVBoxLayout(page);
-
-  QLabel* const text = MakeBody(page, BringUpFitJumperText());
-  text->setObjectName(QLatin1String(kJumperTextName));
-  layout->addWidget(text);
-
-  // Above the photograph rather than below it. The picture is portrait and
-  // fills the page, so a status line under it is a status line somebody has to
-  // scroll to find — on the one page where what they are waiting for is a
-  // board that has just been unplugged and plugged back in.
-  jumper_status_ = MakeBody(page);
-  jumper_status_->setObjectName(QLatin1String(kJumperStatusName));
-  layout->addWidget(jumper_status_);
-
-  layout->addWidget(MakePhotograph(
-      page, BringUpPhotographPath(BringUpPage::kJumper),
-      BringUpPhotographCaption(BringUpPage::kJumper), kJumperPhotographName));
 
   layout->addStretch(1);
   return scroll;
@@ -590,20 +568,20 @@ QWidget* BoardBringUpWizard::BuildVerifyPage() {
 // --- navigation -----------------------------------------------------------
 
 std::vector<BringUpPage> BoardBringUpWizard::Steps() const {
-  // All nine, on every run. There used to be a courtesy here that skipped
-  // the two jumper pages for a board already sitting in its boot ROM, and it
+  // All eight, on every run. There used to be a courtesy here that skipped
+  // the jumper pages for a board already sitting in its boot ROM, and it
   // was wrong for the commonest board of all: an FX3 whose EEPROM has never
   // been written comes up in its boot ROM *with or without* the jumper, so
   // "already in the boot ROM" was never evidence that a jumper was fitted. A
   // board that got there on an empty EEPROM alone leaves again at the first
   // restart — in the middle of the writing — and the bring-up fails with
   // nothing to point at. So the jumper is asked for whatever the board says
-  // it is doing, and the page waits for the restart that proves it.
-  return {BringUpPage::kOverview,     BringUpPage::kConnect,
-          BringUpPage::kImage,        BringUpPage::kJumper,
-          BringUpPage::kConfigure,    BringUpPage::kProgram,
-          BringUpPage::kRemoveJumper, BringUpPage::kPowerCycle,
-          BringUpPage::kVerify};
+  // it is doing, and the connectivity page waits for the restart that proves
+  // it.
+  return {BringUpPage::kOverview,   BringUpPage::kConnect,
+          BringUpPage::kImage,      BringUpPage::kConfigure,
+          BringUpPage::kProgram,    BringUpPage::kRemoveJumper,
+          BringUpPage::kPowerCycle, BringUpPage::kVerify};
 }
 
 std::optional<BringUpPage> BoardBringUpWizard::After(BringUpPage page) const {
@@ -665,15 +643,15 @@ void BoardBringUpWizard::ShowPage(BringUpPage page) {
     page = page_;
   }
 
-  // The stack holds all nine in the enumeration's order, whichever ones this
+  // The stack holds all eight in the enumeration's order, whichever ones this
   // run visits, so a skipped page is a page nothing navigates to rather than a
   // page that has to be built differently.
   pages_->setCurrentIndex(static_cast<int>(page));
 
   heading_->setText(BringUpPageHeading(page));
 
-  // Numbered out of nine even on a run that visits seven of them, so that two
-  // runs of one procedure can be talked about in the same words.
+  // Numbered out of eight, so that two runs of one procedure can be talked
+  // about in the same words.
   step_->setText(BringUpPageTitle(page));
 
   // Every page a run visits, in the order it visited them. A bring-up is a
@@ -705,29 +683,29 @@ bool BoardBringUpWizard::PageIsSatisfied(BringUpPage page) const {
       return true;
 
     case BringUpPage::kConnect: {
-      const std::optional<capture::DeviceInfo> fx3 = Fx3();
-      const BringUpStatusRow fx3_row =
-          BringUpFx3Row(fx3, capture::UsbPresence::kUnknown);
-      return fx3_row.usable() && cable_opened_;
+      // Both rows green, and green means green: the two row functions decide
+      // what each mark means, so this page cannot be satisfied by a board a
+      // user is being shown an amber dot for, and cannot hold somebody on a
+      // page whose rows are both ticked.
+      //
+      // The FX3 row is green on two observations and it takes both. The board
+      // has to have **gone away**, which is the only thing this page can see
+      // that proves the cables came out — and a jumper only takes effect on a
+      // boot. And it has to be back **in its boot ROM**, which is where the
+      // jumper puts it. The first half is what a board that was already in its
+      // boot ROM needs: it satisfied the second half before anybody touched
+      // it, so on its own that half would wave the page through with the
+      // jumper still in somebody's hand.
+      const BringUpStatusRow fx3_row = BringUpFx3Row(
+          Fx3(), capture::UsbPresence::kUnknown, jumper_restart_seen_);
+      const BringUpStatusRow fpga_row =
+          BringUpFpgaRow(cable_opened_, cable_presence_, cable_problem_);
+      return fx3_row.state == BringUpRowState::kReady &&
+             fpga_row.state == BringUpRowState::kReady;
     }
 
     case BringUpPage::kImage:
       return manifest_.has_value() && BringUpImageProblem(*manifest_).isEmpty();
-
-    case BringUpPage::kJumper: {
-      // Two observations, and it takes both. The board has to have **gone
-      // away**, which is the only thing on this page that proves the cables
-      // came out — and a jumper only takes effect on a boot. And it has to be
-      // back **in its boot ROM**, which is where the jumper puts it.
-      //
-      // The first half is what a board that was already in its boot ROM needs:
-      // it satisfied the second half before anybody touched it, so on its own
-      // that half would wave the page through with the jumper still in
-      // somebody's hand.
-      const std::optional<capture::DeviceInfo> fx3 = Fx3();
-      return jumper_restart_seen_ && fx3.has_value() &&
-             fx3->personality == capture::DevicePersonality::kRecovery;
-    }
 
     case BringUpPage::kConfigure:
       return configured_;
@@ -814,7 +792,8 @@ void BoardBringUpWizard::Refresh() {
             ? access_.presence(capture::kCypressDebugBridgeVendorId,
                                capture::kCypressDebugBridgeProductId)
             : capture::UsbPresence::kUnknown;
-    fx3_row_->setText(RowMarkup(BringUpFx3Row(fx3, bridge)));
+    fx3_row_->setText(
+        RowMarkup(BringUpFx3Row(fx3, bridge, jumper_restart_seen_)));
   }
 
   if (fpga_row_ != nullptr && page_ == BringUpPage::kConnect) {
@@ -825,15 +804,15 @@ void BoardBringUpWizard::Refresh() {
   if (connect_status_ != nullptr) {
     connect_status_->setText(
         PageIsSatisfied(BringUpPage::kConnect)
-            ? BringUpStepDoneText(tr("Both boards were found and opened."))
-            // Named as the red cross rather than "whatever is marked": an
-            // amber mark above is a board the wizard is happy with and will
-            // come back to, and telling somebody to put it right would send
-            // them looking for a fault that is not there.
+            ? BringUpStepDoneText(
+                  tr("Both boards were found and opened, and the FX3 has "
+                     "restarted in its boot ROM."))
             : BringUpWaitingText(
-                  tr("both boards to be found and opened. Put right anything "
-                     "marked with a red cross above, then press <b>Check "
-                     "again</b>.")));
+                  tr("both boards to be found and opened, and the FX3 to come "
+                     "back in its boot ROM once jumper J4 is fitted and both "
+                     "cables have been out and back in. Anything still marked "
+                     "above says what it is waiting for; <b>Check again</b> "
+                     "looks now rather than in half a second.")));
   }
 
   if (image_status_ != nullptr) {
@@ -845,16 +824,6 @@ void BoardBringUpWizard::Refresh() {
             : BringUpWaitingText(
                   tr("an update file that can bring a board up. Press "
                      "<b>Choose file…</b> above.")));
-  }
-
-  if (jumper_status_ != nullptr) {
-    jumper_status_->setText(
-        PageIsSatisfied(BringUpPage::kJumper)
-            ? BringUpStepDoneText(
-                  tr("The board has restarted in its boot ROM."))
-            : BringUpWaitingText(
-                  tr("the board to come back in its boot ROM, once the jumper "
-                     "is fitted and both cables have been out and back in.")));
   }
 
   // The two working pages. Refresh() owns everything on them except the
@@ -1034,11 +1003,17 @@ void BoardBringUpWizard::Poll() {
   }
 
   // Latched rather than read: the board is on its way back by the time
-  // anything asks whether the jumper page is finished, and the one moment that
-  // proves a cable came out is a poll that found nothing. Latched for the run
-  // rather than for the visit, so that stepping back to re-read the page does
-  // not ask for the power cycle a second time.
-  if (page_ == BringUpPage::kJumper && !jumper_restart_seen_ &&
+  // anything asks whether the connectivity page is finished, and the one
+  // moment that proves a cable came out is a poll that found nothing. Latched
+  // for the run rather than for the visit, so that stepping back to re-read
+  // the page does not ask for the power cycle a second time.
+  //
+  // A board nothing can see counts as gone, and on Windows that is the whole
+  // point: a legacy board is not on this application's bus at all until the
+  // jumper puts it in its boot ROM, so the disappearance it is asked to
+  // perform is one that has, as far as this window is concerned, already
+  // happened.
+  if (page_ == BringUpPage::kConnect && !jumper_restart_seen_ &&
       !Fx3().has_value()) {
     jumper_restart_seen_ = true;
   }

@@ -63,11 +63,13 @@ This module is the top-level verilog module and contains the hardware mapping in
 ### dataGenerator.v
 The data generator module is responsible for generating data either from the ADC or (if in test mode) internally. When in test mode the generator outputs a repeating sequence of 10-bit numbers, 0 to 1020 inclusive.
 
-The data generator also inserts a sequence number into the top 6 bits of each sample, so that the DomesdayDuplicator application can detect missing samples. The sequence numbers count repeatedly from 0 to 62 inclusive, incrementing every 65536 samples.
+The data generator also inserts a sequence number into the top 6 bits of each sample, so that the DomesdayDuplicator application can detect missing samples. The sequence numbers count repeatedly from 0 to 62 inclusive, incrementing every 65535 samples.
 
 Data from the ADC is read on the system clock edge that also takes the ADC clock high — one sample every second cycle — and passed to the FIFO buffer.
 
 The lengths of the test sequence (1021) and the sequence number sequence (63) were chosen in order to maximise the length of time before a USB transfer has the same contents as a previous transfer in test mode (about 210 seconds). The number of samples per sequence number was chosen to allow a length of blocks of missing samples up to 0.1s to be detected correctly; experimentation on a machine with an early USB3 controller showed maximum dropouts of about 0.01s under artifically heavy CPU load, so this gives some additional margin.
+
+The block length is 65535 rather than 65536, and the odd number is deliberate. The host detects loss by predicting the next sequence number, so the one gap it cannot see is a gap of exactly a whole period — all 63 blocks — because that leaves the stream in the phase it would have been in anyway. USB 3 loses capture data a whole endpoint packet at a time, 1024 bytes or 512 samples, and with a block of 65536 the period was 8064 whole packets: a 7.875 MiB hole, a tenth of a second of capture, read as no hole at all. An odd block length shares no factor of two with a packet, so the smallest hole that is both a whole number of packets and a whole period becomes 512 periods — just under 4 GiB, or 53 seconds. The capture application measures the block length off the stream rather than assuming it, so a board carrying gateware from before this change still captures and is still checked.
 
 (In versions of the firmware before June 2022, there were no sequence numbers, and the test sequence ran from 0 to 1023. That firmware enumerates under the old USB identifiers, so the capture application recognises a board running it but does not speak to it — see [bringing up a legacy board](../capture-gui/bringing-up-a-board.md).)
 

@@ -158,7 +158,9 @@ struct DiscAddress {
 // and the old application would silently take the first five digits of one and
 // report it as a frame; here a reply with more digits than the mode allows is
 // unparseable instead.
-DiscAddress ParseAddress(std::string_view raw, AddressMode mode);
+DiscAddress ParseAddress(
+    std::string_view raw, AddressMode mode,
+    TimeCodeFormat time_code_format = TimeCodeFormat::kHMMSSFF);
 
 // Read an active-mode reply through a model's state table.
 PlayerState ParsePlayerState(std::string_view raw, const StateDecode& decode);

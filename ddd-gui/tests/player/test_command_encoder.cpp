@@ -18,6 +18,7 @@
 #include "player_command.h"
 #include "player_definition.h"
 #include "player_registry.h"
+#include "players/pioneer_ld_v2200.h"
 #include "players/pioneer_ld_v4300d.h"
 #include "players/pioneer_ld_v8000.h"
 
@@ -63,6 +64,7 @@ constexpr ExpectedCommand kLevelIIIWireFormat[] = {
 
     {PlayerCommand::kQueryActiveMode, "?P\r"},
     {PlayerCommand::kQueryAddress, "?F\r"},
+    {PlayerCommand::kQueryTimeCode, "?T\r"},
     {PlayerCommand::kQueryDiscStatus, "?D\r"},
     {PlayerCommand::kQueryStandardUserCode, "$Y\r"},
     {PlayerCommand::kQueryPioneerUserCode, "?U\r"},
@@ -111,6 +113,24 @@ TEST(CommandEncoderTest, AddressesAreDecimalAndUnpadded) {
 
   EXPECT_EQ(EncodeCommand(player, PlayerCommand::kSeekChapter, 12).bytes,
             "CH12SE\r");
+}
+
+TEST(CommandEncoderTest, TheLdV2200UsesItsOwnClvTimeCodeForm) {
+  const PlayerDefinition& player = pioneer::kLdV2200;
+
+  // The application keeps HMMSSFF internally, while this player accepts a
+  // fixed-width HMMSS address after TM.
+  EXPECT_EQ(EncodeCommand(player, PlayerCommand::kSeekTimeCode, 10000).bytes,
+            "TM00100SE\r");
+  EXPECT_EQ(EncodeCommand(player, PlayerCommand::kSeekTimeCode, 1595900).bytes,
+            "TM15959SE\r");
+
+  // A player report can carry a frame number even though the next seek cannot;
+  // it remains a seek to the reported second rather than a malformed command.
+  EXPECT_EQ(EncodeCommand(player, PlayerCommand::kSeekTimeCode, 1234517).bytes,
+            "TM12345SE\r");
+  EXPECT_EQ(EncodeCommand(player, PlayerCommand::kSeekTimeCode, 1239999).status,
+            EncodeStatus::kArgumentOutOfRange);
 }
 
 TEST(CommandEncoderTest, TheArgumentCanComeFirst) {

@@ -40,10 +40,13 @@ std::string_view LeadingDigits(std::string_view text) {
   return text.substr(0, length);
 }
 
-// How many digits an address may have in this mode. Five is a CAV frame number
-// and seven a CLV time code, which is the Pioneer address format.
-size_t AddressDigits(AddressMode mode) {
-  return mode == AddressMode::kTimeCode ? 7 : 5;
+// How many significant digits an address may have. CAV frame numbers are five
+// digits; a CLV time code is either the usual HMMSSFF or the LD-V2200's HMMSS.
+size_t AddressDigits(AddressMode mode, TimeCodeFormat time_code_format) {
+  if (mode == AddressMode::kFrame) {
+    return 5;
+  }
+  return time_code_format == TimeCodeFormat::kHMMSS ? 5 : 7;
 }
 
 // The player's error code, if the refusal carried a legible one.
@@ -137,7 +140,8 @@ bool IsErrorCode(std::string_view text) {
   return std::all_of(text.begin() + 1, text.end(), IsDigit);
 }
 
-DiscAddress ParseAddress(std::string_view raw, AddressMode mode) {
+DiscAddress ParseAddress(std::string_view raw, AddressMode mode,
+                         TimeCodeFormat time_code_format) {
   DiscAddress address;
 
   std::string text = StripTerminator(raw);
@@ -170,13 +174,21 @@ DiscAddress ParseAddress(std::string_view raw, AddressMode mode) {
                ? digits.substr(digits.size() - 1)
                : digits.substr(first_significant);
 
-  if (digits.size() > AddressDigits(mode)) {
+  if (digits.size() > AddressDigits(mode, time_code_format)) {
     return address;
   }
 
   int32_t value = 0;
   for (const char digit : digits) {
     value = (value * 10) + (digit - '0');
+  }
+
+  // HMMSS is right-aligned in exactly the same way as the canonical HMMSSFF
+  // form. Multiplying restores its absent frame field, so the rest of the
+  // application never has to care which serial representation supplied it.
+  if (mode == AddressMode::kTimeCode &&
+      time_code_format == TimeCodeFormat::kHMMSS) {
+    value *= 100;
   }
 
   address.valid = true;

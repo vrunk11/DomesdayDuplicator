@@ -249,7 +249,8 @@ class DiscExaminer {
   void ApplySpinningUp(const Reply& reply);
   void ApplyDiscStatus(const Reply& reply);
   void ApplyTvSystem(const Reply& reply);
-  void ApplyUserCode(const Reply& reply, UserCodeReading& into);
+  void ApplyUserCode(const Reply& reply, UserCodeReading& into,
+                     UserCodeErrorPolicy error_policy);
   void ApplyChapters(const Reply& reply);
   void ApplyEndAddress(const Reply& reply);
   void ApplyStartAddress(const Reply& reply);

@@ -11,11 +11,13 @@
 
 #include <gtest/gtest.h>
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
 #include <QImage>
 #include <QLabel>
+#include <QLayout>
 #include <QPixmap>
 #include <QSlider>
 #include <algorithm>
@@ -24,6 +26,7 @@
 #include <vector>
 
 #include "capture_format.h"
+#include "cursor_readout.h"
 #include "front_end_gain.h"
 #include "sample_format.h"
 #include "theme_color_tokens.h"
@@ -658,6 +661,32 @@ TEST(WaveformPanelTest, StartingARunClearsTheOldTrace) {
   panel.OnMonitoringChanged(true);
 
   EXPECT_FALSE(panel.grab().isNull());
+}
+
+TEST(WaveformPanelTest, WhatTheCursorSaysDoesNotChangeWhatThePanelAsksFor) {
+  // Issue #180: the readout is the last thing in the control row, and the
+  // control row is what decides the panel's minimum width and so the dock's. A
+  // readout that asked the layout for room to hold its text moved that minimum
+  // with every reading the pointer produced. See CursorReadout.
+  WaveformPanel panel(nullptr);
+  panel.resize(600, 300);
+  panel.show();
+  QApplication::processEvents();
+
+  auto* const cursor =
+      Named<CursorReadout>(panel, WaveformPanel::kCursorLabelName);
+  ASSERT_NE(cursor, nullptr);
+
+  panel.layout()->activate();
+  const int minimum = panel.minimumSizeHint().width();
+  const int preferred = panel.sizeHint().width();
+
+  cursor->SetReadout(QStringLiteral(
+      "123.456 \u00b5s \u00b7 code 1023 \u00b7 +1023 mV, and more besides"));
+  panel.layout()->activate();
+
+  EXPECT_EQ(panel.minimumSizeHint().width(), minimum);
+  EXPECT_EQ(panel.sizeHint().width(), preferred);
 }
 
 TEST(WaveformPanelTest, TheCursorLabelSaysWhatToDoBeforeItIsUsed) {

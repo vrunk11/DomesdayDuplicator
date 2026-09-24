@@ -35,9 +35,12 @@ module tb_dataGenerator;
     // it must change there too.
     localparam integer RAMP_LENGTH = 1021;
 
-    // data_out[15:10] is sequence_count[21:16], so the sequence number advances
-    // once every 65536 samples and wraps after 63 of them.
-    localparam integer SAMPLES_PER_SEQUENCE = 65536;
+    // The sequence number advances once every 65535 samples and wraps after 63
+    // of them. The block length is odd on purpose - see dataGenerator.v - and
+    // that is exactly why it is worth simulating: a length that is not a power
+    // of two cannot be the top bits of a wider counter, so the wrap is real
+    // arithmetic rather than a bit slice that cannot get it wrong.
+    localparam integer SAMPLES_PER_SEQUENCE = 65535;
     localparam integer SEQUENCE_COUNT = 63;
 
     // 80 MHz system clock — 12.5 ns period
@@ -175,11 +178,12 @@ module tb_dataGenerator;
         end
         check(data_out[15:10], 2, "sequence number at the second boundary");
 
-        // Run out the remaining sequence numbers and check the wrap. The
-        // comparison in the DUT is against (63 << 16) - 1, where the 6-bit
-        // constant is widened by the context — the one place in this module
-        // where an implicit width promotion decides the behaviour, so it is
-        // worth the simulation time to prove the wrap lands on 0 and not on 63.
+        // Run out the remaining sequence numbers and check the wrap. Both
+        // counters have to roll together for this to land: the block counter
+        // back to zero on its 65535th sample and the sequence number from 62
+        // to 0 rather than on to 63. Worth the simulation time, because a
+        // wrap that lands on 63 would put a value in the field that the host
+        // never expects and only a full period of samples reaches it.
         for (i = 1; i <= SAMPLES_PER_SEQUENCE * (SEQUENCE_COUNT - 2); i = i + 1) begin
             sample_tick;
         end

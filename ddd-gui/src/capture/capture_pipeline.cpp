@@ -787,8 +787,19 @@ void CapturePipeline::ProcessingThread() {
           std::to_string(outcome.mismatch_sample_index) +
           " samples into buffer " + std::to_string(buffers_processed_.load()) +
           ": expected " + std::to_string(outcome.expected_counter) + ", got " +
-          std::to_string(outcome.actual_counter) + ". The counter advanced " +
-          std::to_string(outcome.samples_expected_remaining) + " samples early";
+          std::to_string(outcome.actual_counter) + ". ";
+      if (outcome.samples_expected_remaining == 0) {
+        // The run reached its full length and then went wrong anyway, so what
+        // is missing is a whole number of counter blocks rather than a piece
+        // of one — which is what a lost transfer looks like.
+        detail +=
+            "The counter did not advance as expected at the block "
+            "boundary, so whole blocks of samples are missing";
+      } else {
+        detail += "The counter advanced " +
+                  std::to_string(outcome.samples_expected_remaining) +
+                  " samples early";
+      }
       if (outcome.synchronised_here) {
         detail += ", and the validator locked on at sample " +
                   std::to_string(outcome.synchronisation_sample_index) +

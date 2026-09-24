@@ -60,6 +60,57 @@ TEST(SampleFormatTest, TheHighByteConstantsAgreeWithTheWordConstants) {
   }
 }
 
+TEST(SampleFormatTest, NoWholeNumberOfUsbPacketsIsAWholeCounterPeriod) {
+  // The counter proves a capture is bit-perfect by predicting itself, so the
+  // one hole it cannot see is a hole of exactly a whole number of periods: the
+  // stream comes back in the phase it would have been in anyway.
+  //
+  // USB 3 loses capture data a whole endpoint packet at a time, and every size
+  // a transfer can be — the 1,024-byte packet, the FX3's 16 KiB DMA buffer, the
+  // host's 2 MiB slot — is a power of two. An odd period therefore shares no
+  // factor with any of them, and this is that statement in one line.
+  constexpr uint64_t kPeriodSamples =
+      uint64_t{kSequenceCounterValues} * kSamplesPerSequenceCounter;
+  EXPECT_EQ(kPeriodSamples % 2, 1U) << "the counter period must be odd";
+
+  // A SuperSpeed bulk packet is 1,024 bytes: 512 samples, and the smallest
+  // unit any of this is lost in. The first loss that is both a whole number of
+  // them and a whole number of periods is therefore 512 periods, which is 52
+  // seconds of capture — a hole every other thing the engine counts would have
+  // noticed long before.
+  constexpr uint64_t kPacketSamples = 512;
+  constexpr uint64_t kSmallestBlindLossBytes =
+      kPacketSamples * kPeriodSamples * kBytesPerSample;
+  EXPECT_GT(kSmallestBlindLossBytes / kWireBytesPerSecond, 50U);
+
+  // And the reason this is asserted rather than assumed. Gateware built before
+  // issue #186 used a block of 65,536, which made the period 8,064 whole
+  // packets: a 7.875 MiB hole, a tenth of a second, read as no hole at all.
+  constexpr uint64_t kLegacyPeriodSamples =
+      uint64_t{kSequenceCounterValues} * kLegacySamplesPerSequenceCounter;
+  EXPECT_EQ(kLegacyPeriodSamples % kPacketSamples, 0U);
+}
+
+TEST(SampleFormatTest, BothShippedBlockLengthsAreRecognisedAndNothingElseIs) {
+  // The validator learns the block length from the stream rather than being
+  // told it, and this is the list it learns from.
+  EXPECT_TRUE(IsKnownSamplesPerSequenceCounter(kSamplesPerSequenceCounter));
+  EXPECT_TRUE(
+      IsKnownSamplesPerSequenceCounter(kLegacySamplesPerSequenceCounter));
+  EXPECT_FALSE(IsKnownSamplesPerSequenceCounter(0));
+  EXPECT_FALSE(
+      IsKnownSamplesPerSequenceCounter(kSamplesPerSequenceCounter - 1));
+  EXPECT_FALSE(
+      IsKnownSamplesPerSequenceCounter(kLegacySamplesPerSequenceCounter + 1));
+
+  // The search for the first counter change has to span the longer of them, or
+  // a legacy stream whose buffer opened just after a boundary would be called
+  // markerless.
+  EXPECT_GE(kMaximumSamplesPerSequenceCounter, kSamplesPerSequenceCounter);
+  EXPECT_GE(kMaximumSamplesPerSequenceCounter,
+            kLegacySamplesPerSequenceCounter);
+}
+
 TEST(SampleFormatTest, TheScalingIsTheOneLdDecodeExpects) {
   // ld-decode's lds.py calls (value - 512) * 64 "the DdD 16-bit format". These
   // three points pin it: the bottom of the range, the midpoint, and the top.

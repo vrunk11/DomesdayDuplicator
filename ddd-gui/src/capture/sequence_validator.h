@@ -42,6 +42,12 @@ const char* SequenceStateName(SequenceState state);
 // Validates the 6-bit sequence counter carried in the top bits of every sample,
 // strips it, and measures the signal — all in one pass over the buffer.
 //
+// What "validates" means here: every sample must carry the counter its
+// predecessor did until the run reaches the block length, and the sample after
+// that must carry the next value in the cycle. Both halves matter. A run that
+// ends early says samples went missing; a run that does not end says a whole
+// block of them did.
+//
 // The single pass is the whole point. A 2 MB buffer does not fit in any cache
 // this will run on, so reading it twice costs two trips to main memory, and at
 // 80 MB/s that is the difference between comfortable and marginal. Validation,
@@ -90,6 +96,9 @@ class SequenceValidator {
     // shortfall against a full counter period is exactly how many samples the
     // stream is missing, which is the figure that says whether a whole
     // transfer went astray or a handful of samples did.
+    //
+    // Zero the other way round: the counter did not change when it should
+    // have, so the run overran rather than ended early.
     uint32_t samples_expected_remaining = 0;
   };
 
@@ -110,10 +119,22 @@ class SequenceValidator {
   // The counter value every sample should currently carry, 0..62
   uint8_t counter_value_ = 0;
 
-  // Samples still to go before the counter increments. Carried across buffer
-  // boundaries, which is what lets a buffer size that is not a whole number of
-  // counter periods work — the device does not know where our buffers end.
-  uint32_t samples_until_increment_ = 0;
+  // Samples of the current run seen so far, this one included. Carried across
+  // buffer boundaries, which is what lets a buffer size that is not a whole
+  // number of counter periods work — the device does not know where our
+  // buffers end.
+  uint32_t run_length_ = 0;
+
+  // The block length this stream uses, learned from it rather than assumed.
+  // Zero until the first complete run has been measured, and one of the two
+  // lengths this project's gateware has shipped from then on.
+  //
+  // Learned, because the two lengths are what tells old gateware from new and
+  // there is nothing else in a capture stream that does. The alternative — ask
+  // the device its gateware version and pick — makes the one part of the
+  // engine that must not be wrong depend on a register read that can fail, to
+  // decide something the data itself states plainly.
+  uint32_t samples_per_counter_ = 0;
 };
 
 }  // namespace ddd::capture

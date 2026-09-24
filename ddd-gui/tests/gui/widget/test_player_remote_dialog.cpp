@@ -409,6 +409,31 @@ TEST_F(PlayerRemoteDialogTest, TheAddressingFollowsTheDisc) {
   EXPECT_FALSE(offers(player::PlayerCommand::kSeekTimeCode));
 }
 
+TEST_F(PlayerRemoteDialogTest, StillIsEnabledOnlyForCavOrAnUnknownDisc) {
+  BuildBare();
+  dialog_->SetConnection(ConnectionTo(LdV4300D()));
+
+  auto* still = Find<QPushButton>(PlayerRemoteDialog::kStillButtonName);
+  ASSERT_NE(still, nullptr);
+  EXPECT_TRUE(still->isEnabled());
+
+  player::PlayerStatus clv;
+  // A failed mode query must not enable a command when the separate disc
+  // status query has still identified the disc as CLV.
+  clv.disc_type = player::DiscType::kClv;
+  dialog_->SetStatus(clv);
+
+  EXPECT_FALSE(still->isEnabled());
+  EXPECT_TRUE(still->toolTip().contains(QStringLiteral("CAV")));
+
+  player::PlayerStatus cav;
+  cav.valid = true;
+  cav.disc_type = player::DiscType::kCav;
+  dialog_->SetStatus(cav);
+
+  EXPECT_TRUE(still->isEnabled());
+}
+
 TEST_F(PlayerRemoteDialogTest, AControlTheModelLacksIsDisabledAndSaysWhy) {
   // The old dialog offered every button to every player, so a control the
   // player did not have was present, enabled, and silently did nothing.
