@@ -101,16 +101,28 @@ int main(void)
     // EEPROM and the update agent rewrites it in place. The I2C lines are dedicated on
     // this device - the SDK is explicit that they are not multiplexed and are available
     // in every configuration except when claimed as GPIOs - so turning them on costs the
-    // GPIF bus and the UART nothing, and lppMode below is unchanged.
-    io_cfg.isDQ32Bit = CyFalse; // Data bus is 16-bits
+    // GPIF bus and the UART nothing.
+    //
+    // The GPIF data bus is 32 bits wide, matching the GPIF II project (DataBusWidth
+    // Bit32) and the gateware's Fx3DataWidth. The two have to agree with this: with
+    // isDQ32Bit left false the FX3 routes only DQ[15:0] to the GPIF, and the upper half
+    // of every word the FPGA drives is never read.
+    //
+    // A 32-bit bus takes the pins the SPI block would use, and the SDK allows exactly one
+    // peripheral layout with it - CY_U3P_IO_MATRIX_LPP_DEFAULT (cyfx3_api.h). Neither
+    // costs anything here: the FPGA's registers are reached over a bit-banged SPI on
+    // GPIOs 22-26 (fpga-registers.c), not the SPI block, and the UART carries the debug
+    // console only. The GPIOs 19-29 the firmware drives are CTL lines, which the board's
+    // schematic routes separately from DQ[31:16], so the wider bus does not claim them.
+    io_cfg.isDQ32Bit = CyTrue; // Data bus is 32 bits
     io_cfg.useUart   = CyTrue;
     io_cfg.useI2C    = CyTrue;
     io_cfg.useI2S    = CyFalse;
     io_cfg.useSpi    = CyFalse;
-    io_cfg.lppMode   = CY_U3P_IO_MATRIX_LPP_UART_ONLY; // 16-bit data bus with UART
+    io_cfg.lppMode   = CY_U3P_IO_MATRIX_LPP_DEFAULT; // The only layout a 32-bit bus allows
 
     // Note:
-    // If io_cfg.isDQ32Bit = CyFalse then GPIO[0:15] and CTL[0:4] will be reserved for GPIF
+    // With io_cfg.isDQ32Bit = CyTrue, DQ[31:0] and CTL[0:4] are reserved for GPIF
     io_cfg.gpioSimpleEn[0] = 0;	// Most significant GPIOs 32-63
     io_cfg.gpioSimpleEn[1] = 0; // Least significant GPIOs 0-31
     io_cfg.gpioComplexEn[0] = 0;
@@ -732,19 +744,23 @@ void domDupStartApplication(void)
         domDupErrorHandler (apiReturnStatus);
     }
 
-    // Water-mark value = 3, bus width = 16
-    // Therefore, the number of 16-bit data words that may be written after the clock edge at which the partial
-    // flag is sampled asserted = (3 x (32/16)) - 4 = 2
+    // Water-mark value = 6, bus width = 32
+    // Therefore, the number of 32-bit data words that may be written after the clock edge at which the partial
+    // flag is sampled asserted = (6 x (32/32)) - 4 = 2
+    //
+    // The same margin the 16-bit bus had with a water-mark of 3 ((3 x (32/16)) - 4 = 2). Left at 3, a
+    // 32-bit bus gives (3 x 1) - 4 = -1: the flag would be sampled only after the buffer could already
+    // have overrun.
 
-    // Set the thread 0 water-mark level to 1x 32 bit word
-    apiReturnStatus = CyU3PGpifSocketConfigure(0, CY_FX_EP_PRODUCER_SOCKET0, 3, CyFalse, 1);
+    // Set the thread 0 water-mark level
+    apiReturnStatus = CyU3PGpifSocketConfigure(0, CY_FX_EP_PRODUCER_SOCKET0, 6, CyFalse, 1);
     if (apiReturnStatus != CY_U3P_SUCCESS) {
 		CyU3PDebugPrint(4, "domDupStartApplication(): CyU3PGpifSocketConfigure failed for thread0, error code = %d\r\n", apiReturnStatus);
 		domDupErrorHandler (apiReturnStatus);
 	}
 
-    // Set the thread 1 water-mark level to 1x 32 bit word
-	apiReturnStatus = CyU3PGpifSocketConfigure(1, CY_FX_EP_PRODUCER_SOCKET1, 3, CyFalse, 1);
+    // Set the thread 1 water-mark level
+	apiReturnStatus = CyU3PGpifSocketConfigure(1, CY_FX_EP_PRODUCER_SOCKET1, 6, CyFalse, 1);
 	if (apiReturnStatus != CY_U3P_SUCCESS) {
 		CyU3PDebugPrint(4, "domDupStartApplication(): CyU3PGpifSocketConfigure failed for thread1, error code = %d\r\n", apiReturnStatus);
 		domDupErrorHandler (apiReturnStatus);

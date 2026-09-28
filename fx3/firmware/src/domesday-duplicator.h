@@ -30,8 +30,8 @@
 // NOTE:
 //
 // The size of the DMA buffer causes an automatic COMMIT in the GPIF state-machine
-// when reached.  This is mirrored by the FPGA which sends 8192 16-bit words per
-// transfer.  The 16K burst length is also matched by the Linux GUI application
+// when reached.  This is mirrored by the FPGA which sends 4096 32-bit words per
+// transfer (buffer.v's PacketWords at Fx3DataWidth 32).  The 16K burst length is also matched by the Linux GUI application
 // that puts 16x1K transfers in-flight at any one time.
 //
 // The DMA buffer count does not change the 'size' of the DMA buffer (from the
