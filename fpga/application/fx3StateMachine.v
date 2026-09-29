@@ -106,8 +106,18 @@ module fx3StateMachine #(
             end
 
             // StateSendPacket (sends a packet of PacketWords words to the FX3)
+            //
+            // Leaves on the edge the last word is actually taken, not merely
+            // once the counter reaches it. At Fx3DataWidth == 32 a word only
+            // leaves on every second edge, and the counter reaches
+            // LastWordIndex one edge before that word does: leaving on the
+            // counter alone ended every packet one word short, the FX3 read
+            // its last word from the head of the next packet, and every
+            // packet carried a duplicated word - a sequence block that ran
+            // long, on the bench. At 16 bits transfer_enable is always high,
+            // so this is the condition it always was there.
             StateSendPacket: begin
-                if (word_counter == LastWordIndex) begin
+                if (word_counter == LastWordIndex && transfer_enable) begin
                     // Packet send, go back to waiting
                     sm_next_state = StateWaitForRequest;
                 end else begin
