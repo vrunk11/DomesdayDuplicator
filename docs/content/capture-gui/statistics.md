@@ -19,8 +19,8 @@ over the first minute.
 
 Both units, because both are useful: MB/s against the drive and the USB link, Msps against
 the converter. A working device delivers the [ADC rate](capture-control.md#adc-rate) divided
-by the [decimation](capture-control.md#decimation) — 40.00 Msps from a 40 MHz board at /1,
-75.00 from a 75 MHz one — and physically cannot deliver more. **A figure noticeably above
+by the [decimation](capture-control.md#decimation) — 40.00 Msps from a 40 MHz board
+undecimated, 75.00 from a 75 MHz one — and physically cannot deliver more. **A figure noticeably above
 that means the samples are not coming from the ADC at all**, which is an unprogrammed or
 wrongly programmed FPGA rather than a fast one.
 

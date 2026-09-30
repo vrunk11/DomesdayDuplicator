@@ -169,8 +169,9 @@ no argument at all for a lower one.
 
 `--sample-rate=40000` is the **label**, not the rate — the rate the capture was written at,
 divided by 1,000, which is the stand-in the application writes for the reason given above.
-`40000` is an undecimated capture at 40 MHz; one at **/2** takes `--sample-rate=20000`, one
-at **/4** takes `--sample-rate=10000`, and a 75 MHz board undecimated takes `75000`. Nothing
+`40000` is an undecimated capture at 40 MHz; one at decimation **2** takes
+`--sample-rate=20000`, one at **4** takes `--sample-rate=10000`, and a 75 MHz board
+undecimated takes `75000`. Nothing
 in the raw file distinguishes any of these, so this is the step that the rate has to have
 been written down for.
 

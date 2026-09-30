@@ -144,21 +144,21 @@ Both are read back by **Tools → Test data → Analyse test data…** and by `-
 
 | Choice | What you get |
 | --- | --- |
-| **/1** | Every sample: the converter's own rate, undivided. What a LaserDisc needs. The default |
-| **/2** | Half the rate, half the file. Enough for VHS and other tape |
-| **/4** | A quarter of the rate, a quarter of the file |
+| **1** | Every sample: the converter's own rate, undivided. What a LaserDisc needs. The default |
+| **2** | Half the rate, half the file. Enough for VHS and other tape |
+| **4** | A quarter of the rate, a quarter of the file |
 
-The choices are spelled as the divisor, rather than as a rate: this setting divides the
-[ADC rate](#adc-rate) below, and that rate is itself a separate, independently selectable
+The choices are the factor the rate is divided by, rather than a rate: this setting divides
+the [ADC rate](#adc-rate) below, and that rate is itself a separate, independently selectable
 setting — a build with a reconfigurable PLL is not always running at 40 Msps, so a fixed
-number here would only be true for one rate. **/2** always means half of whatever the ADC
-rate is, however that was chosen. The rate that results is on the **Sample rate** line of the
-[Statistics](statistics.md) panel.
+number of samples per second here would only be true for one rate. **2** always means half of
+whatever the ADC rate is, however that was chosen. The rate that results is on the
+**Sample rate** line of the [Statistics](statistics.md) panel.
 
-**VHS is the common case for /2 rather than the only one** — Betamax, Video8 and any other
+**VHS is the common case for 2 rather than the only one** — Betamax, Video8 and any other
 tape format are the same choice, because what they share is a bandwidth that is a fraction of
-a LaserDisc's. **/4** is for sources narrower still, or for when the disk budget does not
-allow /2.
+a LaserDisc's. **4** is for sources narrower still, or for when the disk budget does not
+allow 2.
 
 **Decimation happens in the FPGA, not on this machine**, and that is what makes it worth
 having: dividing the rate correctly means low-passing the signal first, at half of whatever
