@@ -63,6 +63,12 @@ There is no firmware in the field without it. The first release of this firmware
 | `0xD4` `DEVICE_RESET` | `0x40` | OUT | none | Cold reset; the device re-enumerates |
 | `0xD5` `FPGA_RECONFIG` | `0x40` | OUT | none | Trigger reconfiguration from the application image |
 
+`0xD6` and `0xD7` follow in the same block and are not update requests: they read and write
+the [board setup record](board-setup-record.md), which lives in the boot EEPROM's **last
+page**. That page is outside every image — target 0 refuses a payload longer than the EEPROM
+less one page (`UPDATE_EEPROM_IMAGE_CAPACITY`) — so an update never overwrites what the user
+declared about the capture board. Both were additive and did not bump the protocol version.
+
 ### `0xD1` UPDATE_BEGIN
 
 | Offset | Size | Field |
@@ -330,7 +336,8 @@ Windows binds drivers by USB identifier, and a device in recovery mode reports d
 | `ddd-gui/src/gui/update_page.h` | The staged flow a user sees |
 | `tools/make-update-bundle.sh` | Bundle assembly and signing |
 | `fx3/firmware/src/update-protocol.h` | The protocol's decisions, host-testable and SDK-free: both media's paging arithmetic, the boot block's format and the CRC-32 it carries |
-| `fx3/firmware/src/update-agent.h` | The on-device flasher: both targets, the readbacks, and the commit ordering |
+| `fx3/firmware/src/update-agent.h` | The on-device flasher: both targets, the readbacks, and the commit ordering — and the board setup record's read and write, since it shares the EEPROM |
+| `fx3/firmware/src/board-setup.h` | The board setup record's framing and placement, host-testable |
 | `fx3/firmware/src/epcs-flash.h` | The route to the configuration flash, and the only place the EPCS command sequences live |
 | `fpga/common/flashBridge.v` | The flash bridge, and the lock that keeps it inert |
 | `fpga/common/remoteUpdate.v` | The reconfiguration trigger and the configuration watchdog |

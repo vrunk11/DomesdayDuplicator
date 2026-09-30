@@ -289,7 +289,16 @@ static void testBeginAdmission(void)
                 UPDATE_ERROR_LENGTH, "a payload larger than the EEPROM is refused");
     checkNumber(updateBeginIsAllowed(&state, UPDATE_TARGET_EEPROM,
                                      UPDATE_EEPROM_SIZE, UPDATE_FLAGS_NONE, 0),
-                UPDATE_ERROR_NONE, "a payload that exactly fills the EEPROM is admitted");
+                UPDATE_ERROR_LENGTH,
+                "a payload that would overwrite the board setup record is refused");
+    checkNumber(updateBeginIsAllowed(&state, UPDATE_TARGET_EEPROM,
+                                     UPDATE_EEPROM_IMAGE_CAPACITY + 1u, UPDATE_FLAGS_NONE, 0),
+                UPDATE_ERROR_LENGTH,
+                "a payload one byte into the board setup record is refused");
+    checkNumber(updateBeginIsAllowed(&state, UPDATE_TARGET_EEPROM,
+                                     UPDATE_EEPROM_IMAGE_CAPACITY, UPDATE_FLAGS_NONE, 0),
+                UPDATE_ERROR_NONE,
+                "a payload that exactly fills the image capacity is admitted");
 
     // The gateware's bound is the region above the application address, not
     // the whole device. An image that ran past the end would be written
@@ -496,6 +505,10 @@ static void testImagePlausibility(void)
           "an image shorter than any bootable one is refused");
     check(!updateImageIsPlausible(image, sizeof(image), UPDATE_EEPROM_SIZE + 1u),
           "an image larger than the EEPROM is refused");
+    check(!updateImageIsPlausible(image, sizeof(image), UPDATE_EEPROM_IMAGE_CAPACITY + 1u),
+          "an image that would reach the board setup record is refused");
+    check(updateImageIsPlausible(image, sizeof(image), UPDATE_EEPROM_IMAGE_CAPACITY),
+          "an image that exactly fills the image capacity is plausible");
 }
 
 static void testEepromAddressing(void)

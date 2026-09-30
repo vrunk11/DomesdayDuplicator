@@ -15,6 +15,7 @@
 #include "cyu3i2c.h"
 #include "cyu3utils.h"
 
+#include "board-setup.h"
 #include "epcs-flash.h"
 #include "fpga-registers.h"
 #include "update-agent.h"
@@ -843,4 +844,50 @@ void updateAgentResetDevice(void)
     // restarting the image already in RAM. It also closes a long-standing
     // gap: until now the host had no way to reboot the device at all.
     CyU3PDeviceReset(CyFalse);
+}
+
+CyBool_t updateAgentBoardSetupRead(uint8_t *out)
+{
+    if (out == NULL) return CyFalse;
+    if (!glUpdateI2cReady) return CyFalse;
+    if (updateIsInProgress(&glUpdateState)) return CyFalse;
+
+    return (updateEepromRead(BOARD_SETUP_EEPROM_ADDRESS, out, BOARD_SETUP_LENGTH) ==
+            CY_U3P_SUCCESS) ? CyTrue : CyFalse;
+}
+
+CyBool_t updateAgentBoardSetupWrite(const uint8_t *record)
+{
+    uint32_t index;
+
+    if (record == NULL) return CyFalse;
+    if (!glUpdateI2cReady) return CyFalse;
+    if (updateIsInProgress(&glUpdateState)) return CyFalse;
+    if (!boardSetupRecordIsValid(record, BOARD_SETUP_LENGTH)) {
+        CyU3PDebugPrint(4, "updateAgentBoardSetupWrite(): refused a record whose "
+                        "framing is wrong\r\n");
+        return CyFalse;
+    }
+
+    // The page buffer rather than the caller's: the I2C block is handed a
+    // buffer it may keep hold of until the transfer completes, and this one
+    // is static and aligned. No update is in progress, so it is free.
+    CyU3PMemCopy(glUpdatePagePad, (uint8_t *)record, BOARD_SETUP_LENGTH);
+
+    if (updateEepromWritePage(BOARD_SETUP_EEPROM_ADDRESS, glUpdatePagePad,
+                              BOARD_SETUP_LENGTH) != CY_U3P_SUCCESS) {
+        return CyFalse;
+    }
+
+    if (updateEepromRead(BOARD_SETUP_EEPROM_ADDRESS, glUpdateReadback,
+                         BOARD_SETUP_LENGTH) != CY_U3P_SUCCESS) {
+        return CyFalse;
+    }
+
+    for (index = 0; index < BOARD_SETUP_LENGTH; index++) {
+        if (glUpdateReadback[index] != record[index]) return CyFalse;
+    }
+
+    CyU3PDebugPrint(4, "updateAgentBoardSetupWrite(): board setup record written\r\n");
+    return CyTrue;
 }

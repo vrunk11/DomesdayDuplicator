@@ -8,6 +8,7 @@ nav:
   - FPGA Register Interface: fpga-register-interface.md
   - The decimation filter: fpga-decimation-filter.md
   - Device update mechanism: device-update-mechanism.md
+  - Board setup record: board-setup-record.md
   - Update bundle format: update-bundle-format.md
   - EPCS layout and boot flow: epcs-layout-and-boot-flow.md
   - USB-Blaster and SVF programming: usb-blaster-and-svf.md

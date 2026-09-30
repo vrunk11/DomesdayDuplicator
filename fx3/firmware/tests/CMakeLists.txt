@@ -82,6 +82,33 @@ if(HOST_CC)
 
     add_test(NAME update-protocol COMMAND ${UPDATE_PROTOCOL_TEST})
     set_tests_properties(update-protocol PROPERTIES LABELS "unit")
+
+    # T1 — the board setup record's framing and placement. The firmware stores the record
+    # rather than interpreting it, so the decision covered is the one it does make: is
+    # this a record, and does it sit where no firmware image can reach it.
+    set(BOARD_SETUP_TEST ${CMAKE_CURRENT_BINARY_DIR}/board-setup-test)
+    set(BOARD_SETUP_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/board-setup-test.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src/board-setup.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src/update-protocol.c
+    )
+
+    add_custom_command(
+        OUTPUT ${BOARD_SETUP_TEST}
+        COMMAND ${HOST_CC} -std=c11 -O1 -Wall -Wextra -Werror
+                -I${CMAKE_CURRENT_SOURCE_DIR}/../src
+                -o ${BOARD_SETUP_TEST} ${BOARD_SETUP_SOURCES}
+        DEPENDS ${BOARD_SETUP_SOURCES}
+                ${CMAKE_CURRENT_SOURCE_DIR}/../src/board-setup.h
+                ${CMAKE_CURRENT_SOURCE_DIR}/../src/update-protocol.h
+        COMMENT "Building host test board-setup-test"
+        VERBATIM
+    )
+
+    add_custom_target(board_setup_test ALL DEPENDS ${BOARD_SETUP_TEST})
+
+    add_test(NAME board-setup COMMAND ${BOARD_SETUP_TEST})
+    set_tests_properties(board-setup PROPERTIES LABELS "unit")
 else()
     message(WARNING
         "No host C compiler found; the host-side unit tests will not be built or run.")

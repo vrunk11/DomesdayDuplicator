@@ -149,7 +149,7 @@ uint8_t updateBeginIsAllowed(const updateState_t *state, uint8_t target,
     }
 
     if (length < UPDATE_IMAGE_MINIMUM_LENGTH) return UPDATE_ERROR_LENGTH;
-    if (length > UPDATE_EEPROM_SIZE) return UPDATE_ERROR_LENGTH;
+    if (length > UPDATE_EEPROM_IMAGE_CAPACITY) return UPDATE_ERROR_LENGTH;
 
     return UPDATE_ERROR_NONE;
 }
@@ -224,7 +224,7 @@ int updateImageIsPlausible(const uint8_t *first, uint32_t firstLength,
     if (first == NULL) return 0;
     if (firstLength < 2) return 0;
     if (totalLength < UPDATE_IMAGE_MINIMUM_LENGTH) return 0;
-    if (totalLength > UPDATE_EEPROM_SIZE) return 0;
+    if (totalLength > UPDATE_EEPROM_IMAGE_CAPACITY) return 0;
 
     if (first[0] != UPDATE_IMAGE_SIGNATURE_0) return 0;
     if (first[1] != UPDATE_IMAGE_SIGNATURE_1) return 0;

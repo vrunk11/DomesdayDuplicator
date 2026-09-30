@@ -96,8 +96,15 @@
 // so the four banks of an M24M02 are 0xA0, 0xA2, 0xA4 and 0xA6.
 #define UPDATE_EEPROM_SLAVE_BASE        (0xA0u)
 
-// The largest image the boot EEPROM can hold: 2 Mbit across four slaves.
+// The whole boot EEPROM: 2 Mbit across four slaves.
 #define UPDATE_EEPROM_SIZE              (4u * UPDATE_EEPROM_SLAVE_SIZE)
+
+// The largest image an update may write: all of it but the last page, which
+// holds the board setup record (board-setup.h). The record is the user's
+// declaration about the capture board, and an update that overwrote it
+// would silently hand them back the conservative defaults. No image comes
+// within a hundred kilobytes of this, so the page costs nothing.
+#define UPDATE_EEPROM_IMAGE_CAPACITY    (UPDATE_EEPROM_SIZE - UPDATE_EEPROM_PAGE_SIZE)
 
 // EPCS geometry. A program must not cross a 256-byte page and an erase is
 // always a whole 64 KiB sector, which together are what decide where a

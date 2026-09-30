@@ -22,6 +22,7 @@
 #include "cyu3gpif.h"
 
 // Local includes
+#include "board-setup.h"
 #include "domesday-duplicator.h"
 #include "domesday-duplicator-gpif.h"
 #include "fpga-registers.h"
@@ -66,6 +67,10 @@ static uint8_t glRegisterBuffer[FPGA_REGISTER_READ_MAX] __attribute__ ((aligned 
 // belongs to the USB driver.
 static uint8_t glUpdateChunkBuffer[UPDATE_MAX_CHUNK] __attribute__ ((aligned (32)));
 static uint8_t glUpdatePacketBuffer[UPDATE_BEGIN_LENGTH] __attribute__ ((aligned (32)));
+
+// Staging for the board setup record on its way in either direction, aligned for the
+// same reason.
+static uint8_t glBoardSetupBuffer[BOARD_SETUP_LENGTH] __attribute__ ((aligned (32)));
 
 // Main application function
 int main(void)
@@ -992,6 +997,46 @@ static CyBool_t domDupHandleUpdateRequest(uint8_t bRequest, uint16_t wValue,
 	}
 }
 
+// The board setup record's two requests (board-setup.h).
+//
+// The record is what the user has declared about the capture board - which converter is
+// fitted, how RSEL is wired, the DC offset to correct - and the firmware stores it without
+// interpreting it. It is answered at any link speed, like the update requests, because a
+// declaration is as readable and as correctable on a 2.0 port as on a 3.0 one.
+//
+// A write is refused by stalling wherever that can still be done: a data stage of the
+// wrong length, or an update holding the EEPROM. After the data stage has been read it
+// can only be acknowledged, so a record the agent declines is reported by what the host
+// reads back rather than by the write failing.
+static CyBool_t domDupHandleBoardSetupRequest(uint8_t bRequest, uint16_t wLength)
+{
+	CyU3PReturnStatus_t status;
+	uint16_t readCount = 0;
+
+	switch (bRequest) {
+	case BOARD_SETUP_REQUEST_READ:
+		if (wLength < BOARD_SETUP_LENGTH) return CyFalse;
+		if (!updateAgentBoardSetupRead(glBoardSetupBuffer)) return CyFalse;
+		CyU3PUsbSendEP0Data(BOARD_SETUP_LENGTH, glBoardSetupBuffer);
+		return CyTrue;
+
+	case BOARD_SETUP_REQUEST_WRITE:
+		if (wLength != BOARD_SETUP_LENGTH) return CyFalse;
+		if (updateAgentInProgress()) return CyFalse;
+
+		status = CyU3PUsbGetEP0Data(BOARD_SETUP_LENGTH, glBoardSetupBuffer, &readCount);
+		if (status != CY_U3P_SUCCESS) return CyFalse;
+
+		if (readCount == BOARD_SETUP_LENGTH) {
+			(void)updateAgentBoardSetupWrite(glBoardSetupBuffer);
+		}
+		return CyTrue;
+
+	default:
+		return CyFalse;
+	}
+}
+
 // USB set-up request callback
 CyBool_t domDupUSBSetupCB(uint32_t setupData0, uint32_t setupData1)
 {
@@ -1032,6 +1077,13 @@ CyBool_t domDupUSBSetupCB(uint32_t setupData0, uint32_t setupData1)
     		// already answered, and 0xD0 has completed its own transfer by sending data.
     		if (sendAck) CyU3PUsbAckSetup();
     		return isHandled;
+    	}
+
+    	// The board setup record, outside the guard for the same reason. Both requests
+    	// complete their own transfer - one by sending data, the other by reading it - so
+    	// neither is acknowledged here.
+    	if (bRequest == BOARD_SETUP_REQUEST_READ || bRequest == BOARD_SETUP_REQUEST_WRITE) {
+    		return domDupHandleBoardSetupRequest(bRequest, wLength);
     	}
 
     	if (glIsApplnActive) {

@@ -164,6 +164,28 @@ CyBool_t updateAgentReconfigureFpga(void);
 // running whatever is now in the EEPROM. Does not return.
 void updateAgentResetDevice(void);
 
+// BOARD_SETUP_READ. Read the board setup record's page into `out`, which
+// is BOARD_SETUP_LENGTH bytes, exactly as it is on the medium - an EEPROM
+// that has never held a record reads as all ones, and saying so is the
+// host's job.
+//
+// Here rather than in a file of its own because the record lives on the
+// EEPROM and this is the EEPROM's one driver. Refused while an update is in
+// progress, because the verification may be holding the bus from the
+// application thread, and when the I2C block never came up.
+CyBool_t updateAgentBoardSetupRead(uint8_t *out);
+
+// BOARD_SETUP_WRITE. Write `record`, which is BOARD_SETUP_LENGTH bytes, to
+// the record's page and read it back.
+//
+// A record whose framing is wrong is not written: the firmware stores the
+// record rather than interpreting it, but it will not replace a good one
+// with something no reader would accept. Refused, as the read is, while an
+// update is in progress. Returns whether the page now holds `record`; the
+// host learns the same thing by reading it back, which is the only answer
+// a control-OUT can give it.
+CyBool_t updateAgentBoardSetupWrite(const uint8_t *record);
+
 #include <cyu3externcend.h>
 
 #endif // _UPDATE_AGENT_H_

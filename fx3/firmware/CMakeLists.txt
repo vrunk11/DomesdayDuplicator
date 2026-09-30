@@ -95,6 +95,7 @@ endif()
 
 # Source files
 set(C_SOURCES
+    src/board-setup.c
     src/cyfxtx.c
     src/domesday-duplicator.c
     src/epcs-flash.c
