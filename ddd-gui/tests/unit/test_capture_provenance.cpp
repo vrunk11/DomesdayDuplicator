@@ -167,6 +167,45 @@ TEST_F(CaptureProvenanceTest, AnUnrecordedInputRangeWritesNoTag) {
   EXPECT_FALSE(Value(BuildProvenanceTags(facts), kTagInputRange).has_value());
 }
 
+// The board as it was declared, under a prefix of its own, and the offset that
+// was taken out of the samples — the one board fact without which the file's
+// samples cannot be turned back into what the converter produced.
+TEST_F(CaptureProvenanceTest, TheBoardDeclarationTravelsWithTheSamples) {
+  CaptureProvenance facts = Facts();
+  facts.board_setup = "declared";
+  facts.board_name = "Bench #2";
+  facts.board_adc = "ADS828";
+  facts.board_rsel_wiring = "auto";
+  facts.dc_offset = -12;
+
+  const std::vector<FlacWriter::Tag> tags = BuildProvenanceTags(facts);
+  EXPECT_EQ(Value(tags, kTagBoardSetup), "declared");
+  EXPECT_EQ(Value(tags, kTagBoardName), "Bench #2");
+  EXPECT_EQ(Value(tags, kTagBoardAdc), "ADS828");
+  EXPECT_EQ(Value(tags, kTagBoardRselWiring), "auto");
+  EXPECT_EQ(Value(tags, kTagDcOffset), "-12");
+}
+
+// An offset of zero is still a statement — nothing was taken out — and a file
+// saying so is different from a file that does not say.
+TEST_F(CaptureProvenanceTest, AZeroOffsetIsRecordedAsZero) {
+  CaptureProvenance facts = Facts();
+  facts.board_setup = "default";
+  facts.board_adc = "ADS825";
+  facts.board_rsel_wiring = "high";
+
+  const std::vector<FlacWriter::Tag> tags = BuildProvenanceTags(facts);
+  EXPECT_EQ(Value(tags, kTagDcOffset), "0");
+  EXPECT_FALSE(Value(tags, kTagBoardName).has_value());
+}
+
+TEST_F(CaptureProvenanceTest, NoBoardToDescribeWritesNoBoardTags) {
+  const std::vector<FlacWriter::Tag> tags = BuildProvenanceTags(Facts());
+  EXPECT_FALSE(Value(tags, kTagBoardSetup).has_value());
+  EXPECT_FALSE(Value(tags, kTagBoardAdc).has_value());
+  EXPECT_FALSE(Value(tags, kTagDcOffset).has_value());
+}
+
 TEST_F(CaptureProvenanceTest, TheDateIsIso8601) {
   EXPECT_EQ(Value(BuildProvenanceTags(Facts()), kTagDate), "2026-08-13");
 }

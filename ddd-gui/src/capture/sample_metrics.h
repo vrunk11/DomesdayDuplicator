@@ -41,6 +41,16 @@ struct BufferTally {
   // would overflow partway through a long capture, which is the length of
   // capture this application exists for.
   uint64_t sum_of_squares = 0;
+
+  // Sum of (value - 512) over the buffer, in 10-bit units: the mean, once
+  // divided by the count, and so the DC offset a board setup measurement
+  // averages. Signed and 64 bits for the same reason as the sum of squares.
+  int64_t sum = 0;
+
+  // Samples the converter did not clip that the DC offset correction pushed
+  // out of range — see DcOffsetSaturates(). Zero when no offset is declared,
+  // and zero on a board whose declared offset is its own.
+  uint64_t offset_saturated_count = 0;
 };
 
 // What a monitoring consumer sees. A plain value, so it can be copied out of
@@ -55,6 +65,14 @@ struct SampleMetricsSnapshot {
   uint64_t clipped_high_count = 0;
   double rms = 0.0;
 
+  // The running sum of (value - 512). Published as a sum rather than a mean so
+  // that the mean over any stretch of the run is the difference of two
+  // readings divided by the difference of their counts — which is how a DC
+  // offset is measured over exactly one second, whatever came before it.
+  int64_t sum = 0;
+
+  uint64_t offset_saturated_count = 0;
+
   // Over the most recent buffer only. The distinction matters to a user
   // adjusting RF gain: a whole-capture maximum records the worst moment since
   // the run started and will not come back down, so it cannot show that a
@@ -64,6 +82,7 @@ struct SampleMetricsSnapshot {
   uint64_t recent_clipped_low_count = 0;
   uint64_t recent_clipped_high_count = 0;
   double recent_rms = 0.0;
+  uint64_t recent_offset_saturated_count = 0;
 
   // Over the samples that went into the file, and nothing else.
   //
@@ -77,7 +96,7 @@ struct SampleMetricsSnapshot {
   // Measured rather than derived. A count and a clipping tally could be got by
   // subtracting the figures at the start of the capture from the figures at the
   // end, but a minimum and a maximum cannot — they only move one way — so the
-  // span is accumulated in its own right. It costs six scalar operations per
+  // span is accumulated in its own right. It costs a few scalar operations per
   // two-megabyte buffer.
   //
   // Zero throughout until a capture has run, and frozen at the moment the file
@@ -89,6 +108,7 @@ struct SampleMetricsSnapshot {
   uint64_t capture_clipped_low_count = 0;
   uint64_t capture_clipped_high_count = 0;
   double capture_rms = 0.0;
+  uint64_t capture_offset_saturated_count = 0;
 };
 
 // Accumulates per-buffer tallies into the figures the monitor panels show.
@@ -124,6 +144,8 @@ class SampleMetrics {
   uint64_t clipped_low_count_ = 0;
   uint64_t clipped_high_count_ = 0;
   uint64_t sum_of_squares_ = 0;
+  int64_t sum_ = 0;
+  uint64_t offset_saturated_count_ = 0;
 
   BufferTally recent_;
 

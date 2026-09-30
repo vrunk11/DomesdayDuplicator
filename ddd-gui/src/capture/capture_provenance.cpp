@@ -76,6 +76,20 @@ std::vector<FlacWriter::Tag> BuildProvenanceTags(
     tags.push_back({kTagInputRange, provenance.input_range});
   }
 
+  if (!provenance.board_adc.empty()) {
+    if (!provenance.board_setup.empty()) {
+      tags.push_back({kTagBoardSetup, provenance.board_setup});
+    }
+    if (!provenance.board_name.empty()) {
+      tags.push_back({kTagBoardName, provenance.board_name});
+    }
+    tags.push_back({kTagBoardAdc, provenance.board_adc});
+    if (!provenance.board_rsel_wiring.empty()) {
+      tags.push_back({kTagBoardRselWiring, provenance.board_rsel_wiring});
+    }
+    tags.push_back({kTagDcOffset, std::to_string(provenance.dc_offset)});
+  }
+
   if (!provenance.front_end_gain.empty()) {
     tags.push_back({kTagFrontEndGain, provenance.front_end_gain});
   }

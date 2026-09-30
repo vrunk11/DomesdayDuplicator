@@ -297,6 +297,34 @@ struct SignalSummary {
 };
 
 // The whole document.
+// The capture board, as the board setup described it when the capture was
+// taken (board_setup.h).
+//
+// A declaration rather than a setting, which is why it is a block of its own
+// and not more keys under `capture`: it says what the hardware was, and the
+// capture's settings were bounded by it.
+struct BoardDescription {
+  // Whether there was a board setup to describe at all. False writes no block.
+  bool known = false;
+
+  // Whether the device held a declaration, or the conservative defaults were
+  // in force because nothing had been declared on it.
+  bool declared = false;
+
+  std::string name;
+  std::string adc;
+  std::string rsel_wiring;
+
+  // The offset taken out of every sample in the file, in converter codes. 0
+  // when nothing was, which includes every test-mode capture.
+  int dc_offset = 0;
+
+  // Samples in this file the correction pushed out of range that the converter
+  // had not clipped. Zero when the declared offset belongs to this board; see
+  // DcOffsetSaturates().
+  uint64_t offset_saturated_samples = 0;
+};
+
 struct CaptureMetadata {
   // The capture file this sits beside, as its name alone — not its path. A
   // sidecar carrying the directory it was written in becomes wrong the moment
@@ -328,6 +356,7 @@ struct CaptureMetadata {
   CaptureNamingFields naming;
   CaptureOutcome outcome;
   SignalSummary signal;
+  BoardDescription board;
   DeviceBuild device;
   PlayerIdentity player;
   DiscScan disc;

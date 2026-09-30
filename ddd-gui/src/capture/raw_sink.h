@@ -50,7 +50,10 @@ class RawSink : public ISampleSink {
   ~RawSink() override;
 
   // Create the file. Returns false with the reason in LastError().
-  bool Open(const std::filesystem::path& file_path);
+  //
+  // dc_offset is the board's declared DC offset in whole converter codes,
+  // taken out of every sample written, as FlacWriter::Options::dc_offset is.
+  bool Open(const std::filesystem::path& file_path, int32_t dc_offset = 0);
 
   const char* Name() const override { return "s16"; }
 
@@ -72,6 +75,9 @@ class RawSink : public ISampleSink {
   // The converted samples on their way to the file. Sized once at Open() and
   // reused, never grown on the capture path.
   std::vector<uint8_t> scratch_;
+
+  // The declared DC offset Open() was given, in converter codes.
+  int32_t dc_offset_ = 0;
 
   bool finished_ = false;
 

@@ -80,6 +80,8 @@ void SyntheticSource::GenerateInto(uint8_t* destination, size_t bytes) {
       if (ramp_value_ >= kRampLength) {
         ramp_value_ = 0;
       }
+    } else if (options_.pattern == Pattern::kConstant) {
+      value = static_cast<uint16_t>(options_.constant_value & kSampleValueMask);
     } else {
       const double phase = (kTwoPi * static_cast<double>(sine_phase_samples_)) /
                            kSinePeriodSamples;

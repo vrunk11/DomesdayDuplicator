@@ -35,8 +35,9 @@ RawSink::RawSink() = default;
 
 RawSink::~RawSink() { Finish(); }
 
-bool RawSink::Open(const std::filesystem::path& file_path) {
+bool RawSink::Open(const std::filesystem::path& file_path, int32_t dc_offset) {
   file_path_ = file_path;
+  dc_offset_ = dc_offset;
 
   file_.open(file_path, std::ios::out | std::ios::binary | std::ios::trunc);
   if (!file_.is_open()) {
@@ -88,8 +89,8 @@ bool RawSink::Write(const uint8_t* wire_data, size_t sample_count) {
         static_cast<uint16_t>(read_pointer[0]) |
         static_cast<uint16_t>(static_cast<uint16_t>(read_pointer[1]) << 8));
 
-    const auto sample = static_cast<uint16_t>(
-        ToSigned16Bit(static_cast<int32_t>(ten_bit_value)));
+    const auto sample = static_cast<uint16_t>(ToCorrectedSigned16Bit(
+        static_cast<int32_t>(ten_bit_value), dc_offset_));
     scratch_[filled * kFileBytesPerSample] = static_cast<uint8_t>(sample);
     scratch_[(filled * kFileBytesPerSample) + 1] =
         static_cast<uint8_t>(sample >> 8);

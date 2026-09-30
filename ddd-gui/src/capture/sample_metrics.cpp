@@ -38,10 +38,12 @@ void SampleMetrics::Accumulate(const BufferTally& tally) {
   clipped_low_count_ += tally.clipped_low_count;
   clipped_high_count_ += tally.clipped_high_count;
   sum_of_squares_ += tally.sum_of_squares;
+  sum_ += tally.sum;
+  offset_saturated_count_ += tally.offset_saturated_count;
 
   recent_ = tally;
 
-  // The file's own span, while one is open. Six scalar operations against a
+  // The file's own span, while one is open. A few scalar operations against a
   // buffer that has just been walked end to end, so the cost of measuring the
   // recording separately from the session is nothing measurable.
   if (capturing_) {
@@ -53,6 +55,7 @@ void SampleMetrics::Accumulate(const BufferTally& tally) {
     capture_.clipped_low_count += tally.clipped_low_count;
     capture_.clipped_high_count += tally.clipped_high_count;
     capture_.sum_of_squares += tally.sum_of_squares;
+    capture_.offset_saturated_count += tally.offset_saturated_count;
   }
 }
 
@@ -75,6 +78,8 @@ SampleMetricsSnapshot SampleMetrics::Snapshot() const {
   snapshot.clipped_low_count = clipped_low_count_;
   snapshot.clipped_high_count = clipped_high_count_;
   snapshot.rms = RootMeanSquare(sum_of_squares_, sample_count_);
+  snapshot.sum = sum_;
+  snapshot.offset_saturated_count = offset_saturated_count_;
 
   snapshot.recent_minimum_value =
       (recent_.sample_count == 0) ? 0 : recent_.minimum_value;
@@ -83,6 +88,7 @@ SampleMetricsSnapshot SampleMetrics::Snapshot() const {
   snapshot.recent_clipped_high_count = recent_.clipped_high_count;
   snapshot.recent_rms =
       RootMeanSquare(recent_.sum_of_squares, recent_.sample_count);
+  snapshot.recent_offset_saturated_count = recent_.offset_saturated_count;
 
   snapshot.capture_sample_count = capture_.sample_count;
   snapshot.capture_minimum_value =
@@ -92,6 +98,7 @@ SampleMetricsSnapshot SampleMetrics::Snapshot() const {
   snapshot.capture_clipped_high_count = capture_.clipped_high_count;
   snapshot.capture_rms =
       RootMeanSquare(capture_.sum_of_squares, capture_.sample_count);
+  snapshot.capture_offset_saturated_count = capture_.offset_saturated_count;
 
   return snapshot;
 }
@@ -103,6 +110,8 @@ void SampleMetrics::Reset() {
   clipped_low_count_ = 0;
   clipped_high_count_ = 0;
   sum_of_squares_ = 0;
+  sum_ = 0;
+  offset_saturated_count_ = 0;
   recent_ = BufferTally{};
   capture_ = BufferTally{};
   capturing_ = false;

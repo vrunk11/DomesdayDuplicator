@@ -81,6 +81,13 @@ class FlacWriter {
     // is what FlacSampleRateLabelFor exists to work out.
     uint32_t sample_rate_label = 40'000;
 
+    // The board's declared DC offset, in whole converter codes, taken out of
+    // every sample written (ToCorrectedSigned16Bit). Zero writes exactly what
+    // the converter produced; a test-mode capture is always written with zero,
+    // because its samples are the gateware's counter rather than the
+    // converter's, and carry no converter offset.
+    int32_t dc_offset = 0;
+
     // Vorbis comments, so a capture separated from its metadata sidecar can
     // still say which build produced it.
     std::vector<Tag> tags;

@@ -36,6 +36,7 @@ endif()
 
 add_library(ddd_capture STATIC
     ${ddd_capture_usb_sources}
+    board_setup.cpp
     boot_image.cpp
     capture_format.cpp
     capture_metadata.cpp
@@ -43,6 +44,7 @@ add_library(ddd_capture STATIC
     capture_pipeline.cpp
     capture_provenance.cpp
     capture_reader.cpp
+    dc_offset_measurement.cpp
     device_monitor.cpp
     device_programmer.cpp
     device_recovery.cpp

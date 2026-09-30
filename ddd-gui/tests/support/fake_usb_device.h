@@ -11,13 +11,17 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
+#include "board_setup.h"
 #include "synthetic_source.h"
 #include "usb_device.h"
 #include "usb_device_info.h"
@@ -65,6 +69,83 @@ class SilentControlChannel : public IUsbControlChannel {
 
  private:
   int* outstanding_ = nullptr;
+};
+
+// The last page of a fake device's boot EEPROM, where the firmware keeps the
+// board setup record, and the two requests that reach it.
+//
+// Behaves as the firmware does (fx3/firmware/src/board-setup.h): a read returns
+// the page as it is, blank or not, and a write whose framing is wrong — magic,
+// layout version, CRC — is taken and dropped rather than refused, so that only
+// reading back tells the host. A device whose firmware predates the record is
+// the SilentControlChannel above, which stalls both.
+struct FakeBoardSetupStore {
+  std::mutex mutex;
+  std::array<uint8_t, kBoardSetupRecordLength> page = [] {
+    std::array<uint8_t, kBoardSetupRecordLength> erased{};
+    erased.fill(0xFF);
+    return erased;
+  }();
+
+  // A medium that acknowledges and then does not keep what it was given.
+  bool drop_writes = false;
+
+  uint64_t write_count = 0;
+  uint64_t read_count = 0;
+};
+
+class BoardSetupControlChannel : public IUsbControlChannel {
+ public:
+  BoardSetupControlChannel(FakeBoardSetupStore* store, int* outstanding)
+      : store_(store), outstanding_(outstanding) {
+    ++*outstanding_;
+  }
+
+  ~BoardSetupControlChannel() override { --*outstanding_; }
+
+  int Transfer(uint8_t, uint8_t request, uint16_t, uint16_t,
+               std::span<uint8_t> data, unsigned int) override {
+    const std::lock_guard<std::mutex> guard(store_->mutex);
+
+    if (request == kBoardSetupReadRequest) {
+      if (data.size() < store_->page.size()) {
+        return -1;
+      }
+      ++store_->read_count;
+      std::copy(store_->page.begin(), store_->page.end(), data.begin());
+      return static_cast<int>(store_->page.size());
+    }
+
+    if (request == kBoardSetupWriteRequest) {
+      if (data.size() != store_->page.size()) {
+        return -1;
+      }
+      ++store_->write_count;
+      if (!store_->drop_writes && FramingIsValid(data)) {
+        std::copy(data.begin(), data.end(), store_->page.begin());
+      }
+      return static_cast<int>(data.size());
+    }
+
+    return -1;
+  }
+
+ private:
+  static bool FramingIsValid(std::span<const uint8_t> record) {
+    const size_t crc_offset = record.size() - 4;
+    const uint32_t stored =
+        static_cast<uint32_t>(record[crc_offset]) |
+        (static_cast<uint32_t>(record[crc_offset + 1]) << 8) |
+        (static_cast<uint32_t>(record[crc_offset + 2]) << 16) |
+        (static_cast<uint32_t>(record[crc_offset + 3]) << 24);
+    const bool version_nonzero = record[4] != 0 || record[5] != 0;
+    return record[0] == 'D' && record[1] == 'D' && record[2] == 'B' &&
+           record[3] == 'S' && version_nonzero &&
+           stored == BoardSetupCrc32(record.first(crc_offset));
+  }
+
+  FakeBoardSetupStore* store_;
+  int* outstanding_;
 };
 
 class FakeUsbDevice : public IUsbDevice {
@@ -171,10 +252,43 @@ class FakeUsbDevice : public IUsbDevice {
 
     for (const DeviceInfo& info : devices_) {
       if (info.path == path) {
+        if (board_setup_supported_) {
+          return std::make_unique<BoardSetupControlChannel>(
+              &board_setup_, &channels_outstanding_);
+        }
         return std::make_unique<SilentControlChannel>(&channels_outstanding_);
       }
     }
     return nullptr;
+  }
+
+  // Whether the firmware keeps a board setup record. Off by default, which is
+  // every firmware older than the record: both requests stall.
+  void SetBoardSetupSupported(bool supported) {
+    const std::lock_guard<std::mutex> guard(mutex_);
+    board_setup_supported_ = supported;
+  }
+
+  // Put a page on the fake EEPROM directly, as if a previous session had.
+  void SetBoardSetupPage(
+      const std::array<uint8_t, kBoardSetupRecordLength>& page) {
+    const std::lock_guard<std::mutex> guard(board_setup_.mutex);
+    board_setup_.page = page;
+  }
+
+  void SetBoardSetupDropsWrites(bool drops) {
+    const std::lock_guard<std::mutex> guard(board_setup_.mutex);
+    board_setup_.drop_writes = drops;
+  }
+
+  std::array<uint8_t, kBoardSetupRecordLength> board_setup_page() {
+    const std::lock_guard<std::mutex> guard(board_setup_.mutex);
+    return board_setup_.page;
+  }
+
+  uint64_t board_setup_write_count() {
+    const std::lock_guard<std::mutex> guard(board_setup_.mutex);
+    return board_setup_.write_count;
   }
 
   // --- What the test decides ----------------------------------------------
@@ -239,6 +353,16 @@ class FakeUsbDevice : public IUsbDevice {
 
   // Take the register bank away again — a device whose FPGA is unconfigured,
   // or whose firmware predates the register interface.
+  // Set one register the gateware reports, after SetGatewareCommit() — for a
+  // capability reading such as kRegisterMaxAdcRateMhz.
+  void SetRegister(uint8_t address, uint8_t value) {
+    const std::lock_guard<std::mutex> guard(mutex_);
+    if (registers_.empty()) {
+      registers_.assign(kFakeRegisterCount, 0);
+    }
+    registers_.at(address) = value;
+  }
+
   void SetGatewareUnavailable() {
     const std::lock_guard<std::mutex> guard(mutex_);
     registers_.clear();
@@ -344,6 +468,9 @@ class FakeUsbDevice : public IUsbDevice {
   TransferResult open_failure_ = TransferResult::kConnectionFailure;
 
   SyntheticSource::Options source_options_;
+
+  bool board_setup_supported_ = false;
+  FakeBoardSetupStore board_setup_;
 
   // The seven-bit register address space the gateware implements
   static constexpr size_t kFakeRegisterCount = 128;

@@ -330,6 +330,99 @@ TEST(SequenceValidatorTest, TheRootMeanSquareIsMeasuredAboutTheMidpoint) {
   EXPECT_NEAR(metrics.Snapshot().rms, 100.0, 0.001);
 }
 
+// The sum about the midpoint is what a DC offset measurement divides by the
+// count, so it has to come out as the signal's mean exactly: a signal sitting
+// 20 codes high, with noise either side, averages to +20.
+TEST(SequenceValidatorTest, TheSumAboutTheMidpointGivesTheMean) {
+  test::WireStreamBuilder builder(0, 64);
+  for (size_t index = 0; index < 128; ++index) {
+    builder.Append(static_cast<uint16_t>((index % 2 == 0) ? 535 : 529));
+  }
+
+  SequenceValidator validator;
+  const SequenceValidator::Outcome outcome =
+      validator.Process(builder.bytes().data(), builder.bytes().size());
+
+  EXPECT_EQ(outcome.tally.sum, 128 * 20);
+  EXPECT_EQ(outcome.tally.sample_count, 128U);
+}
+
+// With no offset declared nothing can be pushed out of range, however loud the
+// signal.
+TEST(SequenceValidatorTest, NoOffsetMeansNothingIsCountedAsSaturated) {
+  test::WireStreamBuilder builder(0, 64);
+  builder.AppendConstant(1, 32);
+  builder.AppendConstant(1022, 32);
+  builder.AppendConstant(512, 64);
+
+  SequenceValidator validator;
+  const SequenceValidator::Outcome outcome =
+      validator.Process(builder.bytes().data(), builder.bytes().size());
+
+  EXPECT_EQ(outcome.tally.offset_saturated_count, 0U);
+}
+
+// The codes a declared offset pushes out of range are counted, and the ones the
+// converter clipped are not — those are the clipping count's.
+TEST(SequenceValidatorTest, TheSamplesTheOffsetPushesOutOfRangeAreCounted) {
+  test::WireStreamBuilder builder(0, 64);
+  builder.AppendConstant(kMinimumSampleValue, 5);  // converter clipped
+  builder.AppendConstant(2, 9);                    // below the offset of +3
+  builder.AppendConstant(3, 11);                   // exactly at the bottom
+  builder.AppendConstant(512, 103);
+
+  SequenceValidator validator;
+  validator.SetDcOffset(3);
+  const SequenceValidator::Outcome outcome =
+      validator.Process(builder.bytes().data(), builder.bytes().size());
+
+  EXPECT_EQ(outcome.tally.offset_saturated_count, 9U);
+  EXPECT_EQ(outcome.tally.clipped_low_count, 5U);
+}
+
+// The offset belongs to the run rather than to the lock on the stream, so a
+// validator reset between runs keeps counting against the same declaration.
+TEST(SequenceValidatorTest, TheOffsetSurvivesAReset) {
+  test::WireStreamBuilder builder(0, 64);
+  builder.AppendConstant(1022, 128);
+
+  SequenceValidator validator;
+  validator.SetDcOffset(-3);
+  validator.Reset();
+  const SequenceValidator::Outcome outcome =
+      validator.Process(builder.bytes().data(), builder.bytes().size());
+
+  EXPECT_EQ(outcome.tally.offset_saturated_count, 128U);
+}
+
+TEST(SampleMetricsTest, TheSumAndTheSaturatedCountAccumulate) {
+  BufferTally first;
+  first.sample_count = 100;
+  first.maximum_value = 600;
+  first.minimum_value = 400;
+  first.sum = 2000;
+  first.offset_saturated_count = 3;
+
+  BufferTally second = first;
+  second.sum = -500;
+  second.offset_saturated_count = 0;
+
+  SampleMetrics metrics;
+  metrics.Accumulate(first);
+  metrics.BeginCaptureSpan();
+  metrics.Accumulate(second);
+
+  const SampleMetricsSnapshot snapshot = metrics.Snapshot();
+  EXPECT_EQ(snapshot.sum, 1500);
+  EXPECT_EQ(snapshot.offset_saturated_count, 3U);
+  EXPECT_EQ(snapshot.recent_offset_saturated_count, 0U);
+  EXPECT_EQ(snapshot.capture_offset_saturated_count, 0U);
+
+  metrics.Reset();
+  EXPECT_EQ(metrics.Snapshot().sum, 0);
+  EXPECT_EQ(metrics.Snapshot().offset_saturated_count, 0U);
+}
+
 TEST(SampleMetricsTest, RecentFiguresTrackTheLastBufferOnly) {
   // A whole-capture maximum records the worst moment since the run started and
   // never comes back down, so it cannot show a user that turning the RF gain

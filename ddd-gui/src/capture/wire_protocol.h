@@ -322,6 +322,21 @@ inline constexpr uint32_t kUpdateFactoryWriteFlag = 0x57464444;
 inline constexpr size_t kUpdateStatusLength = 16;
 inline constexpr size_t kUpdateBeginLength = 40;
 
+// The board setup record: what the user has declared about the capture board
+// the FX3 is plugged into, kept by the firmware in the last page of its boot
+// EEPROM. Read returns the page as it is on the medium; write takes a whole
+// record and is confirmed by reading it back, because a control-OUT whose data
+// stage has been taken cannot be refused afterwards. A device whose firmware
+// predates the record stalls both.
+//
+// A second copy of BOARD_SETUP_REQUEST_READ, BOARD_SETUP_REQUEST_WRITE and
+// BOARD_SETUP_LENGTH in fx3/firmware/src/board-setup.h (AGENTS.md §2). The
+// record's layout is the "Board setup record" page of the documentation site,
+// and board_setup.h is this application's copy of it.
+inline constexpr uint8_t kBoardSetupReadRequest = 0xD6;
+inline constexpr uint8_t kBoardSetupWriteRequest = 0xD7;
+inline constexpr size_t kBoardSetupRecordLength = 64;
+
 // The alignment every chunk but the last has to respect, so the firmware can
 // write a chunk straight to its medium with no assembly buffer in between.
 //

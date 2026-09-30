@@ -111,9 +111,19 @@ class SequenceValidator {
   // True once the validator has decided whether this stream carries markers.
   bool synchronised() const { return state_ != SequenceState::kSynchronising; }
 
+  // The DC offset the writers correct by, in converter codes, so that the
+  // measurement can count the samples the correction pushes out of range —
+  // BufferTally::offset_saturated_count. Counted here and not in a writer
+  // because monitoring has no writer, and monitoring is when a wrong
+  // declaration is worth noticing. Not cleared by Reset(): it belongs to the
+  // run, not to the validator's lock on the stream.
+  void SetDcOffset(int32_t dc_offset) { dc_offset_ = dc_offset; }
+
   void Reset();
 
  private:
+  int32_t dc_offset_ = 0;
+
   SequenceState state_ = SequenceState::kSynchronising;
 
   // The counter value every sample should currently carry, 0..62

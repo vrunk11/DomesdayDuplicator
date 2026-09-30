@@ -257,6 +257,61 @@ TEST_F(CaptureMetadataTest, ADeviceThatSaidNothingWritesNothing) {
       Contains(BuildCaptureMetadataYaml(metadata), "gateware_register_map"));
 }
 
+// The board is a declaration, so it has a block of its own rather than keys
+// among the capture's settings — and the offset that was taken out of the
+// samples is in it, so they can always be put back.
+TEST_F(CaptureMetadataTest, TheBoardDeclarationIsABlockOfItsOwn) {
+  CaptureMetadata metadata = Ordinary();
+  metadata.board.known = true;
+  metadata.board.declared = true;
+  metadata.board.name = "Bench #2";
+  metadata.board.adc = "ADS828";
+  metadata.board.rsel_wiring = "auto";
+  metadata.board.dc_offset = -12;
+  metadata.board.offset_saturated_samples = 0;
+
+  const std::string document = BuildCaptureMetadataYaml(metadata);
+
+  EXPECT_TRUE(Contains(document, "\"board\":"));
+  EXPECT_TRUE(Contains(document, "\"setup\": \"declared\""));
+  EXPECT_TRUE(Contains(document, "\"name\": \"Bench #2\""));
+  EXPECT_TRUE(Contains(document, "\"adc\": \"ADS828\""));
+  EXPECT_TRUE(Contains(document, "\"rsel_wiring\": \"auto\""));
+  EXPECT_TRUE(Contains(document, "\"dc_offset\": -12"));
+  EXPECT_TRUE(Contains(document, "\"offset_saturated_samples\": 0"));
+}
+
+// A board nothing was declared on is described as running on the defaults, not
+// as a board somebody said was an ADS825.
+TEST_F(CaptureMetadataTest, AnUndeclaredBoardSaysItRanOnTheDefaults) {
+  CaptureMetadata metadata = Ordinary();
+  metadata.board.known = true;
+  metadata.board.declared = false;
+  metadata.board.adc = "ADS825";
+  metadata.board.rsel_wiring = "high";
+
+  const std::string document = BuildCaptureMetadataYaml(metadata);
+
+  EXPECT_TRUE(Contains(document, "\"setup\": \"default\""));
+  EXPECT_FALSE(Contains(document, "\"name\":"));
+}
+
+// The count that says a declaration belongs to another board is written as it
+// was measured over this file.
+TEST_F(CaptureMetadataTest, SamplesTheCorrectionPushedOutOfRangeAreRecorded) {
+  CaptureMetadata metadata = Ordinary();
+  metadata.board.known = true;
+  metadata.board.dc_offset = 40;
+  metadata.board.offset_saturated_samples = 1234;
+
+  EXPECT_TRUE(Contains(BuildCaptureMetadataYaml(metadata),
+                       "\"offset_saturated_samples\": 1234"));
+}
+
+TEST_F(CaptureMetadataTest, NoBoardSetupWritesNoBoardBlock) {
+  EXPECT_FALSE(Contains(BuildCaptureMetadataYaml(Ordinary()), "\"board\":"));
+}
+
 TEST_F(CaptureMetadataTest, TheScanRecordsEveryFactWithHowItWasEstablished) {
   CaptureMetadata metadata = Ordinary();
   metadata.disc.examined = true;

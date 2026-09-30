@@ -362,6 +362,49 @@ TEST_F(CapturePipelineTest, TestModeVerifiesTheDeviceRamp) {
             SyntheticSource::kRampLength);
 }
 
+// The ramp visits every code from 0 up, so an offset of +10 pushes codes 1 to 9
+// out of range on every pass — nine samples per ramp that only the correction
+// lost, and that the statistics have to be able to say so about.
+TEST_F(CapturePipelineTest, TheSamplesAnOffsetPushesOutOfRangeAreCounted) {
+  SyntheticSource::Options source_options = BaseSourceOptions();
+  source_options.slot_limit = 20;
+  SyntheticSource source(source_options);
+
+  CapturePipeline::Options options = BasePipelineOptions();
+  options.dc_offset = 10;
+
+  CapturePipeline pipeline(&logger_);
+  ASSERT_TRUE(pipeline.Start(&source, std::make_unique<NullSink>(), options));
+
+  const RunResult outcome = RunToCompletion(pipeline);
+  EXPECT_EQ(outcome.result, TransferResult::kSuccess);
+  const uint64_t ramps =
+      outcome.stats.metrics.sample_count / SyntheticSource::kRampLength;
+  EXPECT_GE(outcome.stats.metrics.offset_saturated_count, ramps * 9);
+  EXPECT_LE(outcome.stats.metrics.offset_saturated_count, (ramps + 1) * 9);
+}
+
+// Test mode corrects nothing — its samples are the gateware's counter, not the
+// converter, so they carry no converter offset — and so nothing can be counted
+// as the correction's either.
+TEST_F(CapturePipelineTest, TestModeIgnoresTheOffset) {
+  SyntheticSource::Options source_options = BaseSourceOptions();
+  source_options.slot_limit = 20;
+  SyntheticSource source(source_options);
+
+  CapturePipeline::Options options = BasePipelineOptions();
+  options.test_mode = true;
+  options.dc_offset = 10;
+
+  CapturePipeline pipeline(&logger_);
+  ASSERT_TRUE(pipeline.Start(&source, std::make_unique<NullSink>(), options));
+
+  const RunResult outcome = RunToCompletion(pipeline);
+  EXPECT_EQ(outcome.result, TransferResult::kSuccess);
+  EXPECT_TRUE(outcome.stats.test_pattern_passed);
+  EXPECT_EQ(outcome.stats.metrics.offset_saturated_count, 0U);
+}
+
 TEST_F(CapturePipelineTest, DiscardedStartupSlotsNeverReachTheSink) {
   // The device is already streaming when the host opens it, so the first
   // transfers hold whatever was mid-flight. Discarding them is what keeps every

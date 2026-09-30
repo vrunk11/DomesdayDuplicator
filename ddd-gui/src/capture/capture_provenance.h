@@ -44,6 +44,21 @@ inline constexpr const char* kTagInputRange = "DDD_INPUT_RANGE";
 inline constexpr const char* kTagFirmwareVersion = "DDD_FIRMWARE_VERSION";
 inline constexpr const char* kTagGatewareVersion = "DDD_GATEWARE_VERSION";
 
+// The capture board, as declared in the board setup (board_setup.h). Kept apart
+// from the capture's own settings above by the DDD_BOARD_ prefix, because they
+// are a different kind of fact: what the hardware is, rather than what this
+// capture asked of it.
+//
+// DDD_DC_OFFSET is the one of them that changes the samples. It is the offset
+// in converter codes that was taken out of every sample in the file — 0 when
+// nothing was, including every test-mode capture — so that the samples the
+// converter produced can always be recovered by adding it back.
+inline constexpr const char* kTagBoardSetup = "DDD_BOARD_SETUP";
+inline constexpr const char* kTagBoardName = "DDD_BOARD_NAME";
+inline constexpr const char* kTagBoardAdc = "DDD_BOARD_ADC";
+inline constexpr const char* kTagBoardRselWiring = "DDD_BOARD_RSEL_WIRING";
+inline constexpr const char* kTagDcOffset = "DDD_DC_OFFSET";
+
 // What the disc was, where a player was there to be asked. Every one of these
 // is written only when it is known — a file that carried "side 1" because
 // nothing said otherwise would be a file asserting something nobody
@@ -135,6 +150,21 @@ struct CaptureProvenance {
   // is at 1Vpp, so a file that does not say which is one whose levels cannot
   // be compared with any other.
   std::string input_range;
+
+  // The capture board, as the board setup described it. board_adc empty
+  // writes none of the board tags — a capture made with no board setup to
+  // describe says nothing about the board rather than guessing.
+  //
+  // board_setup is "declared" when the device held a declaration and
+  // "default" when the conservative defaults were in force; board_name is
+  // written only when there is one.
+  std::string board_setup;
+  std::string board_name;
+  std::string board_adc;
+  std::string board_rsel_wiring;
+
+  // The DC offset taken out of every sample, in converter codes.
+  int dc_offset = 0;
 
   // The front-end gain the user declared, as a sentence — or empty for a gain
   // that was never declared.

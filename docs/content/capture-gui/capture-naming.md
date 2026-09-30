@@ -237,6 +237,24 @@ cannot raise the maximum recorded against the recording.
 `metadata_notes` — each present only when its box was ticked, and spelled out in full where
 the file name gets an abbreviation (`Analogue`, not `ANA`).
 
+### `board`
+
+The capture board as the [Board setup](board-setup.md) declared it when the capture was
+taken. A block of its own rather than more keys under `capture`, because it is a statement
+about the hardware rather than a setting of this capture — the capture's settings were bounded
+by it.
+
+| Key | What it holds |
+| --- | --- |
+| `setup` | `declared`, or `default` when nothing had been declared on the device and the defaults were in force |
+| `name` | The board's name, when it has one |
+| `adc` | `ADS825` or `ADS828` |
+| `rsel_wiring` | `auto`, `low` or `high` |
+| `dc_offset` | The offset taken out of every sample in the file, in converter codes. `0` when nothing was, which includes every test-mode capture |
+| `offset_saturated_samples` | Samples in this file the correction pushed out of range that the converter had not clipped. `0` whenever the declared offset belongs to this board; anything else means it did not |
+
+Written only when a device was attached to read the board setup from.
+
 ### `device`
 
 | Key | What it holds |
@@ -371,6 +389,15 @@ examination at all.
   "side": 2
   "mint_marks": "NM"
   "metadata_notes": "Slight rot at the outer edge of side 2."
+
+# The capture board, as declared - not a capture setting.
+"board":
+  "setup": "declared"
+  "name": "Bench #2"
+  "adc": "ADS825"
+  "rsel_wiring": "high"
+  "dc_offset": 3
+  "offset_saturated_samples": 0
 
 "device":
   "firmware_version": "a1b2c3d4"

@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "sample_format.h"
 #include "sample_source.h"
 
 namespace ddd::capture {
@@ -54,6 +55,11 @@ class SyntheticSource : public ISampleSource {
     // so the monitoring panels have something recognisable to draw when there
     // is no device to hand.
     kSine,
+
+    // One value, held — Options::constant_value. What a board with nothing
+    // connected to its input looks like to a DC offset measurement, less the
+    // noise: its mean is the value, exactly.
+    kConstant,
   };
 
   // Faults the source can be told to produce, so the pipeline's handling of
@@ -88,6 +94,9 @@ class SyntheticSource : public ISampleSource {
 
   struct Options {
     Pattern pattern = Pattern::kRamp;
+
+    // The value Pattern::kConstant holds, in converter codes.
+    uint16_t constant_value = static_cast<uint16_t>(kSampleZeroOffset);
 
     // Bytes per second to generate. 0 means as fast as the machine can, which
     // is what the correctness tests want; kWireBytesPerSecond is what the soak

@@ -67,6 +67,8 @@ ddd_add_test(ddd_capture_tests "unit"
     unit/test_sysfs_device_list.cpp
     unit/test_capture_naming.cpp
     unit/test_capture_format.cpp
+    unit/test_board_setup.cpp
+    unit/test_dc_offset_measurement.cpp
     unit/test_capture_provenance.cpp
     unit/test_capture_metadata.cpp
     unit/test_yaml_writer.cpp
@@ -253,6 +255,7 @@ target_include_directories(ddd_player_hardware_tests PRIVATE support)
 ddd_add_test(ddd_gui_tests "unit"
     support/gui_test_main.cpp
     gui/unit/test_about_text.cpp
+    gui/unit/test_board_setup_text.cpp
     gui/unit/test_bringup_text.cpp
     gui/unit/test_bundled_update.cpp
     gui/unit/test_firmware_text.cpp

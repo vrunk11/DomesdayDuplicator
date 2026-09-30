@@ -132,6 +132,52 @@ inline constexpr int16_t ToSigned16Bit(int32_t ten_bit_value) {
                               kSampleScale);
 }
 
+// The same, with a board's declared DC offset taken out (board_setup.h).
+//
+// The offset is in whole converter codes, so the result is still a code times
+// 64 and its six low bits are still zero — which is what FLAC stores for
+// nothing, and what a fractional correction would have made it store.
+//
+// The ten bits already fill the sixteen exactly, so shifting them by any
+// offset at all pushes the codes nearest one end of the converter out of
+// range. Those are saturated to the end of the 16-bit range rather than cast,
+// because a cast wraps: a sample just past the bottom would come out near the
+// top, a full-scale spike in the other direction in the middle of the signal.
+// With an offset measured on the board it is correcting this cannot happen on
+// its own — see DcOffsetSaturates().
+inline constexpr int16_t ToCorrectedSigned16Bit(int32_t ten_bit_value,
+                                                int32_t dc_offset) {
+  const int32_t scaled =
+      (ten_bit_value - kSampleZeroOffset - dc_offset) * kSampleScale;
+  if (scaled < INT16_MIN) {
+    return INT16_MIN;
+  }
+  if (scaled > INT16_MAX) {
+    return INT16_MAX;
+  }
+  return static_cast<int16_t>(scaled);
+}
+
+// Whether a sample the converter did *not* clip is pushed out of range by the
+// DC offset correction — the correction clipping it rather than the ADC.
+//
+// Codes 0 and 1023 are excluded because they are already clipped, by the
+// converter, and are counted as such; this is the count of the ones only the
+// correction lost. On a board whose offset was measured with nothing connected
+// it is zero: an AC-coupled signal is symmetric about its mean, which is the
+// offset, so it cannot reach the far end of the corrected range without
+// clipping the converter at the near end first. A non-zero count therefore
+// says the declared offset does not belong to this board.
+inline constexpr bool DcOffsetSaturates(uint16_t ten_bit_value,
+                                        int32_t dc_offset) {
+  const auto value = static_cast<int32_t>(ten_bit_value);
+  if (value <= kMinimumSampleValue || value >= kMaximumSampleValue) {
+    return false;
+  }
+  const int32_t corrected = value - kSampleZeroOffset - dc_offset;
+  return corrected < -kSampleZeroOffset || corrected >= kSampleZeroOffset;
+}
+
 // The inverse, for reading a capture back into the 10-bit domain the device's
 // test pattern counts in.
 inline constexpr int32_t ToTenBit(int16_t signed_value) {

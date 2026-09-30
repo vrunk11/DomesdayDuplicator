@@ -125,6 +125,8 @@ SequenceValidator::Outcome SequenceValidator::Process(uint8_t* buffer,
   uint64_t clipped_low = 0;
   uint64_t clipped_high = 0;
   uint64_t sum_of_squares = 0;
+  int64_t sum = 0;
+  uint64_t offset_saturated = 0;
   uint64_t measured = 0;
 
   for (size_t index = 0; index < sample_count; ++index) {
@@ -193,6 +195,10 @@ SequenceValidator::Outcome SequenceValidator::Process(uint8_t* buffer,
 
     const int32_t centred = static_cast<int32_t>(value) - kSampleZeroOffset;
     sum_of_squares += static_cast<uint64_t>(centred * centred);
+    sum += centred;
+    if (DcOffsetSaturates(value, dc_offset_)) {
+      ++offset_saturated;
+    }
     ++measured;
   }
 
@@ -202,6 +208,8 @@ SequenceValidator::Outcome SequenceValidator::Process(uint8_t* buffer,
   outcome.tally.clipped_low_count = clipped_low;
   outcome.tally.clipped_high_count = clipped_high;
   outcome.tally.sum_of_squares = sum_of_squares;
+  outcome.tally.sum = sum;
+  outcome.tally.offset_saturated_count = offset_saturated;
   return outcome;
 }
 

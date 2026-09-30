@@ -127,6 +127,20 @@ void WriteNaming(YamlWriter& yaml, const CaptureNamingFields& naming) {
   yaml.EndMapping();
 }
 
+void WriteBoard(YamlWriter& yaml, const BoardDescription& board) {
+  yaml.Comment("The capture board, as declared - not a capture setting.");
+  yaml.BeginMapping("board");
+
+  yaml.String("setup", board.declared ? "declared" : "default");
+  yaml.StringIfPresent("name", board.name);
+  yaml.StringIfPresent("adc", board.adc);
+  yaml.StringIfPresent("rsel_wiring", board.rsel_wiring);
+  yaml.Integer("dc_offset", board.dc_offset);
+  yaml.Unsigned("offset_saturated_samples", board.offset_saturated_samples);
+
+  yaml.EndMapping();
+}
+
 void WriteDevice(YamlWriter& yaml, const DeviceBuild& device) {
   yaml.BeginMapping("device");
 
@@ -280,6 +294,11 @@ std::string BuildCaptureMetadataYaml(const CaptureMetadata& metadata) {
 
   WriteNaming(yaml, metadata.naming);
   yaml.BlankLine();
+
+  if (metadata.board.known) {
+    WriteBoard(yaml, metadata.board);
+    yaml.BlankLine();
+  }
 
   WriteDevice(yaml, metadata.device);
   yaml.BlankLine();

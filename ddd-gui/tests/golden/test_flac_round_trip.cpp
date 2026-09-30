@@ -325,6 +325,71 @@ TEST(RawSinkTest, WhatItWritesIsWhatTheReaderReadsBack) {
   EXPECT_EQ(ReadEverything(reader), values);
 }
 
+// What a capture corrected by a declared DC offset holds: every code moved by
+// the offset, and the few pushed past an end held at that end. Read back into
+// the 10-bit domain that is the code minus the offset, clamped to the
+// converter's range.
+std::vector<uint16_t> Corrected(const std::vector<uint16_t>& values,
+                                int offset) {
+  std::vector<uint16_t> corrected;
+  corrected.reserve(values.size());
+  for (const uint16_t value : values) {
+    corrected.push_back(static_cast<uint16_t>(
+        std::clamp(static_cast<int>(value) - offset, 0, 1023)));
+  }
+  return corrected;
+}
+
+// The correction goes all the way into the file, and FLAC still holds it
+// losslessly: the offset is whole codes, so the six low bits stay zero.
+TEST(FlacRoundTripTest, ADeclaredOffsetIsTakenOutOfEverySample) {
+  const std::vector<uint16_t> values = SampleValues(20'000);
+  const std::vector<uint8_t> wire = ToWireBytes(values);
+
+  for (const int offset : {17, -9}) {
+    TemporaryFile file(".ddd.flac");
+    {
+      FlacWriter writer;
+      FlacWriter::Options options;
+      options.sample_rate_label = kFlacSampleRateLabel;
+      options.dc_offset = offset;
+      std::string error;
+      ASSERT_TRUE(writer.Open(file.path(), options, error)) << error;
+      ASSERT_TRUE(writer.WriteRawDeviceSamples(wire.data(), values.size()));
+      ASSERT_TRUE(writer.Finish());
+    }
+
+    CaptureReader reader;
+    std::string error;
+    ASSERT_TRUE(reader.Open(file.path(), CaptureReader::Format::kFlac, error))
+        << error;
+    EXPECT_EQ(ReadEverything(reader), Corrected(values, offset))
+        << "offset " << offset;
+  }
+}
+
+TEST(RawSinkTest, ADeclaredOffsetIsTakenOutOfEverySample) {
+  TemporaryFile file(".ddd.s16");
+
+  const std::vector<uint16_t> values = SampleValues(5000);
+  const std::vector<uint8_t> wire = ToWireBytes(values);
+
+  {
+    RawSink sink;
+    ASSERT_TRUE(sink.Open(file.path(), 23)) << sink.LastError();
+    ASSERT_TRUE(sink.Write(wire.data(), values.size())) << sink.LastError();
+    ASSERT_TRUE(sink.Finish()) << sink.LastError();
+  }
+
+  CaptureReader reader;
+  std::string error;
+  ASSERT_TRUE(
+      reader.Open(file.path(), CaptureReader::Format::kSigned16Bit, error))
+      << error;
+
+  EXPECT_EQ(ReadEverything(reader), Corrected(values, 23));
+}
+
 // A factor the file cannot describe is refused rather than silently treated as
 // one: a file whose rate disagrees with its contents decodes at the wrong speed
 // with nothing to reveal it.

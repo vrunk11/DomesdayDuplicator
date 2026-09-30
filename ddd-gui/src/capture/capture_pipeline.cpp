@@ -89,6 +89,7 @@ bool CapturePipeline::Start(ISampleSource* source,
   source_ = source;
   sink_ = std::move(sink);
   validator_.Reset();
+  validator_.SetDcOffset(options.test_mode ? 0 : options.dc_offset);
   metrics_.Reset();
   test_pattern_verifier_ = TestPatternVerifier{};
   test_pattern_result_ = TestPatternVerifier::Result{};

@@ -125,6 +125,81 @@ TEST(SampleFormatTest, ScalingRoundTripsThroughEveryTenBitValue) {
   }
 }
 
+// With no offset declared, the corrected conversion is the ordinary one for
+// every code — a board nobody has measured writes exactly what it always did.
+TEST(SampleFormatTest, AZeroOffsetCorrectsNothing) {
+  for (int32_t value = 0; value <= kMaximumSampleValue; ++value) {
+    EXPECT_EQ(ToCorrectedSigned16Bit(value, 0), ToSigned16Bit(value))
+        << "value " << value;
+    EXPECT_FALSE(DcOffsetSaturates(static_cast<uint16_t>(value), 0))
+        << "value " << value;
+  }
+}
+
+// A signal sitting 20 codes high is moved down by 20 codes: its mean lands on
+// zero, and the result is still a whole code times 64.
+TEST(SampleFormatTest, TheOffsetIsTakenOutInWholeCodes) {
+  EXPECT_EQ(ToCorrectedSigned16Bit(532, 20), 0);
+  EXPECT_EQ(ToCorrectedSigned16Bit(492, -20), 0);
+  EXPECT_EQ(ToCorrectedSigned16Bit(600, 20), (600 - 512 - 20) * 64);
+  for (int32_t value = 0; value <= kMaximumSampleValue; ++value) {
+    EXPECT_EQ(ToCorrectedSigned16Bit(value, 7) % 64, 0) << "value " << value;
+  }
+}
+
+// The codes pushed past either end of the 16-bit range are held at that end.
+// A cast would wrap them to the far end instead: a full-scale spike the wrong
+// way in the middle of the signal.
+TEST(SampleFormatTest, ACodePushedOutOfRangeSaturatesAndNeverWraps) {
+  EXPECT_EQ(ToCorrectedSigned16Bit(0, 3), INT16_MIN);
+  EXPECT_EQ(ToCorrectedSigned16Bit(2, 3), INT16_MIN);
+  EXPECT_EQ(ToCorrectedSigned16Bit(3, 3), INT16_MIN);
+  EXPECT_EQ(ToCorrectedSigned16Bit(4, 3), INT16_MIN + 64);
+
+  EXPECT_EQ(ToCorrectedSigned16Bit(1023, -3), INT16_MAX);
+  EXPECT_EQ(ToCorrectedSigned16Bit(1021, -3), INT16_MAX);
+  EXPECT_EQ(ToCorrectedSigned16Bit(1020, -3), 511 * 64);
+
+  // Monotonic across the whole range, for both signs: nothing folds back.
+  for (const int32_t offset : {-40, -1, 1, 40}) {
+    for (int32_t value = 1; value <= kMaximumSampleValue; ++value) {
+      EXPECT_GE(ToCorrectedSigned16Bit(value, offset),
+                ToCorrectedSigned16Bit(value - 1, offset))
+          << "offset " << offset << " value " << value;
+    }
+  }
+}
+
+// Only the codes the correction lost count, never the ones the converter
+// clipped — those are already counted as clipping, and counting them twice
+// would blame the declaration for a signal that is simply too hot.
+TEST(SampleFormatTest, OnlyTheCodesTheCorrectionLostAreCounted) {
+  EXPECT_FALSE(DcOffsetSaturates(0, 3));
+  EXPECT_TRUE(DcOffsetSaturates(1, 3));
+  EXPECT_TRUE(DcOffsetSaturates(2, 3));
+  EXPECT_FALSE(DcOffsetSaturates(3, 3));
+  EXPECT_FALSE(DcOffsetSaturates(1022, 3));
+
+  EXPECT_FALSE(DcOffsetSaturates(1023, -3));
+  EXPECT_TRUE(DcOffsetSaturates(1022, -3));
+  EXPECT_TRUE(DcOffsetSaturates(1021, -3));
+  EXPECT_FALSE(DcOffsetSaturates(1020, -3));
+  EXPECT_FALSE(DcOffsetSaturates(1, -3));
+}
+
+// The count and the conversion agree: a code is counted exactly when the
+// conversion had to hold it at an end it would not otherwise have reached.
+TEST(SampleFormatTest, TheCountMatchesWhatTheConversionSaturated) {
+  for (const int32_t offset : {-100, -3, 3, 100}) {
+    for (int32_t value = 1; value < kMaximumSampleValue; ++value) {
+      const int32_t exact = (value - kSampleZeroOffset - offset) * kSampleScale;
+      const bool held = exact != ToCorrectedSigned16Bit(value, offset);
+      EXPECT_EQ(DcOffsetSaturates(static_cast<uint16_t>(value), offset), held)
+          << "offset " << offset << " value " << value;
+    }
+  }
+}
+
 TEST(CaptureFormatTest, TheDefaultSuffixSaysWhereTheSamplesCameFrom) {
   EXPECT_EQ(AddCaptureFileSuffix("disc1").string(), "disc1.ddd.flac");
 }

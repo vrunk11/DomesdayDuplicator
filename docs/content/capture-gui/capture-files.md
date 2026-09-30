@@ -84,6 +84,20 @@ later travel with it rather than in somebody's notes:
 | `DDD_SAMPLE_RATE_HZ` | `40000000` — the real rate, which the FLAC header cannot express |
 | `DDD_TEST_MODE` | Whether this is signal or a test ramp |
 | `DDD_FRONT_END_GAIN` | The declared SW401 position — **only when one was actually declared** |
+| `DDD_BOARD_SETUP` | `declared`, or `default` when nothing had been declared about the board — see [Board setup](board-setup.md) |
+| `DDD_BOARD_NAME` | The board's name, when it has one |
+| `DDD_BOARD_ADC` | `ADS825` or `ADS828` — the converter the board setup says is fitted |
+| `DDD_BOARD_RSEL_WIRING` | `auto`, `low` or `high` |
+| `DDD_DC_OFFSET` | The DC offset taken out of every sample, in converter codes. `0` when nothing was |
+
+**The DC offset is the one board tag that changes the samples.** Every sample in the file is
+the converter's code less `DDD_DC_OFFSET`, still scaled by 64, so the samples the converter
+actually produced are always one addition away: add `DDD_DC_OFFSET × 64` back. The offset
+is a whole number of codes, so the six low bits of every sample stay zero and FLAC stores them
+for nothing, exactly as before. A test-mode capture is never corrected — its samples come from
+the gateware's counter, not the converter — and records `0`.
+
+The board tags are written only when a device was attached to read the board setup from.
 
 **Three versions rather than one**, because a capture is the product of three builds: this
 application, the firmware in the Duplicator's USB chip, and the gateware in its FPGA. The
