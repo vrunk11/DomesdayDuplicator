@@ -280,6 +280,10 @@ set_false_path -from [get_ports {GPIO1[7]}]
 # The status LEDs. Driven from the register bank for a human to look at.
 set_false_path -to [get_ports {LED[*]}]
 
+# The SDRAM control pins, tied to constants to hold the unused part in
+# power-down. Nothing on them is ever timed.
+set_false_path -to [get_ports {DRAM_CKE DRAM_CS_N DRAM_CLK}]
+
 # FX3 control lines the board wires up and this design does not use. They are
 # tied off or ignored; the pin assignments are fixed by the PCB.
 set_false_path -from [get_ports {GPIO1[23]}]

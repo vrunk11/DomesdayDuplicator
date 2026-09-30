@@ -39,6 +39,19 @@ set_location_assignment PIN_B1 -to LED[6]
 set_location_assignment PIN_L3 -to LED[7]
 
 #============================================================
+# SDRAM control, held in power-down (see the top level)
+#============================================================
+# Only the three pins that decide whether the part draws current. The rest of
+# the SDRAM interface is left unassigned and floats, which a chip that is
+# deselected with its clock enable low ignores.
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to DRAM_CKE
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to DRAM_CS_N
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to DRAM_CLK
+set_location_assignment PIN_L7 -to DRAM_CKE
+set_location_assignment PIN_P6 -to DRAM_CS_N
+set_location_assignment PIN_R4 -to DRAM_CLK
+
+#============================================================
 # GPIO_0, GPIO_0 connect to GPIO Default
 #============================================================
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to GPIO0[0]

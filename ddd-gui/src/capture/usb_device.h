@@ -196,7 +196,11 @@ class IUsbDevice {
   // Returns false when the device did not accept it. A caller should say so
   // rather than stream anyway: on a host with USB 3 link power management
   // enabled, streaming without it produces a capture that is not bit-perfect.
-  virtual bool SetCollecting(const std::string& path, bool collecting) = 0;
+  //
+  // `flags` goes with a start — kCollectionFlagDarkLeds and so on, carried in
+  // wIndex — and is 0 for a stop. Firmware older than a flag ignores it.
+  virtual bool SetCollecting(const std::string& path, bool collecting,
+                             uint16_t flags) = 0;
 
   // Read consecutive registers into `data`, which is resized to `length` on
   // success and left alone otherwise.

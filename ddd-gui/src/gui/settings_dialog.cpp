@@ -193,6 +193,18 @@ QWidget* SettingsDialog::BuildCapturePage(
       "transfer completing and the next being submitted."));
   form->addRow(tr("USB transfers"), transfer_mode_);
 
+  eco_mode_ =
+      new QCheckBox(tr("Turn the board's LEDs off while streaming"), page);
+  eco_mode_->setObjectName(QLatin1String(kEcoModeCheckName));
+  eco_mode_->setChecked(capture_.eco_mode);
+  eco_mode_->setToolTip(
+      tr("The whole board runs from one USB port, and at the fastest ADC rates "
+         "the converter's supply is at the edge of its range during a "
+         "capture. The LEDs' few milliamps are better left to it. An overflow "
+         "is still shown. Needs firmware that knows the request; older "
+         "firmware keeps its LEDs as they were."));
+  form->addRow(tr("Eco mode"), eco_mode_);
+
   front_end_gain_ = new QComboBox(page);
   front_end_gain_->setObjectName(QLatin1String(kFrontEndGainComboName));
 
@@ -380,6 +392,7 @@ CaptureSettings SettingsDialog::Settings() const {
   result.queue_size_bytes =
       static_cast<size_t>(queue_size_->currentData().toULongLong());
   result.small_transfers = transfer_mode_->currentData().toBool();
+  result.eco_mode = eco_mode_->isChecked();
   result.preferred_device_path = device_->currentData().toString();
   result.capture_directory = directory_->text();
   result.front_end_gain_switches =

@@ -52,6 +52,10 @@ CyBool_t input3HandledFlag = CyFalse; // Input 3 set condition handled flag
 
 volatile CyBool_t dataCollectionFlag = CyFalse; // Flag to show if the host application is collecting data
 
+// Whether the collection in progress asked for the LEDs to stay dark
+// (COLLECTION_FLAG_DARK_LEDS). Only read while dataCollectionFlag is set.
+static volatile CyBool_t glCollectionDarkLeds = CyFalse;
+
 // Staging buffer for register reads on their way to the host.
 //
 // Aligned because CyU3PUsbSendEP0Data hands the buffer to the DMA engine, which needs it
@@ -451,7 +455,9 @@ void domDupThreadInitialise(uint32_t input)
 		if (fpgaRegistersPresent()) {
 			if (updateAgentInProgress()) ledPattern = FPGA_LED_UPDATING;
 			else if (input0Flag) ledPattern = FPGA_LED_BUFFER_ERROR;
-			else if (dataCollectionFlag) ledPattern = FPGA_LED_CAPTURING;
+			else if (dataCollectionFlag) {
+				ledPattern = glCollectionDarkLeds ? FPGA_LED_DARK : FPGA_LED_CAPTURING;
+			}
 			else ledPattern = FPGA_LED_READY;
 
 			if (ledPattern != ledPatternShown) {
@@ -1111,6 +1117,11 @@ CyBool_t domDupUSBSetupCB(uint32_t setupData0, uint32_t setupData1)
 
 					// Clear the input flags
 					domDupClearInputFlags();
+
+					// Before the collection flag, so the LED loop never sees a
+					// collection without knowing how it asked to be shown
+					glCollectionDarkLeds =
+						((wIndex & COLLECTION_FLAG_DARK_LEDS) != 0u) ? CyTrue : CyFalse;
 
 					// Flag that the host is collecting data
 					dataCollectionFlag = CyTrue;

@@ -190,12 +190,22 @@ class FakeUsbDevice : public IUsbDevice {
     return !configuration_fails_;
   }
 
-  bool SetCollecting(const std::string& path, bool collecting) override {
+  bool SetCollecting(const std::string& path, bool collecting,
+                     uint16_t flags) override {
     const std::lock_guard<std::mutex> guard(mutex_);
     configured_path_ = path;
     collecting_ = collecting;
+    if (collecting) {
+      collection_flags_ = flags;
+    }
     ++collection_change_count_;
     return !configuration_fails_;
+  }
+
+  // The flags the last start carried.
+  uint16_t collection_flags() const {
+    const std::lock_guard<std::mutex> guard(mutex_);
+    return collection_flags_;
   }
 
   bool ReadRegisters(const std::string& path, uint8_t address, uint8_t length,
@@ -463,6 +473,7 @@ class FakeUsbDevice : public IUsbDevice {
   // and stopped once" are different claims and the second is the one a
   // stop-path test is making.
   bool collecting_ = false;
+  uint16_t collection_flags_ = 0;
   uint64_t collection_change_count_ = 0;
   bool open_fails_ = false;
   TransferResult open_failure_ = TransferResult::kConnectionFailure;

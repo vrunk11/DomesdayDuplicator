@@ -58,6 +58,14 @@ struct CaptureSettings {
   // figure is labelled, never what is captured.
   uint8_t front_end_gain_switches = analysis::kUndeclaredSwitchPattern;
 
+  // Eco mode: ask the device to keep its status LEDs dark while it streams
+  // (kCollectionFlagDarkLeds). The whole board runs from one USB port, and at
+  // the fastest ADC rates the converter's supply sits at the edge of its
+  // range during a capture — the milliamps the LEDs would take are better left
+  // to it. On by default for that reason; off keeps the LEDs as a status
+  // display. Firmware older than the flag ignores it.
+  bool eco_mode = true;
+
   // Put the gateware into test-pattern mode. Not persisted: it is a diagnostic,
   // and an application that silently started in test mode because of something
   // the user did last week would produce a capture full of ramps.
@@ -175,7 +183,7 @@ struct CaptureSettings {
            small_transfers == other.small_transfers &&
            transfer_queue_bytes == other.transfer_queue_bytes &&
            front_end_gain_switches == other.front_end_gain_switches &&
-           test_mode == other.test_mode &&
+           eco_mode == other.eco_mode && test_mode == other.test_mode &&
            capture_directory == other.capture_directory &&
            capture_name == other.capture_name && naming == other.naming &&
            output_format == other.output_format &&

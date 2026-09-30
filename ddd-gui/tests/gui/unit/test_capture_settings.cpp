@@ -48,6 +48,7 @@ TEST_F(CaptureSettingsTest, AFirstRunGetsTheDefaults) {
   EXPECT_EQ(settings.queue_size_bytes,
             capture::DiskBufferRing::kDefaultQueueSizeBytes);
   EXPECT_TRUE(settings.small_transfers);
+  EXPECT_TRUE(settings.eco_mode);
   EXPECT_TRUE(settings.preferred_device_path.isEmpty());
 }
 
@@ -56,6 +57,7 @@ TEST_F(CaptureSettingsTest, WhatWasSavedIsWhatComesBack) {
   saved.preferred_device_path = QStringLiteral("/sys/bus/usb/devices/3-2");
   saved.queue_size_bytes = size_t{128} << 20;
   saved.small_transfers = false;
+  saved.eco_mode = false;
   saved.transfer_queue_bytes = size_t{8} << 20;
   SaveCaptureSettings(saved);
 
@@ -63,6 +65,7 @@ TEST_F(CaptureSettingsTest, WhatWasSavedIsWhatComesBack) {
   EXPECT_EQ(loaded.preferred_device_path, saved.preferred_device_path);
   EXPECT_EQ(loaded.queue_size_bytes, saved.queue_size_bytes);
   EXPECT_EQ(loaded.small_transfers, saved.small_transfers);
+  EXPECT_EQ(loaded.eco_mode, saved.eco_mode);
   EXPECT_EQ(loaded.transfer_queue_bytes, saved.transfer_queue_bytes);
 }
 

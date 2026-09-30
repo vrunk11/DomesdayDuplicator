@@ -155,11 +155,28 @@
 // The gateware no longer generates a pattern of its own, so what the eight
 // LEDs mean is entirely this firmware's choice. Three states are worth
 // distinguishing at a glance across a room, and the reset value the gateware
-// shows before the firmware ever writes here — a single lit LED — is a fourth.
-#define FPGA_LED_READY                  (0x81u)     // enumerated, register link up
-#define FPGA_LED_CAPTURING              (0xFFu)     // the host is collecting
+// shows before the firmware ever writes here — LED 0 alone — is a fourth.
+//
+// As few lit as tells them apart. Every LED is a few milliamps drawn through
+// the same USB VBUS that powers the converter, and a capture used to light all
+// eight at the moment the supply is at its lowest: at 75 MHz the board's 5 V
+// rail sits below the ADS828's 4.75 V minimum, and every milliamp that is not
+// spent on a light is supply the converter keeps. Positions rather than
+// counts tell the states apart, so each is still readable across a room.
+#define FPGA_LED_READY                  (0x80u)     // enumerated, register link up
+#define FPGA_LED_CAPTURING              (0x81u)     // the host is collecting
 #define FPGA_LED_BUFFER_ERROR           (0x55u)     // the FPGA reported an overflow
 #define FPGA_LED_UPDATING               (0x18u)     // rewriting the boot EEPROM
+#define FPGA_LED_DARK                   (0x00u)     // collecting, and asked to stay dark
+
+// Flags the collection start request (0xB5, wValue 1) carries in wIndex.
+//
+// COLLECTION_FLAG_DARK_LEDS asks for every LED off while the host collects,
+// the capture application's Eco mode: the supply the LEDs would take is left
+// to the converter. An overflow is still shown. A second copy of
+// kCollectionFlagDarkLeds in ddd-gui/src/capture/wire_protocol.h (AGENTS.md
+// §2); a host that predates the flag sends zero, which asks for nothing.
+#define COLLECTION_FLAG_DARK_LEDS       (0x0001u)
 
 // Does this identity block come from a gateware register bank?
 int fpgaIdentityIsValid(const uint8_t *identity);

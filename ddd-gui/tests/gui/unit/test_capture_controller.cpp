@@ -629,6 +629,29 @@ TEST_F(CaptureControllerTest, AnEditAfterwardsSavesAsItNormallyWould) {
             QStringLiteral("typed-by-hand"));
 }
 
+// Eco mode is on unless turned off, and it reaches the device as a flag on the
+// start of collection: the LEDs' milliamps are left to the converter.
+TEST_F(CaptureControllerTest, EcoModeAsksTheDeviceToKeepItsLedsDark) {
+  UseSmallQueue();
+  EXPECT_TRUE(controller_->settings().eco_mode);
+
+  controller_->StartMonitoring();
+  ASSERT_TRUE(controller_->monitoring());
+  EXPECT_EQ(device_->collection_flags(), capture::kCollectionFlagDarkLeds);
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+
+  CaptureSettings settings = controller_->settings();
+  settings.eco_mode = false;
+  controller_->SetSettings(settings);
+
+  controller_->StartMonitoring();
+  ASSERT_TRUE(controller_->monitoring());
+  EXPECT_EQ(device_->collection_flags(), capture::kCollectionFlagsNone);
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+}
+
 // --- The board setup
 // ------------------------------------------------------------
 

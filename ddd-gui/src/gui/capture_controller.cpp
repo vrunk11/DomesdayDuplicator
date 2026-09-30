@@ -805,7 +805,10 @@ void CaptureController::StartMonitoring() {
   // samples inside a transfer the host still sees as complete - see
   // kCollectionRequest. Refused rather than ignored: streaming without it is
   // how a capture comes out with a sequence break and no explanation.
-  if (!device_->SetCollecting(path, true)) {
+  if (!device_->SetCollecting(path, true,
+                              settings_.eco_mode
+                                  ? capture::kCollectionFlagDarkLeds
+                                  : capture::kCollectionFlagsNone)) {
     emit Failed(tr("The device could not be told to start"),
                 tr("The device did not accept the start request. It may have "
                    "been unplugged, or another application may be using it."));
@@ -815,7 +818,7 @@ void CaptureController::StartMonitoring() {
   capture::TransferResult opened = capture::TransferResult::kConnectionFailure;
   source_ = device_->OpenSource(path, settings_.UsbOptions(), opened);
   if (source_ == nullptr) {
-    device_->SetCollecting(path, false);
+    device_->SetCollecting(path, false, capture::kCollectionFlagsNone);
     emit Failed(tr("The device could not be opened"),
                 QString::fromUtf8(capture::TransferResultDescription(opened)));
     return;
@@ -854,7 +857,7 @@ void CaptureController::StartMonitoring() {
       monitor_->SetSuspended(false);
     }
     source_.reset();
-    device_->SetCollecting(path, false);
+    device_->SetCollecting(path, false, capture::kCollectionFlagsNone);
     emit Failed(tr("Monitoring could not be started"),
                 QString::fromStdString(pipeline_->ResultDetail()));
     return;
@@ -1503,7 +1506,8 @@ void CaptureController::FinishRun() {
   // the link staying awake. Failure is not reported: the run is already over,
   // the device restores this on reset and disconnect anyway, and a message box
   // about it would arrive on top of whatever ended the capture.
-  device_->SetCollecting(settings_.preferred_device_path.toStdString(), false);
+  device_->SetCollecting(settings_.preferred_device_path.toStdString(), false,
+                         capture::kCollectionFlagsNone);
 
   if (monitor_ != nullptr) {
     monitor_->SetSuspended(false);

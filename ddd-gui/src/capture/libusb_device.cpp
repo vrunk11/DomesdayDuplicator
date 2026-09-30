@@ -410,7 +410,8 @@ class LibUsbDevice : public IUsbDevice {
     return true;
   }
 
-  bool SetCollecting(const std::string& path, bool collecting) override {
+  bool SetCollecting(const std::string& path, bool collecting,
+                     uint16_t flags) override {
     const Lease lease = Borrow();
 
     libusb_device_handle* handle = nullptr;
@@ -423,7 +424,7 @@ class LibUsbDevice : public IUsbDevice {
     const int sent =
         libusb_control_transfer(handle, kVendorRequestType, kCollectionRequest,
                                 collecting ? kCollectionStart : kCollectionStop,
-                                0, nullptr, 0, kControlTimeoutMilliseconds);
+                                flags, nullptr, 0, kControlTimeoutMilliseconds);
 
     if (claimed) {
       libusb_release_interface(handle, kInterfaceNumber);

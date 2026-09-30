@@ -82,6 +82,23 @@ during that gap.
 Change it only in response to a specific failure: *this machine did not keep a read request
 outstanding* is the message that points here.
 
+## Eco mode
+
+**Turn the board's LEDs off while streaming**, on by default.
+
+The whole Duplicator — converter, FPGA board and USB chip — runs from the one USB port, and
+the converter's supply drops as the ADC rate rises. On the bench a board's 5 V rail read
+4.81 V idle, 4.77 V capturing at 40 MSPS and 4.73 V at 75 MSPS, which is below the ADS828's
+4.75 V minimum. The status LEDs take a few milliamps each from that same rail, and a capture
+used to light all eight. With Eco mode on they stay dark for as long as the stream runs; a
+buffer overflow is still shown, since that is worth the milliamps.
+
+Off, the LEDs show the device's state as they always have. Firmware that predates the request
+ignores it and keeps its LEDs as they were.
+
+Two further savings need no setting and are always in force: the LEDs that are lit use as few
+as tell the states apart, and the gateware holds the DE0-Nano's unused SDRAM in power-down.
+
 ## Front-end gain
 
 This is the one setting worth reading about rather than just choosing.

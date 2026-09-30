@@ -383,7 +383,8 @@ class WinUsbDevice : public IUsbDevice {
     return true;
   }
 
-  bool SetCollecting(const std::string& path, bool collecting) override {
+  bool SetCollecting(const std::string& path, bool collecting,
+                     uint16_t flags) override {
     ScopedWinUsbHandles handles;
     if (!OpenSelected(path, DeviceSelection::kCaptureCapable, handles,
                       nullptr)) {
@@ -394,7 +395,7 @@ class WinUsbDevice : public IUsbDevice {
     setup.RequestType = kVendorRequestType;
     setup.Request = kCollectionRequest;
     setup.Value = collecting ? kCollectionStart : kCollectionStop;
-    setup.Index = 0;
+    setup.Index = flags;
     setup.Length = 0;
 
     if (WinUsb_ControlTransfer(handles.interface_handle(), setup, nullptr, 0,

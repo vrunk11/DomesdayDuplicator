@@ -28,7 +28,13 @@ module DomesdayDuplicator #(
     input         CLOCK_50,
     inout  [33:0] GPIO0,
     inout  [33:0] GPIO1,
-    output [ 7:0] LED
+    output [ 7:0] LED,
+
+    // The DE0-Nano's SDRAM, which this design does not use. Held in
+    // power-down: see the note at the end of the pin mapping.
+    output DRAM_CKE,
+    output DRAM_CS_N,
+    output DRAM_CLK
 );
 
     // FX3 Hardware mapping begins ------------------------------------------------
@@ -216,6 +222,19 @@ module DomesdayDuplicator #(
     assign fx3_spi_chip_select_n = fx3_control[08];
 
     // FX3 Hardware mapping ends --------------------------------------------------
+
+    // The DE0-Nano's SDRAM, held in power-down.
+    //
+    // Nothing here uses it, and left to the fitter's default its pins float up
+    // on weak pull-ups: clock enable high, so the part sits in standby drawing
+    // tens of milliamps from the same USB VBUS that powers the converter. That
+    // supply is the design's scarcest resource at 75 MHz, where the board's 5 V
+    // rail runs below the ADS828's 4.75 V minimum during a capture. Clock
+    // enable low with the chip deselected and its clock stopped is power-down,
+    // a milliamp or two, and it needs nothing but these three levels.
+    assign DRAM_CKE              = 1'b0;
+    assign DRAM_CS_N             = 1'b1;
+    assign DRAM_CLK              = 1'b0;
 
 
     // ADC Hardware mapping begins ------------------------------------------------

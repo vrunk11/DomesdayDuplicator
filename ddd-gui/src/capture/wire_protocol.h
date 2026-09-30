@@ -114,6 +114,20 @@ inline constexpr uint8_t kCollectionRequest = 0xB5;
 inline constexpr uint16_t kCollectionStop = 0;
 inline constexpr uint16_t kCollectionStart = 1;
 
+// Flags a start carries in wIndex. Firmware older than a flag ignores the
+// field, so each one asks for something a board can safely not do.
+//
+// kCollectionFlagDarkLeds turns the DE0-Nano's status LEDs off while the
+// stream runs. Every LED is a few milliamps from the same USB VBUS that powers
+// the converter, and at the fastest ADC rates that rail runs at the edge of
+// the converter's supply range. An overflow is still shown: it is the one
+// thing on the LEDs worth a milliamp during a capture.
+//
+// A second copy of COLLECTION_FLAG_DARK_LEDS in
+// fx3/firmware/src/fpga-register-map.h (AGENTS.md §2).
+inline constexpr uint16_t kCollectionFlagsNone = 0x0000;
+inline constexpr uint16_t kCollectionFlagDarkLeds = 0x0001;
+
 // Read registers. wValue is the first address, wLength the byte count; the
 // address auto-increments, so the identity block is one transfer.
 inline constexpr uint8_t kRegisterReadRequest = 0xB7;

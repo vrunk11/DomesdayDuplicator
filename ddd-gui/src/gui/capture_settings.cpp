@@ -26,6 +26,7 @@ constexpr const char* kQueueSizeKey = "capture/queue_size_bytes";
 constexpr const char* kSmallTransfersKey = "capture/small_transfers";
 constexpr const char* kTransferQueueKey = "capture/transfer_queue_bytes";
 constexpr const char* kFrontEndGainKey = "hardware/front_end_gain_switches";
+constexpr const char* kEcoModeKey = "hardware/eco_mode";
 constexpr const char* kCaptureDirectoryKey = "capture/directory";
 constexpr const char* kCaptureNameKey = "capture/name";
 constexpr const char* kOutputFormatKey = "capture/output_format";
@@ -323,6 +324,9 @@ CaptureSettings LoadCaptureSettings() {
       settings.value(QLatin1String(kSmallTransfersKey), loaded.small_transfers)
           .toBool();
 
+  loaded.eco_mode =
+      settings.value(QLatin1String(kEcoModeKey), loaded.eco_mode).toBool();
+
   loaded.transfer_queue_bytes = std::clamp(
       static_cast<size_t>(
           settings
@@ -409,6 +413,7 @@ void SaveCaptureSettings(const CaptureSettings& settings) {
   store.setValue(QLatin1String(kQueueSizeKey),
                  static_cast<qulonglong>(settings.queue_size_bytes));
   store.setValue(QLatin1String(kSmallTransfersKey), settings.small_transfers);
+  store.setValue(QLatin1String(kEcoModeKey), settings.eco_mode);
   store.setValue(QLatin1String(kTransferQueueKey),
                  static_cast<qulonglong>(settings.transfer_queue_bytes));
   store.setValue(QLatin1String(kFrontEndGainKey),

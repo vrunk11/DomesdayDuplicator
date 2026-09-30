@@ -37,6 +37,11 @@
 # Scoped to the four names and to the top level, so a new ALL_CAPS signal anywhere —
 # including a new port on this same module — is still reported.
 waive --rule=signal-name-style --regex="\b(CLOCK_50|GPIO0|GPIO1|LED)\b" --location=".*DomesdayDuplicator\.v"
+
+# DRAM_CKE, DRAM_CS_N and DRAM_CLK on the application top level, for the same reason:
+# Terasic's names for the DE0-Nano's SDRAM pins, bound by name in the .qsf. The
+# application holds the unused SDRAM in power-down through them.
+waive --rule=signal-name-style --regex="\b(DRAM_CKE|DRAM_CS_N|DRAM_CLK)\b" --location=".*DomesdayDuplicator\.v"
 waive --rule=signal-name-style --regex="\b(CLOCK_50|GPIO0|GPIO1|LED)\b" --location=".*DomesdayDuplicatorFactory\.v"
 
 # ---------------------------------------------------------------------------

@@ -80,6 +80,7 @@ class SettingsDialog : public QDialog {
   static constexpr const char* kBrowseButtonName = "settings_browse";
   static constexpr const char* kFrontEndGainComboName =
       "settings_front_end_gain";
+  static constexpr const char* kEcoModeCheckName = "settings_eco_mode";
 
   static constexpr const char* kPlayerEnabledCheckName =
       "settings_player_enabled";
@@ -109,6 +110,7 @@ class SettingsDialog : public QDialog {
   QComboBox* device_ = nullptr;
   QLineEdit* directory_ = nullptr;
   QComboBox* front_end_gain_ = nullptr;
+  QCheckBox* eco_mode_ = nullptr;
 
   QCheckBox* player_enabled_ = nullptr;
   QComboBox* player_model_ = nullptr;
