@@ -629,6 +629,276 @@ TEST_F(CaptureControllerTest, AnEditAfterwardsSavesAsItNormallyWould) {
             QStringLiteral("typed-by-hand"));
 }
 
+// --- The board setup
+// ------------------------------------------------------------
+
+capture::BoardSetup FastBoard() {
+  capture::BoardSetup setup;
+  setup.name = "Bench #2";
+  setup.adc = capture::AdcPart::kAds828;
+  setup.rsel_wiring = capture::RselWiring::kAuto;
+  setup.dc_offset_1vpp = -6;
+  setup.dc_offset_2vpp = 3;
+  return setup;
+}
+
+// Nothing declared means the slower converter, however fast the gateware
+// could drive one: an ADS825 run at 75 MHz produces samples nothing can tell
+// are wrong, and every board ever built runs at 40.
+TEST_F(CaptureControllerTest, AnUndeclaredBoardIsHeldToTheSlowerConverter) {
+  device_->SetGatewareCommit("0123abcd");
+  device_->SetRegister(capture::kRegisterMaxAdcRateMhz, 75);
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+
+  EXPECT_EQ(controller_->board_setup().source,
+            capture::BoardSetupSource::kUnsupported);
+  EXPECT_EQ(controller_->max_adc_rate_mhz(), 40);
+  EXPECT_EQ(controller_->settings().pll_preset_mhz, capture::kPllPreset40Mhz);
+}
+
+TEST_F(CaptureControllerTest, ADeclaredConverterIsOfferedItsFullRate) {
+  device_->SetGatewareCommit("0123abcd");
+  device_->SetRegister(capture::kRegisterMaxAdcRateMhz, 75);
+  device_->SetBoardSetupSupported(true);
+  device_->SetBoardSetupPage(capture::EncodeBoardSetup(FastBoard()));
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+
+  EXPECT_EQ(controller_->board_setup().source,
+            capture::BoardSetupSource::kDeclared);
+  EXPECT_EQ(controller_->board_setup().setup, FastBoard());
+  EXPECT_EQ(controller_->max_adc_rate_mhz(), 75);
+}
+
+// The declaration is about the part and the register about the build; the
+// lower of the two is the one that is safe.
+TEST_F(CaptureControllerTest, TheGatewareStillCapsADeclaredConverter) {
+  device_->SetGatewareCommit("0123abcd");
+  device_->SetRegister(capture::kRegisterMaxAdcRateMhz, 60);
+  device_->SetBoardSetupSupported(true);
+  device_->SetBoardSetupPage(capture::EncodeBoardSetup(FastBoard()));
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+
+  EXPECT_EQ(controller_->max_adc_rate_mhz(), 60);
+}
+
+// A board whose RSEL is tied to a level runs at that range whatever the
+// settings ask, and the register is written with what the hardware does.
+TEST_F(CaptureControllerTest, AWiredRangeIsTheOneSentToTheDevice) {
+  capture::BoardSetup setup = FastBoard();
+  setup.rsel_wiring = capture::RselWiring::kLow;
+  device_->SetBoardSetupSupported(true);
+  device_->SetBoardSetupPage(capture::EncodeBoardSetup(setup));
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+
+  UseSmallQueue();
+  CaptureSettings settings = controller_->settings();
+  settings.range_select_2vpp = true;
+  controller_->SetSettings(settings);
+
+  EXPECT_FALSE(controller_->input_range_selectable());
+  EXPECT_FALSE(controller_->effective_range_2vpp());
+
+  controller_->StartMonitoring();
+  ASSERT_TRUE(controller_->monitoring());
+  EXPECT_EQ(device_->written_to(capture::kRegisterRangeSelect),
+            capture::kRangeSelect1Vpp);
+
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+}
+
+TEST_F(CaptureControllerTest, AWrittenBoardSetupIsOnTheDeviceAndInForce) {
+  device_->SetGatewareCommit("0123abcd");
+  device_->SetRegister(capture::kRegisterMaxAdcRateMhz, 75);
+  device_->SetBoardSetupSupported(true);
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+  EXPECT_EQ(controller_->board_setup().source,
+            capture::BoardSetupSource::kBlank);
+  EXPECT_EQ(controller_->max_adc_rate_mhz(), 40);
+
+  QSignalSpy changed(controller_.get(), &CaptureController::BoardSetupChanged);
+  QString message;
+  EXPECT_TRUE(controller_->WriteBoardSetup(FastBoard(), message))
+      << message.toStdString();
+
+  EXPECT_EQ(changed.count(), 1);
+  EXPECT_EQ(controller_->board_setup().source,
+            capture::BoardSetupSource::kDeclared);
+  EXPECT_EQ(device_->board_setup_page(),
+            capture::EncodeBoardSetup(FastBoard()));
+  EXPECT_EQ(controller_->max_adc_rate_mhz(), 75);
+}
+
+// Firmware that cannot store the record still lets its owner say what the
+// board is, for the session — and says that is all it is.
+TEST_F(CaptureControllerTest, OldFirmwareGetsTheDeclarationForTheSessionOnly) {
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+
+  QString message;
+  EXPECT_TRUE(controller_->WriteBoardSetup(FastBoard(), message));
+  EXPECT_FALSE(message.isEmpty());
+  EXPECT_EQ(controller_->board_setup().source,
+            capture::BoardSetupSource::kUnsupported);
+  EXPECT_EQ(controller_->board_setup().setup, FastBoard());
+}
+
+TEST_F(CaptureControllerTest, AWriteTheBoardDidNotKeepChangesNothing) {
+  device_->SetBoardSetupSupported(true);
+  device_->SetBoardSetupDropsWrites(true);
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+
+  QString message;
+  EXPECT_FALSE(controller_->WriteBoardSetup(FastBoard(), message));
+  EXPECT_FALSE(message.isEmpty());
+  EXPECT_EQ(controller_->board_setup().setup, capture::BoardSetup{});
+}
+
+// The stream holds the device open, and on Windows a second opener is refused.
+TEST_F(CaptureControllerTest, WritingTheBoardSetupIsRefusedWhileMonitoring) {
+  device_->SetBoardSetupSupported(true);
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+
+  UseSmallQueue();
+  controller_->StartMonitoring();
+  ASSERT_TRUE(controller_->monitoring());
+
+  QString message;
+  EXPECT_FALSE(controller_->WriteBoardSetup(FastBoard(), message));
+  EXPECT_EQ(device_->board_setup_write_count(), 0U);
+
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+}
+
+// With RSEL routed, both ranges are measured, one run each, and nothing is
+// declared by it: the results are handed back for the Board setup page.
+TEST_F(CaptureControllerTest, AQuietInputIsMeasuredAtBothRanges) {
+  capture::SyntheticSource::Options source = TestSourceOptions();
+  source.pattern = capture::SyntheticSource::Pattern::kConstant;
+  source.constant_value = 530;
+  device_->SetSourceOptions(source);
+  device_->SetBoardSetupSupported(true);
+  device_->SetBoardSetupPage(capture::EncodeBoardSetup(FastBoard()));
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+  UseSmallQueue();
+
+  QSignalSpy measured(controller_.get(), &CaptureController::DcOffsetMeasured);
+  QSignalSpy finished(controller_.get(),
+                      &CaptureController::DcOffsetMeasurementFinished);
+  controller_->MeasureDcOffset();
+  EXPECT_TRUE(controller_->measuring_dc_offset());
+
+  ASSERT_TRUE(PumpUntil([&] { return finished.count() >= 1; }, 15000ms));
+  EXPECT_TRUE(finished.front().at(0).toBool())
+      << finished.front().at(1).toString().toStdString();
+  ASSERT_EQ(measured.count(), 2);
+  EXPECT_FALSE(measured.at(0).at(0).toBool());
+  EXPECT_EQ(measured.at(0).at(1).toInt(), 18);
+  EXPECT_TRUE(measured.at(1).at(0).toBool());
+  EXPECT_EQ(measured.at(1).at(1).toInt(), 18);
+
+  EXPECT_FALSE(controller_->measuring_dc_offset());
+  EXPECT_FALSE(controller_->monitoring());
+  EXPECT_EQ(device_->board_setup_write_count(), 0U);
+}
+
+// A signal on the input — the BNC still connected — is refused rather than
+// averaged into a declaration.
+TEST_F(CaptureControllerTest, AMeasurementWithASignalConnectedIsRefused) {
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+  UseSmallQueue();
+
+  QSignalSpy measured(controller_.get(), &CaptureController::DcOffsetMeasured);
+  QSignalSpy finished(controller_.get(),
+                      &CaptureController::DcOffsetMeasurementFinished);
+  controller_->MeasureDcOffset();
+
+  ASSERT_TRUE(PumpUntil([&] { return finished.count() >= 1; }, 15000ms));
+  EXPECT_FALSE(finished.front().at(0).toBool());
+  EXPECT_FALSE(finished.front().at(1).toString().isEmpty());
+  EXPECT_EQ(measured.count(), 0);
+  EXPECT_FALSE(controller_->monitoring());
+}
+
+// A declared offset that does not belong to the board pushes samples out of
+// range the converter never clipped — the ramp reaches every code, so an
+// offset of +40 does it on every pass — and that is said once per run.
+TEST_F(CaptureControllerTest, AnOffsetThatDoesNotFitTheSignalIsReported) {
+  capture::BoardSetup setup;
+  setup.dc_offset_2vpp = 40;
+  device_->SetBoardSetupSupported(true);
+  device_->SetBoardSetupPage(capture::EncodeBoardSetup(setup));
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+  UseSmallQueue();
+
+  QSignalSpy warned(controller_.get(), &CaptureController::DcOffsetOutOfRange);
+  controller_->StartMonitoring();
+  ASSERT_TRUE(controller_->monitoring());
+
+  ASSERT_TRUE(PumpUntil([&] { return warned.count() >= 1; }));
+  PumpUntil([] { return false; }, 200ms);
+  EXPECT_EQ(warned.count(), 1);
+
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+}
+
+// Test mode's samples are the gateware's counter, not the converter, so no
+// offset is applied to them and there is nothing to warn about.
+TEST_F(CaptureControllerTest, TestModeNeverReportsTheOffset) {
+  capture::BoardSetup setup;
+  setup.dc_offset_2vpp = 40;
+  device_->SetBoardSetupSupported(true);
+  device_->SetBoardSetupPage(capture::EncodeBoardSetup(setup));
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+  UseSmallQueue();
+  CaptureSettings settings = controller_->settings();
+  settings.test_mode = true;
+  controller_->SetSettings(settings);
+
+  QSignalSpy warned(controller_.get(), &CaptureController::DcOffsetOutOfRange);
+  QSignalSpy stats(controller_.get(), &CaptureController::StatsUpdated);
+  controller_->StartMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return stats.count() >= 10; }));
+  EXPECT_EQ(warned.count(), 0);
+
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+}
+
 TEST_F(CaptureControllerTest, NoBackendAtAllIsReportedRatherThanCrashing) {
   CaptureController controller(nullptr, nullptr);
 

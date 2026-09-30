@@ -29,6 +29,7 @@
 #include <ctime>
 #include <filesystem>
 
+#include "board_setup_page.h"
 #include "capture_controller.h"
 #include "capture_failure_presenter.h"
 #include "capture_format.h"
@@ -198,13 +199,8 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
   range_select_combo_->setObjectName(QLatin1String(kRangeSelectComboName));
   range_select_combo_->addItem(tr("2Vpp (default)"), true);
   range_select_combo_->addItem(tr("1Vpp"), false);
-  range_select_combo_->setToolTip(
-      tr("The ADC's input range. Clipping the input loses signal "
-         "irrecoverably, where a range wider than the source's own output "
-         "level only costs resolution — so 2Vpp is the safe default until "
-         "you know the source runs at 1Vpp. Only takes effect on gateware "
-         "built for a board with the RSEL-capable ADC; older boards ignore "
-         "it."));
+  // The tooltip is set with the enabled state, since what it says depends on
+  // whether the board setup lets the range be chosen at all.
   form->addRow(tr("Input range"), range_select_combo_);
 
   pll_preset_combo_ = new QComboBox(contents);
@@ -217,6 +213,20 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
          "other rates it supports."));
   form->addRow(tr("ADC rate"), pll_preset_combo_);
   RefreshPllPresetOptions();
+
+  // What the board setup declares, because it is what bounds the two rows
+  // above: the rate list stops at the declared converter, and the range is
+  // fixed where RSEL is wired to a level. Read-only here — it is a
+  // declaration about the hardware, not a capture setting — with a link to
+  // where it is declared.
+  board_summary_label_ = new QLabel(contents);
+  board_summary_label_->setObjectName(QLatin1String(kBoardSummaryLabelName));
+  board_summary_label_->setWordWrap(true);
+  board_summary_label_->setTextFormat(Qt::RichText);
+  board_summary_label_->setTextInteractionFlags(Qt::LinksAccessibleByMouse |
+                                                Qt::LinksAccessibleByKeyboard);
+  form->addRow(tr("Board"), board_summary_label_);
+  RefreshBoardSummary();
 
   compression_spin_ = new QSpinBox(contents);
   compression_spin_->setObjectName(QLatin1String(kCompressionSpinName));
@@ -290,6 +300,18 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
          "whole side, and see what was written. Needs a player connected."));
   layout->addWidget(automatic_button_);
 
+  // Above the status, where it is seen: a declaration that belongs to another
+  // board is corrupting every file written with it, and a line in the log is
+  // not where anybody looks while a disc is spinning.
+  offset_warning_label_ = new QLabel(contents);
+  offset_warning_label_->setObjectName(QLatin1String(kOffsetWarningLabelName));
+  offset_warning_label_->setWordWrap(true);
+  offset_warning_label_->setTextFormat(Qt::RichText);
+  offset_warning_label_->setTextInteractionFlags(Qt::LinksAccessibleByMouse |
+                                                 Qt::LinksAccessibleByKeyboard);
+  offset_warning_label_->hide();
+  layout->addWidget(offset_warning_label_);
+
   status_label_ = new QLabel(tr("No capture device attached"), contents);
   status_label_->setObjectName(QLatin1String(kStatusLabelName));
   status_label_->setWordWrap(true);
@@ -339,7 +361,27 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
             &CapturePanel::OnCapturingChanged);
     connect(controller_, &CaptureController::SettingsChanged, this,
             [this](const CaptureSettings&) { ShowSettings(); });
+    connect(controller_, &CaptureController::BoardSetupChanged, this, [this] {
+      RefreshBoardSummary();
+      ShowSettings();
+    });
+    connect(controller_, &CaptureController::DcOffsetOutOfRange, this,
+            [this](const QString& message) {
+              offset_warning_label_->setText(
+                  QStringLiteral("<b>%1</b> <a href=\"board-setup\">%2</a>")
+                      .arg(message.toHtmlEscaped(),
+                           tr("Board setup…").toHtmlEscaped()));
+              offset_warning_label_->show();
+            });
   }
+
+  const auto request_board_setup = [this](const QString&) {
+    emit BoardSetupRequested();
+  };
+  connect(board_summary_label_, &QLabel::linkActivated, this,
+          request_board_setup);
+  connect(offset_warning_label_, &QLabel::linkActivated, this,
+          request_board_setup);
 
   // Measured before anything is ever styled, and kept, so that colouring a
   // button cannot change its size. See ActiveButtonStyle.
@@ -377,8 +419,10 @@ void CapturePanel::ShowSettings() {
       format_combo_->findData(static_cast<int>(settings.output_format)));
   sample_rate_combo_->setCurrentIndex(
       sample_rate_combo_->findData(settings.decimation_factor));
+  // The range the board will actually run at, which on a board with RSEL tied
+  // to a level is the wired one whatever the setting says.
   range_select_combo_->setCurrentIndex(
-      range_select_combo_->findData(settings.range_select_2vpp));
+      range_select_combo_->findData(controller_->effective_range_2vpp()));
   RefreshPllPresetOptions();
   compression_spin_->setValue(settings.compression_level);
   // Rounded to the nearest whole minute for display. The stored value is in
@@ -390,6 +434,22 @@ void CapturePanel::ShowSettings() {
   UpdateNamePlaceholder();
   UpdateEnabledState();
   RefreshFreeSpace();
+}
+
+void CapturePanel::RefreshBoardSummary() {
+  const QString summary = controller_ != nullptr
+                              ? DescribeBoardSummary(controller_->board_setup())
+                              : QString();
+  const QString link = QStringLiteral("<a href=\"board-setup\">%1</a>")
+                           .arg(tr("Board setup…").toHtmlEscaped());
+  board_summary_label_->setText(summary.isEmpty()
+                                    ? link
+                                    : summary.toHtmlEscaped() +
+                                          QStringLiteral("<br>") + link);
+
+  // The rate list stops at the declared converter, so it has to be rebuilt
+  // whenever the declaration changes, not only when a device appears.
+  RefreshPllPresetOptions();
 }
 
 void CapturePanel::RefreshPllPresetOptions() {
@@ -482,7 +542,12 @@ void CapturePanel::ApplySettingsFromWidgets() {
   settings.output_format = static_cast<capture::CaptureOutputFormat>(
       format_combo_->currentData().toInt());
   settings.decimation_factor = sample_rate_combo_->currentData().toInt();
-  settings.range_select_2vpp = range_select_combo_->currentData().toBool();
+  // Only where the range can be chosen. On a board whose RSEL is tied to a
+  // level the combo shows the wired range, and taking that for the user's
+  // choice would quietly overwrite the one they made for a board that can.
+  if (controller_->input_range_selectable()) {
+    settings.range_select_2vpp = range_select_combo_->currentData().toBool();
+  }
   settings.pll_preset_mhz =
       static_cast<uint8_t>(pll_preset_combo_->currentData().toInt());
   settings.compression_level = compression_spin_->value();
@@ -756,6 +821,9 @@ void CapturePanel::OnMonitoringChanged(bool monitoring) {
                                       : tr("Start monitoring"));
   ApplyButtonColours();
   if (monitoring) {
+    // A new run is judged afresh: the warning is about the run that raised
+    // it, and a corrected declaration should not go on being accused.
+    offset_warning_label_->hide();
     if (!capturing_) {
       status_label_->setText(tr("Monitoring"));
     }
@@ -870,8 +938,19 @@ void CapturePanel::UpdateEnabledState() {
   sample_rate_combo_->setEnabled(!monitoring_);
 
   // Same terms as the sample rate: written to the gateware before the stream
-  // is opened, with no way to change it under a running one.
-  range_select_combo_->setEnabled(!monitoring_);
+  // is opened, with no way to change it under a running one. And only where
+  // the board setup says RSEL reaches the FPGA at all.
+  const bool range_selectable =
+      controller_ == nullptr || controller_->input_range_selectable();
+  range_select_combo_->setEnabled(!monitoring_ && range_selectable);
+  range_select_combo_->setToolTip(
+      range_selectable
+          ? tr("The ADC's input range. Clipping the input loses signal "
+               "irrecoverably, where a range wider than the source's own "
+               "output level only costs resolution — so 2Vpp is the safe "
+               "default until you know the source runs at 1Vpp.")
+          : tr("Fixed by the board: its RSEL pin is wired to one level, as "
+               "declared in Board setup."));
 
   // More so than either of the above: changing this reconfigures the PLL and
   // takes the whole design out of lock for as long as that takes, so it is

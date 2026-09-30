@@ -13,6 +13,10 @@ Its **Player** tab — which model, which serial port, which speed, the ports ne
 and the one coupling between player and capture — is documented on
 [Player control](player-control.md), beside the rest of what it configures.
 
+Its **Board setup** tab is different in kind from the other two: it declares what the capture
+board is, it is kept on the device rather than on this computer, and it is written by its own
+button rather than by **OK**. It has a page of its own — [Board setup](board-setup.md).
+
 !!! note "When each one takes effect"
 
     The buffer and transfer settings resize things a running capture is using, so they apply

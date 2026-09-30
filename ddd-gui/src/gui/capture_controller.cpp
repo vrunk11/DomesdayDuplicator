@@ -14,6 +14,7 @@
 #include <QDir>
 #include <QMetaObject>
 #include <QThread>
+#include <algorithm>
 #include <ctime>
 #include <filesystem>
 #include <system_error>
@@ -69,6 +70,10 @@ CaptureController::CaptureController(capture::IUsbDevice* device,
 
   stats_timer_.setInterval(kStatsIntervalMilliseconds);
   connect(&stats_timer_, &QTimer::timeout, this, &CaptureController::Tick);
+
+  measure_timer_.setInterval(kStatsIntervalMilliseconds);
+  connect(&measure_timer_, &QTimer::timeout, this,
+          &CaptureController::MeasurementStep);
 }
 
 CaptureController::~CaptureController() {
@@ -118,11 +123,17 @@ void CaptureController::SetSettings(const CaptureSettings& settings) {
   settings_ = settings;
   SaveCaptureSettings(settings_);
   emit SettingsChanged(settings_);
+
+  // A rate the board cannot run is brought back inside it for the session,
+  // whatever the settings arrived with — a dialog opened before the board
+  // setup changed hands back the rate it was opened with.
+  ApplyBoardLimits();
 }
 
 void CaptureController::ApplySessionSettings(const CaptureSettings& settings) {
   settings_ = settings;
   emit SettingsChanged(settings_);
+  ApplyBoardLimits();
 }
 
 void CaptureController::SetDiscProvenance(const capture::DiscProvenance& disc) {
@@ -156,6 +167,10 @@ void CaptureController::CheckFirmware(
     fpga_version_ = capture::FpgaVersion{};
     max_adc_rate_mhz_ = 0;
     last_pll_preset_sent_ = -1;
+    if (board_setup_.source != capture::BoardSetupSource::kUnavailable) {
+      board_setup_ = capture::BoardSetupReading{};
+      emit BoardSetupChanged();
+    }
     return;
   }
 
@@ -183,24 +198,56 @@ void CaptureController::CheckFirmware(
   fpga_version_ = ReadFpgaVersion(selected->path);
   max_adc_rate_mhz_ = ReadMaxAdcRateMhz(selected->path);
 
-  // A board that reports its capability runs at a rate this application can
-  // name, so the setting names it rather than leaving it as "board default" -
-  // which every figure worked out from the rate (the file's label and tags,
-  // the displays, the duration limit) had to read as the historical 40 MHz,
-  // wrongly for any faster board. A setting the board cannot run is replaced
-  // the same way. Applied for this session rather than saved, because a
-  // command line's overrides may be in effect and those are never written;
-  // the next change made in the window saves it along with everything else.
-  if (max_adc_rate_mhz_ != 0 && !monitoring_) {
-    const uint8_t wanted = settings_.pll_preset_mhz;
-    const uint8_t board_rate =
-        capture::HighestPllPresetAtMost(max_adc_rate_mhz_);
-    if (board_rate != 0 && (wanted > max_adc_rate_mhz_ ||
-                            !capture::IsSupportedPllPreset(wanted))) {
-      settings_.pll_preset_mhz = board_rate;
-      emit SettingsChanged(settings_);
+  // The board setup, from the device itself: it is kept by the FX3 kit rather
+  // than by this machine, so a kit moved between computers brings its
+  // declaration with it. Read on every appearance, because a kit can also be
+  // moved to another capture board between two of them.
+  board_setup_ = device_ != nullptr
+                     ? capture::ReadBoardSetup(*device_, selected->path)
+                     : capture::BoardSetupReading{};
+  if (logger_ != nullptr) {
+    const capture::BoardSetup& board = board_setup_.setup;
+    std::string described =
+        std::string(capture::AdcPartName(board.adc)) + ", RSEL " +
+        capture::RselWiringName(board.rsel_wiring) + ", DC offset " +
+        std::to_string(board.dc_offset_1vpp) + " at 1Vpp and " +
+        std::to_string(board.dc_offset_2vpp) + " at 2Vpp";
+    switch (board_setup_.source) {
+      case capture::BoardSetupSource::kDeclared:
+        logger_->Info("Board setup: " +
+                      (board.name.empty() ? std::string("unnamed board")
+                                          : "\"" + board.name + "\"") +
+                      ", " + described);
+        break;
+      case capture::BoardSetupSource::kBlank:
+        logger_->Info(
+            "Board setup: nothing declared on this device, so the "
+            "defaults apply (" +
+            described + ")");
+        break;
+      case capture::BoardSetupSource::kDamaged:
+        logger_->Warning(
+            "Board setup: the record on this device is damaged, "
+            "so the defaults apply until it is written again");
+        break;
+      case capture::BoardSetupSource::kNewerLayout:
+        logger_->Warning(
+            "Board setup: the record on this device was written "
+            "by a newer application, so the defaults apply");
+        break;
+      case capture::BoardSetupSource::kUnsupported:
+        logger_->Info(
+            "Board setup: this device's firmware cannot store one, "
+            "so the defaults apply (" +
+            described + ")");
+        break;
+      case capture::BoardSetupSource::kUnavailable:
+        break;
     }
   }
+  emit BoardSetupChanged();
+
+  ApplyBoardLimits();
 
   const capture::FirmwareIdentity firmware =
       capture::DescribeFirmware(selected->product_string);
@@ -293,8 +340,312 @@ uint8_t CaptureController::ReadMaxAdcRateMhz(const std::string& path) {
   return value[0];
 }
 
+uint8_t CaptureController::max_adc_rate_mhz() const {
+  if (max_adc_rate_mhz_ == 0) {
+    return 0;
+  }
+  return std::min(max_adc_rate_mhz_,
+                  capture::AdcPartMaxRateMhz(board_setup_.setup.adc));
+}
+
+void CaptureController::ApplyBoardLimits() {
+  // A board that reports its capability runs at a rate this application can
+  // name, so the setting names it rather than leaving it as "board default" -
+  // which every figure worked out from the rate (the file's label and tags,
+  // the displays, the duration limit) had to read as the historical 40 MHz,
+  // wrongly for any faster board. A setting the board cannot run is replaced
+  // the same way — which now includes a setting faster than the converter the
+  // board setup declares, however fast the gateware could drive one. Applied
+  // for this session rather than saved, because a command line's overrides
+  // may be in effect and those are never written; the next change made in the
+  // window saves it along with everything else.
+  const uint8_t max_rate = max_adc_rate_mhz();
+  if (max_rate == 0 || monitoring_) {
+    return;
+  }
+
+  const uint8_t wanted = settings_.pll_preset_mhz;
+  const uint8_t board_rate = capture::HighestPllPresetAtMost(max_rate);
+  if (board_rate != 0 &&
+      (wanted > max_rate || !capture::IsSupportedPllPreset(wanted))) {
+    settings_.pll_preset_mhz = board_rate;
+    emit SettingsChanged(settings_);
+  }
+}
+
+bool CaptureController::RunRange2Vpp() const {
+  return range_override_.has_value() ? *range_override_
+                                     : effective_range_2vpp();
+}
+
+int32_t CaptureController::RunDcOffset() const {
+  // Nothing is corrected in test mode, whose samples are the gateware's
+  // counter and not the converter's, or while measuring, where what is wanted
+  // is the offset itself.
+  if (settings_.test_mode || measuring_dc_offset()) {
+    return 0;
+  }
+  return capture::DcOffsetFor(board_setup_.setup, RunRange2Vpp());
+}
+
+bool CaptureController::WriteBoardSetup(const capture::BoardSetup& setup,
+                                        QString& message) {
+  if (monitoring_ || measuring_dc_offset()) {
+    message = tr("Stop monitoring before writing to the board.");
+    return false;
+  }
+
+  const capture::DeviceInfo* const selected = capture::SelectDevice(
+      devices_, settings_.preferred_device_path.toStdString());
+  if (selected == nullptr || device_ == nullptr) {
+    message = tr("No Domesday Duplicator is attached.");
+    return false;
+  }
+
+  // What the record will actually hold — the name cut to fit, the offsets
+  // inside the converter's range — so that what is put in force here is what
+  // the device will read back next time, not what was typed.
+  const capture::BoardSetup normalised =
+      capture::DecodeBoardSetup(capture::EncodeBoardSetup(setup)).setup;
+
+  switch (capture::WriteBoardSetup(*device_, selected->path, normalised)) {
+    case capture::BoardSetupWriteResult::kWritten:
+      board_setup_.source = capture::BoardSetupSource::kDeclared;
+      board_setup_.setup = normalised;
+      message = tr("Written to the board.");
+      if (logger_ != nullptr) {
+        logger_->Info("Board setup written to the device");
+      }
+      break;
+
+    case capture::BoardSetupWriteResult::kUnsupported:
+      // In force anyway, and said to be temporary. A board on old firmware is
+      // still the board it is, and refusing to let its owner say so would
+      // leave a 75 MHz converter capped at 40 until they updated.
+      board_setup_.source = capture::BoardSetupSource::kUnsupported;
+      board_setup_.setup = normalised;
+      message =
+          tr("This device's firmware cannot store a board setup, so it applies "
+             "until the application closes. Update the firmware to keep it on "
+             "the board.");
+      if (logger_ != nullptr) {
+        logger_->Warning(
+            "Board setup put in force for this session only: the device's "
+            "firmware cannot store it");
+      }
+      break;
+
+    case capture::BoardSetupWriteResult::kNotConfirmed:
+      message =
+          tr("The board did not keep what was written to it, so nothing "
+             "has changed. Try again, and update the firmware if it "
+             "keeps happening.");
+      if (logger_ != nullptr) {
+        logger_->Warning("Board setup write was not confirmed by the readback");
+      }
+      return false;
+
+    case capture::BoardSetupWriteResult::kUnavailable:
+      message =
+          tr("The device could not be opened. It may have been "
+             "unplugged, or another application may be using it.");
+      return false;
+  }
+
+  emit BoardSetupChanged();
+  ApplyBoardLimits();
+  return true;
+}
+
+void CaptureController::MeasureDcOffset(const std::vector<bool>& ranges) {
+  if (measuring_dc_offset()) {
+    return;
+  }
+  if (monitoring_) {
+    emit DcOffsetMeasurementFinished(
+        false, tr("Stop monitoring before measuring the DC offset."));
+    return;
+  }
+  if (capture::SelectDevice(
+          devices_, settings_.preferred_device_path.toStdString()) == nullptr) {
+    emit DcOffsetMeasurementFinished(false,
+                                     tr("No Domesday Duplicator is attached."));
+    return;
+  }
+
+  // Unless told otherwise: both ranges where RSEL reaches the FPGA, since each
+  // has an offset of its own; only the wired one where it does not, since the
+  // other cannot be selected and a measurement labelled with it would be of the
+  // wired one.
+  measure_ranges_ = ranges;
+  if (measure_ranges_.empty()) {
+    measure_ranges_ = input_range_selectable()
+                          ? std::vector<bool>{false, true}
+                          : std::vector<bool>{effective_range_2vpp()};
+  }
+  measure_index_ = 0;
+  measure_failure_.clear();
+  measure_phase_ = MeasurePhase::kStarting;
+
+  if (logger_ != nullptr) {
+    logger_->Info("Measuring the DC offset over " +
+                  std::to_string(capture::kDcOffsetAveragingMilliseconds) +
+                  " ms per input range");
+  }
+
+  measure_timer_.start();
+  MeasurementStep();
+}
+
+void CaptureController::MeasurementStep() {
+  switch (measure_phase_) {
+    case MeasurePhase::kIdle:
+      measure_timer_.stop();
+      return;
+
+    case MeasurePhase::kStarting: {
+      range_override_ = measure_ranges_[measure_index_];
+      measure_run_starting_ = true;
+      StartMonitoring();
+      measure_run_starting_ = false;
+      if (!monitoring_) {
+        // StartMonitoring has already said why through Failed().
+        measure_failure_ = tr("The stream could not be started.");
+        FinishMeasurement();
+        return;
+      }
+      measure_clock_.start();
+      measure_phase_ = MeasurePhase::kSettling;
+      return;
+    }
+
+    case MeasurePhase::kSettling: {
+      if (!monitoring_) {
+        measure_failure_ = tr("The stream stopped while settling.");
+        FinishMeasurement();
+        return;
+      }
+      if (measure_clock_.elapsed() < capture::kDcOffsetSettlingMilliseconds) {
+        return;
+      }
+      const capture::CaptureStats stats = pipeline_->stats().Read();
+      measure_start_ = {stats.metrics.sample_count, stats.metrics.sum};
+      measure_minimum_ = UINT16_MAX;
+      measure_maximum_ = 0;
+      measure_clock_.start();
+      measure_phase_ = MeasurePhase::kAveraging;
+      return;
+    }
+
+    case MeasurePhase::kAveraging: {
+      if (!monitoring_) {
+        measure_failure_ = tr("The stream stopped while measuring.");
+        FinishMeasurement();
+        return;
+      }
+
+      // The extremes of each buffer published during the window. Every tick
+      // sees the latest buffer rather than every buffer, which is enough: a
+      // signal on the input is there in all of them.
+      const capture::CaptureStats stats = pipeline_->stats().Read();
+      if (stats.metrics.sample_count > measure_start_.sample_count) {
+        measure_minimum_ =
+            std::min(measure_minimum_, stats.metrics.recent_minimum_value);
+        measure_maximum_ =
+            std::max(measure_maximum_, stats.metrics.recent_maximum_value);
+      }
+      if (measure_clock_.elapsed() < capture::kDcOffsetAveragingMilliseconds) {
+        return;
+      }
+
+      const bool range_2vpp = measure_ranges_[measure_index_];
+      const capture::DcOffsetResult result = capture::ComputeDcOffset(
+          measure_start_, {stats.metrics.sample_count, stats.metrics.sum},
+          measure_minimum_, measure_maximum_);
+
+      if (result.valid) {
+        if (logger_ != nullptr) {
+          logger_->Info(std::string("DC offset at ") +
+                        capture::InputRangeName(range_2vpp) + ": mean " +
+                        capture::FormatDecimal(result.mean, 2) +
+                        " codes, declared as " + std::to_string(result.offset));
+        }
+        emit DcOffsetMeasured(range_2vpp, result.offset);
+      } else {
+        measure_failure_ = QString::fromStdString(result.problem);
+      }
+
+      StopMonitoring();
+      measure_phase_ = MeasurePhase::kStopping;
+      return;
+    }
+
+    case MeasurePhase::kStopping: {
+      // Stopping finishes on the stream's own schedule, noticed by Tick().
+      if (monitoring_) {
+        return;
+      }
+      ++measure_index_;
+      if (!measure_failure_.isEmpty() ||
+          measure_index_ >= measure_ranges_.size()) {
+        FinishMeasurement();
+        return;
+      }
+      measure_phase_ = MeasurePhase::kStarting;
+      return;
+    }
+  }
+}
+
+void CaptureController::FinishMeasurement() {
+  measure_timer_.stop();
+  measure_phase_ = MeasurePhase::kIdle;
+  range_override_.reset();
+
+  if (monitoring_) {
+    StopMonitoring();
+  }
+
+  const bool succeeded = measure_failure_.isEmpty();
+  if (logger_ != nullptr && !succeeded) {
+    logger_->Warning("DC offset measurement failed: " +
+                     measure_failure_.toStdString());
+  }
+  emit DcOffsetMeasurementFinished(succeeded, measure_failure_);
+}
+
+void CaptureController::CheckDcOffsetSaturation(
+    const capture::CaptureStats& stats) {
+  if (offset_out_of_range_warned_ || !monitoring_ ||
+      stats.metrics.offset_saturated_count == 0) {
+    return;
+  }
+  offset_out_of_range_warned_ = true;
+
+  const QString message =
+      tr("The DC offset correction is pushing samples out of range. The offset "
+         "declared for this board does not match its signal — the board setup "
+         "is wrong, not the input level. Measure it again in Board setup.");
+  if (logger_ != nullptr) {
+    logger_->Warning(
+        "The DC offset correction pushed " +
+        std::to_string(stats.metrics.offset_saturated_count) +
+        " samples out of range that the converter had not clipped: the "
+        "declared offset of " +
+        std::to_string(RunDcOffset()) + " does not belong to this board");
+  }
+  emit DcOffsetOutOfRange(message);
+}
+
 void CaptureController::StartMonitoring() {
   if (monitoring_ || device_ == nullptr) {
+    return;
+  }
+
+  // A measurement owns the stream until it finishes: it starts and stops it
+  // once per range, and a run started from anywhere else in between would be
+  // averaged as if it were one of its own.
+  if (measuring_dc_offset() && !measure_run_starting_) {
     return;
   }
 
@@ -335,12 +686,16 @@ void CaptureController::StartMonitoring() {
     }
   }
 
+  // Never in test mode while measuring a DC offset: test mode replaces the
+  // converter with the gateware's counter, and the offset is the converter's.
+  const bool test_mode = settings_.test_mode && !measuring_dc_offset();
+
   // Written before the device is opened for streaming rather than after. The
   // gateware applies it immediately and there is no acknowledgement, so doing
   // it while data is already flowing would put the mode change somewhere
   // unpredictable in the stream.
   if (!device_->WriteRegister(path, capture::kRegisterTestMode,
-                              settings_.test_mode ? 1 : 0)) {
+                              test_mode ? 1 : 0)) {
     emit Failed(tr("The device could not be configured"),
                 tr("The device did not accept the configuration request. It "
                    "may have been unplugged, or another application may be "
@@ -367,14 +722,14 @@ void CaptureController::StartMonitoring() {
   }
 
   // The ADC's input range, on the same terms: applied before the stream
-  // opens, so it is settled before any data is flowing. Gateware built for a
-  // board without the RSEL-capable ADC still stores whatever is written here
-  // — it just has nothing wired to read it back from — so this is safe to
-  // send unconditionally rather than needing a capability check first.
+  // opens, so it is settled before any data is flowing. The range the board
+  // actually runs at rather than the one the settings ask for: on a board
+  // whose RSEL is tied to a level the register reaches nothing, and writing
+  // the wired range keeps what the register says in step with what the
+  // hardware does.
   if (!device_->WriteRegister(path, capture::kRegisterRangeSelect,
-                              settings_.range_select_2vpp
-                                  ? capture::kRangeSelect2Vpp
-                                  : capture::kRangeSelect1Vpp)) {
+                              RunRange2Vpp() ? capture::kRangeSelect2Vpp
+                                             : capture::kRangeSelect1Vpp)) {
     emit Failed(tr("The input range could not be set"),
                 tr("The device did not accept the input-range request. It "
                    "may have been unplugged, or another application may be "
@@ -406,7 +761,12 @@ void CaptureController::StartMonitoring() {
 
   capture::CapturePipeline::Options options;
   options.queue_size_bytes = settings_.queue_size_bytes;
-  options.test_mode = settings_.test_mode;
+  options.test_mode = test_mode;
+
+  // Counted by the pipeline so that a declaration belonging to another board
+  // shows during monitoring, before anything has been written with it.
+  options.dc_offset = RunDcOffset();
+  offset_out_of_range_warned_ = false;
 
   // Only the log uses this, and it is why the log's times are right under
   // decimation: a 2:1 capture delivers half as many samples a second, so a
@@ -503,9 +863,19 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
   std::unique_ptr<capture::ISampleSink> sink;
   std::string open_error;
 
+  // The range this file is recorded at and the offset taken out of it, fixed
+  // for the file: both come from the run that is already streaming.
+  const bool range_2vpp = RunRange2Vpp();
+  const int32_t dc_offset = RunDcOffset();
+  const capture::BoardSetup& board = board_setup_.setup;
+  const bool board_known =
+      board_setup_.source != capture::BoardSetupSource::kUnavailable;
+  const bool board_declared =
+      board_setup_.source == capture::BoardSetupSource::kDeclared;
+
   if (settings_.output_format == capture::CaptureOutputFormat::kSigned16Bit) {
     auto raw = std::make_unique<capture::RawSink>();
-    if (raw->Open(path)) {
+    if (raw->Open(path, dc_offset)) {
       sink = std::move(raw);
     } else {
       open_error = raw->LastError();
@@ -515,6 +885,7 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
     options.compression_level = settings_.compression_level;
     options.sample_rate_label = capture::FlacSampleRateLabelFor(
         decimation, settings_.BaseSampleRateHz());
+    options.dc_offset = dc_offset;
 
     const capture::DeviceBuild build = CurrentDeviceBuild();
 
@@ -526,8 +897,14 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
     provenance.test_mode = settings_.test_mode;
     provenance.decimation_factor = decimation;
     provenance.base_sample_rate_hz = settings_.BaseSampleRateHz();
-    provenance.input_range =
-        capture::InputRangeName(settings_.range_select_2vpp);
+    provenance.input_range = capture::InputRangeName(range_2vpp);
+    if (board_known) {
+      provenance.board_setup = board_declared ? "declared" : "default";
+      provenance.board_name = board.name;
+      provenance.board_adc = capture::AdcPartName(board.adc);
+      provenance.board_rsel_wiring = capture::RselWiringName(board.rsel_wiring);
+      provenance.dc_offset = dc_offset;
+    }
     provenance.started = now;
     provenance.disc = disc_provenance_;
 
@@ -574,8 +951,16 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
   pending_metadata_.test_mode = settings_.test_mode;
   pending_metadata_.decimation_factor = decimation;
   pending_metadata_.sample_rate_hz = settings_.SampleRateHz();
-  pending_metadata_.input_range =
-      capture::InputRangeName(settings_.range_select_2vpp);
+  pending_metadata_.input_range = capture::InputRangeName(range_2vpp);
+  pending_metadata_.board.known = board_known;
+  if (board_known) {
+    pending_metadata_.board.declared = board_declared;
+    pending_metadata_.board.name = board.name;
+    pending_metadata_.board.adc = capture::AdcPartName(board.adc);
+    pending_metadata_.board.rsel_wiring =
+        capture::RselWiringName(board.rsel_wiring);
+    pending_metadata_.board.dc_offset = dc_offset;
+  }
   pending_metadata_.started = now;
   pending_metadata_.device = CurrentDeviceBuild();
   pending_metadata_.player = player_identity_;
@@ -610,7 +995,8 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
             static_cast<double>(pending_metadata_.sample_rate_hz) / 1.0e6, 3) +
         " Msps, ring " + capture::FormatBytes(settings_.queue_size_bytes) +
         ", test mode " + (settings_.test_mode ? "on" : "off") +
-        ", duration limit " +
+        ", input range " + capture::InputRangeName(range_2vpp) +
+        ", DC offset " + std::to_string(dc_offset) + ", duration limit " +
         (settings_.duration_limit_seconds > 0
              ? capture::FormatDuration(
                    static_cast<double>(settings_.duration_limit_seconds))
@@ -643,7 +1029,7 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
 }
 
 void CaptureController::StartCapture() {
-  if (capturing_) {
+  if (capturing_ || measuring_dc_offset()) {
     return;
   }
 
@@ -894,6 +1280,8 @@ void CaptureController::WriteMetadataSidecar(
   metadata.signal.clipped_low_samples = stats.metrics.capture_clipped_low_count;
   metadata.signal.clipped_high_samples =
       stats.metrics.capture_clipped_high_count;
+  metadata.board.offset_saturated_samples =
+      stats.metrics.capture_offset_saturated_count;
 
   const std::filesystem::path sidecar =
       capture::CaptureMetadataPath(capture_file);
@@ -1000,6 +1388,7 @@ void CaptureController::Tick() {
   const capture::CaptureStats stats = pipeline_->stats().Read();
   emit StatsUpdated(stats);
 
+  CheckDcOffsetSaturation(stats);
   CheckDurationLimit(stats);
   CheckFreeSpace();
   CollectFinishedCapture(stats);

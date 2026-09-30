@@ -20,6 +20,7 @@ add_library(ddd_gui_lib STATIC
     auto_capture_wizard.cpp
     application_logger.cpp
     board_bringup_wizard.cpp
+    board_setup_page.cpp
     bringup_text.cpp
     bringup_worker.cpp
     bundled_update.cpp

@@ -82,6 +82,10 @@ class CapturePanel : public QWidget {
   static constexpr const char* kNameTakenLabelName = "capture_name_taken_label";
   static constexpr const char* kAutomaticButtonName =
       "capture_automatic_button";
+  static constexpr const char* kBoardSummaryLabelName =
+      "capture_board_summary_label";
+  static constexpr const char* kOffsetWarningLabelName =
+      "capture_offset_warning_label";
 
   // How often the destination volume is interrogated for the free-space
   // readout. The plan asks for it "refreshed continuously", which in practice
@@ -104,6 +108,10 @@ class CapturePanel : public QWidget {
   // found, take it, and see what was written. A window, and the main window's
   // to own, for the same reason as above.
   void AutomaticCaptureRequested();
+
+  // The Board setup tab of the Settings dialog, from the board summary's link
+  // or the DC offset warning. A window, and the main window's to open.
+  void BoardSetupRequested();
 
  public slots:
   // Whether an automatic capture can be started at all, which is whether a
@@ -174,6 +182,10 @@ class CapturePanel : public QWidget {
   // board answered last and that can change from one connection to the next.
   void RefreshPllPresetOptions();
 
+  // Show what the board setup declares, read-only — the reason the rate and
+  // range controls above offer what they offer.
+  void RefreshBoardSummary();
+
   // The name the next capture will be given, as a placeholder rather than as
   // text. A generated name shown as real text would be saved as though the user
   // had typed it, and every later capture would then reuse the timestamp of the
@@ -202,6 +214,13 @@ class CapturePanel : public QWidget {
   // Shown only while the typed name is one a capture already has. Hidden rather
   // than blank, so the form does not carry a permanently empty row.
   QLabel* name_taken_label_ = nullptr;
+
+  // The board setup, summarised, with a link to where it is declared.
+  QLabel* board_summary_label_ = nullptr;
+
+  // Shown when the DC offset correction pushes samples out of range — the
+  // declaration is wrong — until the next run starts.
+  QLabel* offset_warning_label_ = nullptr;
 
   QTimer* free_space_timer_ = nullptr;
 

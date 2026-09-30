@@ -11,18 +11,22 @@
 
 #pragma once
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QTimer>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "analysis_worker.h"
+#include "board_setup.h"
 #include "capture_metadata.h"
 #include "capture_metatypes.h"
 #include "capture_pipeline.h"
 #include "capture_provenance.h"
 #include "capture_settings.h"
+#include "dc_offset_measurement.h"
 #include "device_monitor.h"
 #include "flac_sink.h"
 #include "fpga_version.h"
@@ -80,15 +84,54 @@ class CaptureController : public QObject {
   // device is selected or its gateware could not answer.
   const capture::FpgaVersion& fpga_version() const { return fpga_version_; }
 
-  // The fastest ADC rate, in MHz, this connected board's gateware says it can
-  // convert at — MAX_ADC_RATE_MHZ, read alongside the identity block. 0 for
-  // "not known": no device, gateware predating the register, or an FPGA
-  // that has not answered, which is indistinguishable from the register's
-  // own point of view and is why the register interface documentation says
-  // to treat a 0 reading as unknown rather than as a literal claim about a
+  // The fastest ADC rate, in MHz, a capture may ask this board for: what its
+  // gateware says it can drive — MAX_ADC_RATE_MHZ, read alongside the identity
+  // block — capped by the converter the board setup declares. The gateware's
+  // figure is about the build and the declaration is about the part soldered
+  // to the board, and an ADS825 run at 75 MHz produces samples nothing can
+  // tell are wrong, so the lower of the two is the only safe one.
+  //
+  // 0 for "not known": no device, gateware predating the register, or an FPGA
+  // that has not answered, which is indistinguishable from the register's own
+  // point of view and is why the register interface documentation says to
+  // treat a 0 reading as unknown rather than as a literal claim about a
   // zero-MHz converter. CapturePanel is what turns this into which presets
   // are offered.
-  uint8_t max_adc_rate_mhz() const { return max_adc_rate_mhz_; }
+  uint8_t max_adc_rate_mhz() const;
+
+  // What the device holds about the capture board it is plugged into, as last
+  // read — or the conservative defaults, with the source saying why. See
+  // board_setup.h: this is a declaration, not a capture setting, and the
+  // capture settings are bounded by it.
+  const capture::BoardSetupReading& board_setup() const { return board_setup_; }
+
+  // Whether the declared board lets a capture choose its input range — only
+  // when RSEL is routed to the FPGA.
+  bool input_range_selectable() const {
+    return capture::InputRangeIsSelectable(board_setup_.setup);
+  }
+
+  // The input range a capture actually runs at: the setting's, where RSEL is
+  // routed, and the wired one where it is not.
+  bool effective_range_2vpp() const {
+    return capture::EffectiveRange2Vpp(board_setup_.setup,
+                                       settings_.range_select_2vpp);
+  }
+
+  // Write a declaration to the device, confirm it by reading it back, and put
+  // it in force. Refused while monitoring: the stream holds the device open,
+  // and on Windows a second opener is refused outright.
+  //
+  // A device whose firmware predates the record cannot store it; the
+  // declaration is then put in force for this session only, and the return is
+  // still true with `message` saying so. False means nothing changed, with
+  // `message` saying why.
+  bool WriteBoardSetup(const capture::BoardSetup& setup, QString& message);
+
+  // Whether a DC offset measurement is running.
+  bool measuring_dc_offset() const {
+    return measure_phase_ != MeasurePhase::kIdle;
+  }
 
   const CaptureSettings& settings() const { return settings_; }
 
@@ -202,7 +245,34 @@ class CaptureController : public QObject {
   // device between them.
   void StopCapture();
 
+  // Measure the board's DC offset with nothing connected to its input: for
+  // each input range in `ranges` (true for 2Vpp), start the stream at that
+  // range, let it settle, average a second of it, and stop. Empty means each
+  // range the declared wiring can select; the Board setup page passes the
+  // ranges of the wiring it is showing, which may not have been written yet.
+  //
+  // Refused while monitoring, for the reason WriteBoardSetup is. Nothing is
+  // declared by this: each result arrives through DcOffsetMeasured for the
+  // Board setup page to show, and it reaches the device only when that page
+  // writes it. DcOffsetMeasurementFinished follows once, however it ended.
+  void MeasureDcOffset(const std::vector<bool>& ranges = {});
+
  signals:
+  // The board setup changed — read off a device that appeared, written, or
+  // cleared because the device went away. Read it with board_setup().
+  void BoardSetupChanged();
+
+  // One range's measurement, in converter codes.
+  void DcOffsetMeasured(bool range_2vpp, int offset);
+
+  // The measurement is over. `message` says why when it did not succeed.
+  void DcOffsetMeasurementFinished(bool succeeded, const QString& message);
+
+  // The DC offset correction pushed samples out of range that the converter
+  // had not clipped. With an offset measured on this board that cannot happen
+  // on its own, so it says the declaration is wrong. Raised once per run.
+  void DcOffsetOutOfRange(const QString& message);
+
   void DevicesChanged(const std::vector<ddd::capture::DeviceInfo>& devices);
   void MonitoringChanged(bool monitoring);
   void StatsUpdated(const ddd::capture::CaptureStats& stats);
@@ -265,6 +335,25 @@ class CaptureController : public QObject {
   // Read MAX_ADC_RATE_MHZ from the device at `path`, or 0 if it could not be
   // read — see max_adc_rate_mhz().
   uint8_t ReadMaxAdcRateMhz(const std::string& path);
+
+  // Bring the rate setting inside what max_adc_rate_mhz() allows, for this
+  // session. Run whenever either of the two things it depends on changes.
+  void ApplyBoardLimits();
+
+  // The input range the next run streams at: a measurement's forced one, or
+  // effective_range_2vpp().
+  bool RunRange2Vpp() const;
+
+  // The DC offset the next run's writers take out, in converter codes: the
+  // declared one for its range, and 0 in test mode or while measuring.
+  int32_t RunDcOffset() const;
+
+  // One step of the DC offset measurement, from measure_timer_.
+  void MeasurementStep();
+  void FinishMeasurement();
+
+  // Raise DcOffsetOutOfRange the first time a run's statistics show it.
+  void CheckDcOffsetSaturation(const capture::CaptureStats& stats);
 
   // What the device this capture is coming off was built from, for the file's
   // own tags and for the sidecar beside it.
@@ -354,8 +443,42 @@ class CaptureController : public QObject {
   // The gateware version that goes with warned_device_path_
   capture::FpgaVersion fpga_version_;
 
-  // The capability reading that goes with it — see max_adc_rate_mhz().
+  // The gateware's own capability reading that goes with it —
+  // MAX_ADC_RATE_MHZ, before the declared converter caps it. See
+  // max_adc_rate_mhz().
   uint8_t max_adc_rate_mhz_ = 0;
+
+  // See board_setup(). Read when a device appears, alongside the two above.
+  capture::BoardSetupReading board_setup_;
+
+  // Whether DcOffsetOutOfRange has been raised this run.
+  bool offset_out_of_range_warned_ = false;
+
+  // The DC offset measurement, run as a short sequence of monitoring runs
+  // driven from measure_timer_ — see MeasureDcOffset().
+  enum class MeasurePhase {
+    kIdle,
+    kStarting,
+    kSettling,
+    kAveraging,
+    kStopping
+  };
+  MeasurePhase measure_phase_ = MeasurePhase::kIdle;
+  std::vector<bool> measure_ranges_;
+  size_t measure_index_ = 0;
+  QTimer measure_timer_;
+  QElapsedTimer measure_clock_;
+  capture::DcOffsetReading measure_start_;
+  uint16_t measure_minimum_ = UINT16_MAX;
+  uint16_t measure_maximum_ = 0;
+  QString measure_failure_;
+
+  // The input range a measurement run forces, whatever the settings say.
+  std::optional<bool> range_override_;
+
+  // Set only around the measurement's own call to StartMonitoring(), which is
+  // the one start a running measurement admits.
+  bool measure_run_starting_ = false;
 
   // The PLL_PRESET value this controller last actually wrote to the device,
   // or -1 for "never sent this session". Distinct from

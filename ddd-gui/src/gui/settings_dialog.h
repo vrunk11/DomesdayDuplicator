@@ -28,6 +28,8 @@ class QWidget;
 
 namespace ddd::gui {
 
+class CaptureController;
+
 // Everything that is set once for a machine and then left alone.
 //
 // A dialog rather than a panel, because none of it is worth screen space during
@@ -48,6 +50,7 @@ class SettingsDialog : public QDialog {
   enum class Tab {
     kCapture,
     kPlayer,
+    kBoardSetup,
   };
 
   SettingsDialog(const CaptureSettings& capture,
@@ -55,6 +58,13 @@ class SettingsDialog : public QDialog {
                  const PlayerSettings& player,
                  const std::vector<SerialPortCandidate>& ports,
                  Tab initial_tab = Tab::kCapture, QWidget* parent = nullptr);
+
+  // Add the Board setup tab, which acts on the device through `controller`
+  // rather than returning anything on OK — see BoardSetupPage. Separate from
+  // the constructor because it is the one tab that needs the live controller
+  // rather than a copy of the settings, and a dialog built without one simply
+  // does not have it. Opens on it if the dialog was asked to.
+  void AddBoardSetupTab(CaptureController* controller);
 
   // What the dialog was left showing. Only meaningful after Accepted.
   CaptureSettings Settings() const;
@@ -90,6 +100,9 @@ class SettingsDialog : public QDialog {
   PlayerSettings player_;
 
   QTabWidget* tabs_ = nullptr;
+
+  // The tab asked for at construction, kept for AddBoardSetupTab().
+  Tab initial_tab_ = Tab::kCapture;
 
   QComboBox* queue_size_ = nullptr;
   QComboBox* transfer_mode_ = nullptr;

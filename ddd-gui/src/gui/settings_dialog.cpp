@@ -25,6 +25,7 @@
 #include <QTabWidget>
 #include <QVBoxLayout>
 
+#include "board_setup_page.h"
 #include "disk_buffer_ring.h"
 #include "front_end_gain.h"
 #include "gain_choices.h"
@@ -71,7 +72,10 @@ SettingsDialog::SettingsDialog(
     const std::vector<ddd::capture::DeviceInfo>& devices,
     const PlayerSettings& player, const std::vector<SerialPortCandidate>& ports,
     Tab initial_tab, QWidget* parent)
-    : QDialog(parent), capture_(capture), player_(player) {
+    : QDialog(parent),
+      capture_(capture),
+      player_(player),
+      initial_tab_(initial_tab) {
   setWindowTitle(tr("Settings"));
 
   auto* layout = new QVBoxLayout(this);
@@ -88,6 +92,14 @@ SettingsDialog::SettingsDialog(
   connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
   layout->addWidget(buttons);
+}
+
+void SettingsDialog::AddBoardSetupTab(CaptureController* controller) {
+  const int index =
+      tabs_->addTab(new BoardSetupPage(controller, this), tr("&Board setup"));
+  if (initial_tab_ == Tab::kBoardSetup) {
+    tabs_->setCurrentIndex(index);
+  }
 }
 
 QWidget* SettingsDialog::BuildCapturePage(

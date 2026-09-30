@@ -282,6 +282,8 @@ void MainWindow::BuildCaptureDock() {
           &MainWindow::ShowNamingDialog);
   connect(panel, &CapturePanel::AutomaticCaptureRequested, this,
           &MainWindow::ShowAutoCaptureWizard);
+  connect(panel, &CapturePanel::BoardSetupRequested, this,
+          [this] { ShowSettingsDialog(SettingsDialog::Tab::kBoardSetup); });
 
   // The panel is told whether a player is there rather than reaching for one,
   // so it stays ignorant of what a player is. Both the initial state and every
@@ -849,6 +851,9 @@ void MainWindow::ShowSettingsDialog(SettingsDialog::Tab tab) {
 
   SettingsDialog dialog(capture, devices, player, EnumerateSerialPorts(), tab,
                         this);
+  if (capture_controller_ != nullptr) {
+    dialog.AddBoardSetupTab(capture_controller_);
+  }
 
   if (dialog.exec() != QDialog::Accepted) {
     return;

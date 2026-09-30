@@ -219,9 +219,12 @@ irrecoverably, where a range wider than the source's own output level only costs
 so 2Vpp is the default, and 1Vpp is a choice to make deliberately once the source is known to
 need it, not a default to guess at.
 
-Only takes effect on gateware built for a board with the RSEL-capable ADC (ADS828 and later);
-gateware built for the earlier ADS825 board stores whatever is written here but has nothing
-wired to read it back from, so the setting is harmless to leave alone on either board.
+Only a board whose RSEL pin is routed to the FPGA can choose — both converters have the pin,
+and whether the board routes it is a separate question. That is declared in
+[Board setup](board-setup.md): with RSEL wiring **Auto** this control is live; with RSEL tied
+**Low** or **High** it is greyed out and shows the range the board is wired to, which is the
+one every capture on it runs at and records, whatever was chosen for another board. A board
+nothing has been declared about is taken to have RSEL tied high, at 2Vpp.
 
 Written to the device before the stream is opened, on the same terms as decimation above:
 fixed from the moment monitoring starts, and not changeable under a running stream.
@@ -238,6 +241,13 @@ PLL_PRESET. A board that reports its capability (`MAX_ADC_RATE_MHZ`) is offered 
 to that maximum **by name**, and the setting starts on the rate the board comes up at, which
 is that maximum — so a 75 MHz board shows **75 MSPS**, never an unnamed default. A setting the
 connected board cannot run is replaced the same way when the board is found.
+
+The list also stops at the converter declared in [Board setup](board-setup.md): 40 MSPS for
+an ADS825, 75 MSPS for an ADS828, whichever is lower of that and the gateware's own figure.
+The gateware can drive the PLL faster than an ADS825 converts, and an ADC run past its rated
+speed keeps sending samples, but wrong ones, that nothing downstream can tell apart. A board
+nothing has been declared about is taken to carry the ADS825, so a 75 MHz board offers
+**40 MSPS** at most until it is declared.
 
 **Board default** is offered only by a board or gateware build that cannot report its
 capability. It means "whatever rate this gateware was compiled for", and the application
