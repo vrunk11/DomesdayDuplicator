@@ -17,15 +17,23 @@
     documentation describes.
 
     The DUT's counterpart here is a model of that handshake, not
-    pllReconfig itself: it answers reset_rom_address and write_from_rom by
-    sweeping rom_address_out over 0 to 143 and capturing whatever the DUT
-    presents on rom_data_in, then raises and lowers busy the way pllReconfig
-    is documented to - once for the ROM load, once again for a reconfig
-    pulse. Real timing is unverified until real hardware; what a
-    plausible, controllable model can prove is that the sequencing has no
-    off-by-one and that the bit captured at every address is the one
-    pllPresetController.v claims for that preset, independently listed
-    here rather than compared against the DUT's own copy of itself.
+    pllReconfig itself, and it is modelled on the generated pllReconfig.v
+    rather than on its documentation. The first version of this testbench
+    modelled what the documentation seemed to say - a load that took each
+    bit on the clock its address was presented, and ignored write_from_rom
+    once it had started - and the controller written to pass it never
+    retuned a PLL on the bench. The model now has the three properties
+    the real state machine has:
+      - write_from_rom seen while idle starts a load at address 0, and
+        seen again on the first clock back in idle starts another;
+      - the bit for an address is taken two clocks after the address is
+        presented (addr_from_rom, then addr_from_rom2);
+      - reconfig is acted on only while idle, and busy is high whenever
+        the model is not idle.
+    So it checks that the bit taken at every address is the one
+    pllPresetController.v claims for that preset - independently listed
+    here rather than compared against the DUT's own copy of itself - and
+    that each request produces exactly one load and one reconfigure.
 
     preset_request_toggle is driven here as the real interface expects -
     flipped once, separately from changing preset_request - rather than
@@ -156,101 +164,144 @@ module tb_pllPresetController;
         end
     endtask
 
-    // The model of pllReconfig's ROM handshake described in the header.
-    // captured holds whatever the DUT presented at each address during the
-    // most recent load, for the checks below to compare.
-    reg [143:0] captured;
-    reg         reconfig_seen;
+    // The whole scan chain. check() above is 32 bits wide, and passing it
+    // these vectors compared only their low 32 bits - a chain shifted
+    // anywhere above that passed.
+    task check_bits;
+        input [143:0] got;
+        input [143:0] want;
+        input [511:0] what;
+        begin
+            if (got !== want) begin
+                $display("FAIL: %0s: got %h, expected %h (t=%0t)", what, got, want, $time);
+                errors = errors + 1;
+            end
+        end
+    endtask
 
-    localparam integer LOAD_BUSY_CYCLES = 3;
+    // The model of pllReconfig's side of the handshake described in the
+    // header. captured holds the bit taken at each address during the most
+    // recent load; loads_started and reconfig_seen are what show a request
+    // produced exactly one of each.
+    reg     [143:0] captured;
+    reg             reconfig_seen;
+    integer         loads_started;
+
     localparam integer APPLY_BUSY_CYCLES = 3;
 
-    reg [7:0] busy_countdown;
-    reg       loading;
+    reg       issuing;
+    reg [7:0] address_delayed;
+    reg [7:0] address_delayed_twice;
+    reg       valid_delayed;
+    reg       valid_delayed_twice;
+    reg [7:0] apply_countdown;
 
     always @(posedge clock, negedge reset_n) begin
         if (!reset_n) begin
-            rom_address_out <= 8'd0;
-            busy            <= 1'b0;
-            busy_countdown  <= 8'd0;
-            loading         <= 1'b0;
-            captured        <= 144'd0;
-            reconfig_seen   <= 1'b0;
+            rom_address_out       <= 8'd0;
+            busy                  <= 1'b0;
+            captured              <= 144'd0;
+            reconfig_seen         <= 1'b0;
+            loads_started         <= 0;
+            issuing               <= 1'b0;
+            address_delayed       <= 8'd0;
+            address_delayed_twice <= 8'd0;
+            valid_delayed         <= 1'b0;
+            valid_delayed_twice   <= 1'b0;
+            apply_countdown       <= 8'd0;
         end else begin
-            if (reset_rom_address) begin
-                rom_address_out <= 8'd0;
+            // The two-clock read latency: the bit arriving now belongs to
+            // the address presented two clocks ago.
+            if (valid_delayed_twice) begin
+                captured[address_delayed_twice] <= rom_data_in;
             end
+            address_delayed_twice <= address_delayed;
+            valid_delayed_twice   <= valid_delayed;
+            address_delayed       <= rom_address_out;
+            valid_delayed         <= issuing;
 
-            if (busy_countdown != 8'd0) begin
-                busy           <= 1'b1;
-                busy_countdown <= busy_countdown - 8'd1;
-                if (busy_countdown == 8'd1) begin
-                    busy <= 1'b0;
-                end
-            end else if (write_from_rom) begin
-                // One address per clock: present it, capture what the DUT
-                // answers with, then move on. The load is complete once
-                // address 143 has been captured, which is what starts the
-                // busy pulse the DUT is waiting for.
-                captured[rom_address_out] <= rom_data_in;
-                loading                   <= 1'b1;
-
+            if (issuing) begin
+                // One address per clock, 0 to 143
                 if (rom_address_out == 8'd143) begin
-                    busy_countdown <= LOAD_BUSY_CYCLES;
-                    loading        <= 1'b0;
+                    issuing <= 1'b0;
                 end else begin
                     rom_address_out <= rom_address_out + 8'd1;
                 end
+            end else if (busy && apply_countdown == 8'd0 && !valid_delayed &&
+                         !valid_delayed_twice) begin
+                // The last address has been answered: the load is done
+                busy <= 1'b0;
             end
 
-            // A reconfig pulse starts the second busy pulse, standing in
-            // for the actual scan into the live PLL.
-            if (reconfig && busy_countdown == 8'd0 && !busy) begin
-                busy_countdown <= APPLY_BUSY_CYCLES;
-                reconfig_seen  <= 1'b1;
+            // A stand-in for the scan into the live PLL and its relock
+            if (apply_countdown != 8'd0) begin
+                apply_countdown <= apply_countdown - 8'd1;
+                if (apply_countdown == 8'd1) begin
+                    busy <= 1'b0;
+                end
+            end
+
+            // Both requests are only acted on while idle - and a
+            // write_from_rom still high on the first clock back in idle
+            // starts another load, exactly as pllReconfig's does
+            if (!busy) begin
+                if (write_from_rom) begin
+                    rom_address_out <= 8'd0;
+                    issuing         <= 1'b1;
+                    busy            <= 1'b1;
+                    loads_started   <= loads_started + 1;
+                end else if (reconfig) begin
+                    apply_countdown <= APPLY_BUSY_CYCLES;
+                    busy            <= 1'b1;
+                    reconfig_seen   <= 1'b1;
+                end
             end
         end
     end
 
-    // Runs one preset request to completion: waits for the controller to
-    // return to idle (both busy pulses done, write_from_rom and reconfig
-    // both low again), then checks the address swept 0 to 143 and the
-    // bits captured along the way.
+    // Runs one preset request to completion: waits for the model to have
+    // seen a reconfigure and to be idle again, then checks the bits taken
+    // during the load and that the request produced exactly one load.
+    //
+    // Bounded, because the failure this exists to catch is a reconfig pulse
+    // that pllReconfig never sees - a controller still holding
+    // write_from_rom when the load finishes starts a second one, and the
+    // reconfig lands while that is busy - and waiting on it unbounded would
+    // hang rather than fail.
+    localparam integer SEQUENCE_TIMEOUT_CLOCKS = 2000;
+
+    integer loads_before;
+    integer waited;
+
     task run_preset;
         input [7:0] mhz;
         input [511:0] what;
         begin
             reconfig_seen         = 1'b0;
+            loads_before          = loads_started;
             preset_request        = mhz;
             preset_request_toggle = ~preset_request_toggle;
 
-            // write_from_rom rising is the load starting
-            while (write_from_rom !== 1'b1) begin
+            waited                = 0;
+            while (reconfig_seen !== 1'b1 && waited < SEQUENCE_TIMEOUT_CLOCKS) begin
                 @(posedge clock);
+                waited = waited + 1;
             end
+            check(reconfig_seen, 1'b1, {what, ": reconfig reached pllReconfig while idle"});
 
-            // and falling again, after the first busy pulse, is it ending
-            while (write_from_rom !== 1'b0) begin
+            while (busy !== 1'b0 && waited < SEQUENCE_TIMEOUT_CLOCKS) begin
                 @(posedge clock);
-            end
-
-            // reconfig is pulsed once as the very next thing, and the
-            // second busy pulse that follows is what returns the
-            // controller to idle
-            while (reconfig_seen !== 1'b1) begin
-                @(posedge clock);
-            end
-            while (busy !== 1'b0) begin
-                @(posedge clock);
+                waited = waited + 1;
             end
 
             // A few idle clocks so a controller that kept driving
             // something would show it here rather than escape notice
             // between one task call and the next
-            repeat (2) @(posedge clock);
+            repeat (4) @(posedge clock);
 
-            check(captured, expected_bits(mhz), what);
-            check(reset_rom_address, 1'b0, {what, ": reset_rom_address idle afterwards"});
+            check_bits(captured, expected_bits(mhz), what);
+            check(loads_started - loads_before, 1, {what, ": exactly one load"});
+            check(reset_rom_address, 1'b0, {what, ": reset_rom_address never driven"});
             check(write_from_rom, 1'b0, {what, ": write_from_rom idle afterwards"});
             check(reconfig, 1'b0, {what, ": reconfig idle afterwards"});
         end
@@ -318,10 +369,11 @@ module tb_pllPresetController;
         // The controller just finished settling on 75 MHz above. Asking
         // for it again is not a change, and re-running the whole scan
         // sequence for no reason is what this catches.
+        loads_before          = loads_started;
         preset_request        = 8'd75;
         preset_request_toggle = ~preset_request_toggle;
         repeat (20) @(posedge clock);
-        check(reset_rom_address, 1'b0, "repeating the active preset starts no sequence");
+        check(loads_started - loads_before, 0, "repeating the active preset starts no load");
         check(write_from_rom, 1'b0, "write_from_rom stays low for a repeated preset");
 
         // --- PllPresetNone after a preset is active is still not acted on ---
@@ -329,10 +381,12 @@ module tb_pllPresetController;
         // "No override" does not mean "revert" - see the header of
         // pllPresetController.v. The PLL stays at 75 MHz here, which this
         // checks by the same means as above: nothing starts.
+        loads_before          = loads_started;
         preset_request        = 8'h00;
         preset_request_toggle = ~preset_request_toggle;
         repeat (20) @(posedge clock);
-        check(reset_rom_address, 1'b0, "PllPresetNone after an active preset still starts nothing");
+        check(loads_started - loads_before, 0,
+              "PllPresetNone after an active preset still starts nothing");
         check(write_from_rom, 1'b0, "write_from_rom stays low");
 
         // --- Back to a real preset afterwards ---

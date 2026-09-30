@@ -21,16 +21,30 @@
     counter value from a frequency; that arithmetic already happened
     inside Quartus, once per preset, and what is stored is its answer.
 
-    The handshake with pllReconfig follows the "poll busy" pattern its
-    own documentation describes for the ROM interface: pulse
-    reset_rom_address, hold write_from_rom while presenting the addressed
-    bit until busy has been seen to rise and fall (the load into
-    pllReconfig's internal cache is complete), then pulse reconfig and
-    wait for a second busy rise and fall (the actual scan into the live
-    PLL, and its relock). This sequencing has not been exercised in
-    simulation - altpll_reconfig has no free simulation model, the same
-    limitation IPpllGenerator itself has - so it is unverified until it
-    is run on real hardware. See TODO.md.
+    The handshake is the one the generated pllReconfig.v actually
+    implements, read from its state machine rather than from its
+    documentation - the first version of this module followed the
+    documentation as it was understood, and on the bench the PLL never
+    retuned:
+      - write_from_rom is a single-clock pulse, given while pllReconfig is
+        idle. The load starts at address 0 on its own. Held high instead,
+        it is still high on the clock pllReconfig returns to idle, and
+        that starts a second load - which swallows the reconfig pulse
+        that follows, so the PLL is never told to take the new values.
+      - The bit for an address is answered two clocks after the address is
+        presented: pllReconfig writes what arrives on rom_data_in to the
+        address it presented two clocks earlier (addr_from_rom, then
+        addr_from_rom2). That is how an altsyncram ROM with a registered
+        address and a registered output answers. Answered on the same
+        clock instead, every bit lands two places along the scan chain,
+        and the PLL is loaded with counter values it cannot lock with.
+      - reconfig is a single-clock pulse, also given while idle; busy
+        rises and falls around the scan into the live PLL and its relock.
+      - reset_rom_address only restarts a load already in progress, so it
+        is never driven.
+    altpll_reconfig has no free simulation model - the same limitation
+    IPpllGenerator itself has - so tb_pllPresetController.v models these
+    properties from the generated source instead.
 
     A request for PllPresetNone (0x00) is not acted on. It means "no
     override", not "revert to the default" - a build that never receives
@@ -290,7 +304,21 @@ module pllPresetController #(
     reg          self_check_done;
 
     wire [143:0] active_preset_bits = preset_bits(active_target);
-    assign rom_data_in = active_preset_bits[rom_address_out];
+
+    // Answered two clocks after the address, as a ROM with a registered
+    // address and a registered output would - see the header comment for
+    // why that latency is what pllReconfig expects. active_target cannot
+    // change while a load is running, so there is no stale bit to worry
+    // about across the two stages.
+    reg  [  7:0] rom_address_registered;
+    reg          rom_data_registered;
+
+    always @(posedge clock) begin
+        rom_address_registered <= rom_address_out;
+        rom_data_registered    <= active_preset_bits[rom_address_registered];
+    end
+
+    assign rom_data_in = rom_data_registered;
 
     localparam [2:0] StateIdle = 3'd0;
     localparam [2:0] StateLoadRom = 3'd1;
@@ -311,7 +339,10 @@ module pllPresetController #(
             write_from_rom    <= 1'b0;
             reconfig          <= 1'b0;
         end else begin
+            // All three are single-clock pulses, or never driven at all -
+            // see the header comment.
             reset_rom_address <= 1'b0;
+            write_from_rom    <= 1'b0;
             reconfig          <= 1'b0;
 
             case (state)
@@ -323,9 +354,8 @@ module pllPresetController #(
                         // preset_request.
                         self_check_done <= 1'b1;
                         if (startup_correction_needed) begin
-                            active_target     <= startup_safe_preset;
-                            reset_rom_address <= 1'b1;
-                            state             <= StateLoadRom;
+                            active_target <= startup_safe_preset;
+                            state         <= StateLoadRom;
                         end
                         // Only a synchronised, named preset change starts a
                         // sequence - PllPresetNone is never acted on, and a
@@ -333,24 +363,22 @@ module pllPresetController #(
                         // change worth another pass through the sequence.
                     end else if (preset_request_ready && preset_request != PllPresetNone &&
                                  preset_request != active_target) begin
-                        active_target     <= preset_request;
-                        reset_rom_address <= 1'b1;
-                        state             <= StateLoadRom;
+                        active_target <= preset_request;
+                        state         <= StateLoadRom;
                     end
                 end
 
-                // One cycle for pllReconfig to see reset_rom_address and
-                // return its address counter to zero before the load
-                // begins.
+                // One clock of write_from_rom, with pllReconfig idle: that
+                // starts a load at address 0, answered by rom_data_in two
+                // clocks behind each address it presents.
                 StateLoadRom: begin
                     write_from_rom <= 1'b1;
                     state          <= StateWaitLoadBusy;
                 end
 
-                // rom_data_in is driven combinationally from
-                // active_target and rom_address_out throughout, so there
-                // is nothing to do here but wait for pllReconfig to take
-                // the whole 144 bits and report it by raising busy.
+                // Nothing to do but wait for pllReconfig to take the whole
+                // 144 bits, which it reports by raising busy and then
+                // dropping it again.
                 StateWaitLoadBusy: begin
                     if (busy) begin
                         state <= StateWaitLoadDone;
@@ -359,8 +387,7 @@ module pllPresetController #(
 
                 StateWaitLoadDone: begin
                     if (!busy) begin
-                        write_from_rom <= 1'b0;
-                        state          <= StateReconfigure;
+                        state <= StateReconfigure;
                     end
                 end
 
