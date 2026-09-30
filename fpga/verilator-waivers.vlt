@@ -169,10 +169,13 @@ lint_off -rule SYNCASYNCNET -file "*/DomesdayDuplicator.v" -match "*GPIO1*"
 // DomesdayDuplicator.v: reset_n_clock50_sync is the same structure again, for
 // the same reason - pllReconfig and pllPresetController run on CLOCK_50 (see
 // pllPresetController.v's header for why), and this is their own
-// async-assert/sync-release copy of reset_n, released against CLOCK_50
-// instead of system_clock. Not covered by the *reset_n_sync* pattern above:
-// that wildcard does not match this net's name, and each is named narrowly
-// on purpose rather than widened to catch both.
+// async-assert/sync-release reset, released against CLOCK_50 instead of
+// system_clock. It is asserted by fx3_reset_n rather than by reset_n, because
+// reset_n follows pll_locked and these two blocks have to keep running while
+// the PLL relocks - see the comment above the synchroniser. Not covered by
+// the *reset_n_sync* pattern above: that wildcard does not match this net's
+// name, and each is named narrowly on purpose rather than widened to catch
+// both.
 lint_off -rule SYNCASYNCNET -file "*/DomesdayDuplicator.v" -match "*reset_n_clock50_sync*"
 
 // DomesdayDuplicatorFactory.v: the same two findings, for the same reasons -

@@ -320,14 +320,23 @@ module DomesdayDuplicator #(
     wire       pll_reconfig_rom_data;
     wire       pll_reconfig_reconfig;
 
-    // reset_n releases synchronously to system_clock, which says nothing
-    // about CLOCK_50 - pllReconfig and pllPresetController are clocked by
-    // CLOCK_50 (see below for why), so they get their own release,
-    // asynchronously asserted by the same reset_n edge.
+    // pllReconfig and pllPresetController are clocked by CLOCK_50 (see below
+    // for why), so they get a reset release of their own, synchronised to
+    // that clock.
+    //
+    // Asserted by fx3_reset_n alone, and deliberately not by reset_n. reset_n
+    // also asserts whenever pll_locked is low, and a preset change takes the
+    // PLL out of lock by design - so taking this reset from reset_n held the
+    // reconfiguration logic in reset for the very window it exists to see
+    // through. The PLL waited on the reconfiguration to finish, the
+    // reconfiguration waited on the PLL to relock, and on the bench every
+    // ADC rate change hung the board until it was power cycled. These two
+    // blocks are the one part of the design that must keep running while
+    // the system clock is unlocked, and they do not use it.
     reg  [1:0] reset_n_clock50_sync;
 
-    always @(posedge CLOCK_50, negedge reset_n) begin
-        if (!reset_n) begin
+    always @(posedge CLOCK_50, negedge fx3_reset_n) begin
+        if (!fx3_reset_n) begin
             reset_n_clock50_sync <= 2'b00;
         end else begin
             reset_n_clock50_sync <= {reset_n_clock50_sync[0], 1'b1};
