@@ -766,6 +766,7 @@ void CaptureController::StartMonitoring() {
   // Counted by the pipeline so that a declaration belonging to another board
   // shows during monitoring, before anything has been written with it.
   options.dc_offset = RunDcOffset();
+  run_dc_offset_ = options.dc_offset;
   offset_out_of_range_warned_ = false;
 
   // Only the log uses this, and it is why the log's times are right under

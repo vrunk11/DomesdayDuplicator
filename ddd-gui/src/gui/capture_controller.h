@@ -128,6 +128,11 @@ class CaptureController : public QObject {
   // `message` saying why.
   bool WriteBoardSetup(const capture::BoardSetup& setup, QString& message);
 
+  // The DC offset the running stream's writers take out, in converter codes —
+  // fixed when the stream starts, and 0 in test mode or while measuring. What
+  // the scope subtracts when asked to show the signal as it is written.
+  int32_t run_dc_offset() const { return run_dc_offset_; }
+
   // Whether a DC offset measurement is running.
   bool measuring_dc_offset() const {
     return measure_phase_ != MeasurePhase::kIdle;
@@ -453,6 +458,9 @@ class CaptureController : public QObject {
 
   // Whether DcOffsetOutOfRange has been raised this run.
   bool offset_out_of_range_warned_ = false;
+
+  // See run_dc_offset().
+  int32_t run_dc_offset_ = 0;
 
   // The DC offset measurement, run as a short sequence of monitoring runs
   // driven from measure_timer_ — see MeasureDcOffset().

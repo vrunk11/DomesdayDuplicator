@@ -39,7 +39,7 @@ to keep it on the board.
 | Board name | Free text, up to 32 bytes | Empty |
 | ADC fitted | **ADS825** — up to 40 MSPS · **ADS828** — up to 75 MSPS | ADS825 |
 | RSEL wiring | **Auto** — routed to the FPGA · **Low** — tied low, always 1Vpp · **High** — tied high, always 2Vpp | High |
-| DC offset at 1Vpp, at 2Vpp | −512 to +511 converter codes, with **Measure…** | 0 |
+| DC offset at 1Vpp, at 2Vpp (10-bit) | −512 to +511, in steps of the 10-bit converter, with **Measure…** | 0 |
 
 The defaults are the conservative board: every Duplicator ever built runs at 40 MSPS, and one
 whose RSEL is not routed captures at 2Vpp.
@@ -68,9 +68,12 @@ separate question from which converter is fitted.
 
 ### DC offset
 
-How far above code 512 the signal sits with nothing connected to the input, in whole converter
-codes. On some boards the front end is not quite centred; the offset takes that out of every
-sample written, so the signal is centred in the file.
+How far from the centre the signal sits with nothing connected to the input, counted in steps
+of the 10-bit converter: its output runs from 0 to 1023 with 512 in the middle, so **+20**
+means the signal sits at 532. One step is about 2 mV at 2Vpp and 1 mV at 1Vpp. On some boards
+the front end is not quite centred; the offset takes that out of every sample written, so the
+signal is centred in the file. The scope's [Corrected](signal-analysis.md#corrected) view shows
+the result.
 
 One per range, because a DC error in the front end is a voltage, and 1Vpp spreads the same
 voltage over twice as many codes.

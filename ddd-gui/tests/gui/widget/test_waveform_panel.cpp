@@ -409,6 +409,37 @@ TEST(WaveformPanelTest, TheTriggerIsOnByDefaultAndCanBeTurnedOff) {
   EXPECT_FALSE(plot->triggered());
 }
 
+// Off by default, so the scope shows the converter's own codes until asked
+// otherwise — and with no offset in force, asking changes nothing: the clip
+// lines stay on the converter's ends.
+TEST(WaveformPanelTest, TheCorrectedViewStartsOffAndNeedsAnOffset) {
+  WaveformPanel panel(nullptr);
+
+  auto* const box = Named<QCheckBox>(panel, WaveformPanel::kCorrectedBoxName);
+  auto* const plot = Named<WaveformPlot>(panel, WaveformPanel::kPlotName);
+  ASSERT_NE(box, nullptr);
+  EXPECT_FALSE(box->isChecked());
+
+  box->setChecked(true);
+  EXPECT_EQ(plot->clip_low(), 0);
+  EXPECT_EQ(plot->clip_high(), 1023);
+}
+
+// Moved clip lines are drawn where they are put, and a panel with them moved
+// still paints.
+TEST(WaveformPanelTest, TheClipLinesCanBeMovedToTheCorrectedLimits) {
+  WaveformPanel panel(nullptr);
+  panel.resize(600, 300);
+  auto* const plot = Named<WaveformPlot>(panel, WaveformPanel::kPlotName);
+
+  plot->SetClipLimits(0, 1003);
+  EXPECT_EQ(plot->clip_low(), 0);
+  EXPECT_EQ(plot->clip_high(), 1003);
+
+  plot->SetCodes(std::vector<uint16_t>(4096, 500));
+  EXPECT_FALSE(panel.grab().isNull());
+}
+
 TEST(WaveformPanelTest, AFlatInputIsReportedAsFreeRunningRatherThanTriggered) {
   // The box stays ticked — the trigger is still on and still looking — but
   // nothing crossed the level, so what is on screen starts wherever the

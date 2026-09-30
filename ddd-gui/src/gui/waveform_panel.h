@@ -86,6 +86,12 @@ class WaveformPlot : public QWidget {
   // rate would label a 1 ms sweep 500 µs.
   void SetSampleRate(uint32_t sample_rate_hz);
 
+  // Where the two dashed clip lines are drawn, in the codes the trace is drawn
+  // in. 0 and 1023 for the converter's own codes; moved, when the trace is the
+  // DC-corrected signal, to wherever the converter's real limits land after
+  // the correction — so the headroom on screen is the headroom there is.
+  void SetClipLimits(int low, int high);
+
   void Clear();
 
   size_t sample_span() const { return sample_span_; }
@@ -93,6 +99,8 @@ class WaveformPlot : public QWidget {
   double persistence_seconds() const { return persistence_seconds_; }
   bool persistence() const { return persistence_seconds_ > 0.0; }
   bool triggered() const { return triggered_; }
+  int clip_low() const { return clip_low_; }
+  int clip_high() const { return clip_high_; }
 
   // How much of the accumulated picture survives one fade, as an alpha the old
   // picture is multiplied by, given the tail length asked for and the time that
@@ -180,6 +188,10 @@ class WaveformPlot : public QWidget {
   // have arrived.
   uint32_t sample_rate_hz_ = capture::kSampleRateHz;
 
+  // See SetClipLimits().
+  int clip_low_ = capture::kMinimumSampleValue;
+  int clip_high_ = capture::kMaximumSampleValue;
+
   // Built once. The table is 32 KB and its construction is a few thousand
   // transcendental calls, neither of which belongs in a paint.
   analysis::ReconstructionKernel kernel_;
@@ -226,6 +238,7 @@ class WaveformPanel : public QWidget {
   static constexpr const char* kPersistenceLabelName =
       "waveform_persistence_label";
   static constexpr const char* kTriggerBoxName = "waveform_trigger_box";
+  static constexpr const char* kCorrectedBoxName = "waveform_corrected_box";
   static constexpr const char* kCursorLabelName = "waveform_cursor_label";
 
  public slots:
@@ -244,12 +257,26 @@ class WaveformPanel : public QWidget {
 
  private:
   void ApplyPersistence();
+  void ApplyCorrection();
   void ShowCursor(qint64 sample_index, double code);
   void ClearCursor();
+
+  CaptureController* controller_ = nullptr;
 
   WaveformPlot* plot_ = nullptr;
   QComboBox* span_ = nullptr;
   QCheckBox* trigger_ = nullptr;
+
+  // Show the signal as it is written to the file: the board's declared DC
+  // offset taken out, with the clip lines moved to where the converter's
+  // limits then are.
+  QCheckBox* corrected_ = nullptr;
+
+  // The offset the running stream is corrected by, taken when it starts.
+  int32_t dc_offset_ = 0;
+
+  // The corrected snapshot, reused rather than reallocated per frame.
+  std::vector<uint16_t> corrected_codes_;
   QSlider* persistence_ = nullptr;
   QLabel* persistence_label_ = nullptr;
   CursorReadout* cursor_ = nullptr;

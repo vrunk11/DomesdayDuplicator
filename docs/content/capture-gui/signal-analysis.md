@@ -213,11 +213,26 @@ fade is worked out from the time that has actually passed, so a tail is the leng
 whatever rate the device happens to be delivering snapshots at — and a run that stalls for
 two seconds comes back having genuinely lost two seconds of picture.
 
+### Corrected
+
+Off by default, and the scope then shows the converter's own codes, with the dashed clip lines
+on its ends at 0 and 1023.
+
+On, it shows the signal as it is written to the file: the DC offset declared in
+[Board setup](board-setup.md) taken out, so a board whose front end sits off-centre is drawn
+centred on 512. The clip lines move with it and stay on the converter's real limits — with an
+offset of +20 the top line is at 1003, because a sample at the converter's 1023 is written as
+1003 — so the headroom on screen is the headroom there is, and a trace touching a line is
+clipping whichever view is on.
+
+The offset is the one the running stream is corrected by, taken when monitoring starts. With
+no offset declared, or in test mode, the two views are the same.
+
 ### The cursor
 
 Point at the trace and the readout gives the position in microseconds and the level, in
 codes or in millivolts. The position is measured from the start of the sweep, matching the
-time axis below the plot.
+time axis below the plot. With **Corrected** on, the level is the corrected one.
 
 ## Spectrum
 

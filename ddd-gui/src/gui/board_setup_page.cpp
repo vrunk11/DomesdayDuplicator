@@ -209,11 +209,12 @@ BoardSetupPage::BoardSetupPage(CaptureController* controller, QWidget* parent)
     auto* spin = new QSpinBox(this);
     spin->setObjectName(QLatin1String(name));
     spin->setRange(capture::kDcOffsetMinimum, capture::kDcOffsetMaximum);
-    spin->setSuffix(tr(" codes"));
     spin->setToolTip(
-        tr("How far above code 512 this board's signal sits with nothing "
-           "connected, in converter codes. It is taken out of every sample "
-           "written, and recorded in the file so it can be put back."));
+        tr("How far this board's signal sits from the centre with nothing "
+           "connected, in steps of the 10-bit converter: 0 to 1023, centred "
+           "on 512, so +20 means the signal sits at 532. It is taken out of "
+           "every sample written, and recorded in the file so it can be put "
+           "back."));
     return spin;
   };
   offset_1vpp_ = make_offset(kOffset1VppSpinName);
@@ -227,10 +228,10 @@ BoardSetupPage::BoardSetupPage(CaptureController* controller, QWidget* parent)
       tr("Average one second of the stream with nothing connected to the "
          "input, at each range the wiring can select."));
 
-  grid->addWidget(new QLabel(tr("DC offset at 1Vpp"), this), 3, 0);
+  grid->addWidget(new QLabel(tr("DC offset at 1Vpp (10-bit)"), this), 3, 0);
   grid->addWidget(offset_1vpp_, 3, 1);
   grid->addWidget(measured_1vpp_label_, 3, 2);
-  grid->addWidget(new QLabel(tr("DC offset at 2Vpp"), this), 4, 0);
+  grid->addWidget(new QLabel(tr("DC offset at 2Vpp (10-bit)"), this), 4, 0);
   grid->addWidget(offset_2vpp_, 4, 1);
   grid->addWidget(measured_2vpp_label_, 4, 2);
   grid->addWidget(measure_, 3, 3, 2, 1);

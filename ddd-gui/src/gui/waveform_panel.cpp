@@ -137,6 +137,19 @@ void WaveformPlot::SetCodes(const std::vector<uint16_t>& codes) {
   update();
 }
 
+void WaveformPlot::SetClipLimits(int low, int high) {
+  if (low == clip_low_ && high == clip_high_) {
+    return;
+  }
+  clip_low_ = low;
+  clip_high_ = high;
+
+  // What is accumulated was drawn against the old picture, and a tail left over
+  // from the uncorrected trace would sit a DC offset away from the new one.
+  persistence_image_ = QImage();
+  update();
+}
+
 void WaveformPlot::SetSampleSpan(size_t span) {
   sample_span_ = std::max<size_t>(span, 1);
   sweeps_valid_ = false;
@@ -409,18 +422,20 @@ void WaveformPlot::paintEvent(QPaintEvent* event) {
   painter.translate(kScaleWidthPixels, kPlotMarginPixels);
 
   // The three lines that give the trace a meaning: the clip levels it must not
-  // reach and the centre it should sit on.
+  // reach and the centre it should sit on. The clip levels are the converter's
+  // 0 and 1023 unless the trace is the corrected signal — see SetClipLimits.
   const struct {
     double code;
     theme_tokens::PlotColorToken token;
-    const char* label;
+    QString label;
   } guides[] = {
-      {static_cast<double>(capture::kMaximumSampleValue),
-       theme_tokens::PlotColorToken::kClipMarker, "1023"},
+      {static_cast<double>(clip_high_),
+       theme_tokens::PlotColorToken::kClipMarker, QString::number(clip_high_)},
       {static_cast<double>(capture::kSampleZeroOffset),
-       theme_tokens::PlotColorToken::kZeroReference, "512"},
-      {static_cast<double>(capture::kMinimumSampleValue),
-       theme_tokens::PlotColorToken::kClipMarker, "0"},
+       theme_tokens::PlotColorToken::kZeroReference,
+       QString::number(capture::kSampleZeroOffset)},
+      {static_cast<double>(clip_low_),
+       theme_tokens::PlotColorToken::kClipMarker, QString::number(clip_low_)},
   };
 
   for (const auto& guide : guides) {
@@ -514,8 +529,7 @@ void WaveformPlot::paintEvent(QPaintEvent* event) {
     const double y = mapping.CodeToY(guide.code) + kPlotMarginPixels;
     painter.drawText(QRectF(0.0, y - (metrics.height() / 2.0),
                             kScaleWidthPixels - 6.0, metrics.height()),
-                     Qt::AlignRight | Qt::AlignVCenter,
-                     QString::fromUtf8(guide.label));
+                     Qt::AlignRight | Qt::AlignVCenter, guide.label);
   }
 
   // And when the trigger found nothing, the fact that it did not.
@@ -617,7 +631,7 @@ void WaveformPlot::leaveEvent(QEvent* event) {
 }
 
 WaveformPanel::WaveformPanel(CaptureController* controller, QWidget* parent)
-    : QWidget(parent) {
+    : QWidget(parent), controller_(controller) {
   auto* layout = new QVBoxLayout(this);
   layout->setContentsMargins(8, 8, 8, 8);
 
@@ -655,6 +669,17 @@ WaveformPanel::WaveformPanel(CaptureController* controller, QWidget* parent)
   connect(trigger_, &QCheckBox::toggled, this,
           [this](bool on) { plot_->SetTriggered(on); });
   controls->addWidget(trigger_);
+
+  corrected_ = new QCheckBox(tr("Corrected"), this);
+  corrected_->setObjectName(QLatin1String(kCorrectedBoxName));
+  corrected_->setToolTip(
+      tr("Show the signal as it is written to the file, with the DC offset "
+         "declared in Board setup taken out. The dashed clip lines move with "
+         "it and stay on the converter's real limits, so the headroom shown is "
+         "the headroom there is. Off shows the converter's own codes."));
+  connect(corrected_, &QCheckBox::toggled, this,
+          [this](bool) { ApplyCorrection(); });
+  controls->addWidget(corrected_);
 
   controls->addWidget(new QLabel(tr("Persistence"), this));
 
@@ -748,7 +773,22 @@ void WaveformPanel::SetSampleRate(uint32_t sample_rate_hz) {
 }
 
 void WaveformPanel::OnWaveformReady(const std::vector<uint16_t>& codes) {
-  plot_->SetCodes(codes);
+  if (!corrected_->isChecked() || dc_offset_ == 0) {
+    plot_->SetCodes(codes);
+    return;
+  }
+
+  // The same thing the writers do, in the 10-bit domain the plot draws in:
+  // each code moved by the offset and held at the end of the range it would
+  // otherwise leave — which is exactly what the file holds.
+  corrected_codes_.resize(codes.size());
+  for (size_t index = 0; index < codes.size(); ++index) {
+    corrected_codes_[index] = static_cast<uint16_t>(
+        std::clamp(static_cast<int32_t>(codes[index]) - dc_offset_,
+                   static_cast<int32_t>(capture::kMinimumSampleValue),
+                   static_cast<int32_t>(capture::kMaximumSampleValue)));
+  }
+  plot_->SetCodes(corrected_codes_);
 }
 
 void WaveformPanel::OnMonitoringChanged(bool monitoring) {
@@ -757,7 +797,30 @@ void WaveformPanel::OnMonitoringChanged(bool monitoring) {
     // finished run stays on screen to be looked at.
     plot_->Clear();
     ClearCursor();
+
+    // The offset belongs to the run: taken when it starts, as the writers take
+    // it, so the corrected trace is corrected by what the file is.
+    dc_offset_ = controller_ != nullptr ? controller_->run_dc_offset() : 0;
+    ApplyCorrection();
   }
+}
+
+void WaveformPanel::ApplyCorrection() {
+  if (!corrected_->isChecked() || dc_offset_ == 0) {
+    plot_->SetClipLimits(capture::kMinimumSampleValue,
+                         capture::kMaximumSampleValue);
+    return;
+  }
+
+  // Where the converter's own 0 and 1023 land once the offset is taken out,
+  // cut to the range the file can hold. With a positive offset the top line
+  // comes down to 1023 - offset and the bottom stays at 0, where the file's
+  // range ends; a negative one does the mirror image.
+  plot_->SetClipLimits(
+      std::max<int>(capture::kMinimumSampleValue,
+                    capture::kMinimumSampleValue - dc_offset_),
+      std::min<int>(capture::kMaximumSampleValue,
+                    capture::kMaximumSampleValue - dc_offset_));
 }
 
 void WaveformPanel::SetFrontEndGain(analysis::FrontEndGain gain) {
