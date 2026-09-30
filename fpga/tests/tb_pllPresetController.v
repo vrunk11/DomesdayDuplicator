@@ -57,6 +57,7 @@ module tb_pllPresetController;
     reg     [7:0] rom_address_out;
     wire          reconfig;
     reg           busy;
+    wire    [7:0] running_mhz;
 
     integer       errors;
     integer       i;
@@ -140,7 +141,8 @@ module tb_pllPresetController;
         .rom_data_in          (rom_data_in),
         .rom_address_out      (rom_address_out),
         .reconfig             (reconfig),
-        .busy                 (busy)
+        .busy                 (busy),
+        .running_mhz          (running_mhz)
     );
 
     // 50 MHz system clock in this testbench - the controller has no timing
@@ -301,6 +303,7 @@ module tb_pllPresetController;
 
             check_bits(captured, expected_bits(mhz), what);
             check(loads_started - loads_before, 1, {what, ": exactly one load"});
+            check(running_mhz, mhz, {what, ": running_mhz names it"});
             check(reset_rom_address, 1'b0, {what, ": reset_rom_address never driven"});
             check(write_from_rom, 1'b0, {what, ": write_from_rom idle afterwards"});
             check(reconfig, 1'b0, {what, ": reconfig idle afterwards"});
@@ -321,6 +324,11 @@ module tb_pllPresetController;
         check(reset_rom_address, 1'b0, "reset_rom_address after reset");
         check(write_from_rom, 1'b0, "write_from_rom after reset");
         check(reconfig, 1'b0, "reconfig after reset");
+
+        // Nothing loaded yet: the PLL is running at the rate IPpllGenerator
+        // was compiled for, which is what the ADC capture choice in
+        // DomesdayDuplicator.v reads this for
+        check(running_mhz, 8'd75, "running_mhz is StaticDefaultMHz before any preset");
 
         // --- A value with no toggle is not a request ---
         //

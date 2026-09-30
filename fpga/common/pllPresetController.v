@@ -133,7 +133,14 @@ module pllPresetController #(
     output           rom_data_in,
     input      [7:0] rom_address_out,
     output reg       reconfig,
-    input            busy
+    input            busy,
+
+    // The rate the PLL is running at, as far as this module knows: the
+    // preset it last loaded, or StaticDefaultMHz when it has loaded none.
+    // In this module's clock domain. It changes as a sequence starts,
+    // a few microseconds before the PLL itself does, which is inside the
+    // relock a rate change costs anyway.
+    output [7:0] running_mhz
 );
 
     // The scan-chain content for each preset, 144 bits wide, indexed the
@@ -305,13 +312,15 @@ module pllPresetController #(
 
     wire [143:0] active_preset_bits = preset_bits(active_target);
 
+    assign running_mhz = (active_target == PllPresetNone) ? StaticDefaultMHz : active_target;
+
     // Answered two clocks after the address, as a ROM with a registered
     // address and a registered output would - see the header comment for
     // why that latency is what pllReconfig expects. active_target cannot
     // change while a load is running, so there is no stale bit to worry
     // about across the two stages.
-    reg  [  7:0] rom_address_registered;
-    reg          rom_data_registered;
+    reg [7:0] rom_address_registered;
+    reg       rom_data_registered;
 
     always @(posedge clock) begin
         rom_address_registered <= rom_address_out;

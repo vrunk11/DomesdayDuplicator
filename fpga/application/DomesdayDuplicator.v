@@ -319,6 +319,7 @@ module DomesdayDuplicator #(
     wire       pll_reconfig_write_from_rom;
     wire       pll_reconfig_rom_data;
     wire       pll_reconfig_reconfig;
+    wire [7:0] pll_running_mhz;
 
     // pllReconfig and pllPresetController are clocked by CLOCK_50 (see below
     // for why), so they get a reset release of their own, synchronised to
@@ -428,7 +429,8 @@ module DomesdayDuplicator #(
         .rom_data_in          (pll_reconfig_rom_data),
         .rom_address_out      (pll_reconfig_rom_address),
         .reconfig             (pll_reconfig_reconfig),
-        .busy                 (pll_reconfig_busy)
+        .busy                 (pll_reconfig_busy),
+        .running_mhz          (pll_running_mhz)
     );
 
     // ADC sampling clock and the sampling instant
@@ -542,6 +544,54 @@ module DomesdayDuplicator #(
         end
     end
 
+    // Which of the two edges to capture on depends on the ADC rate.
+    //
+    // The delay is a fixed number of system_clock cycles, so the capture
+    // point is one and a half ADC periods after launch at every rate - but
+    // the window it has to land in ends a fixed 3.9 ns (t1) after the *next*
+    // ADC edge. Both move as the rate changes, and not at the same speed:
+    // the capture point moves faster, and at low enough rates it lands past
+    // the window's end, in the next sample's transition. On the bench, with
+    // a LaserDisc playing, the delayed capture was clean from 75 MHz down to
+    // 45 MHz and read nothing but noise at 40.
+    //
+    // At 40 MHz the system clock is 80 MHz, which is exactly what the
+    // ADS825 design this one grew from always ran, and that design captured
+    // on sample_enable itself - one ADC period after launch, the middle of a
+    // 40 MHz window. So at that rate this does the same.
+    //
+    // The rate is known where the PLL is retuned, in CLOCK_50's domain, and
+    // nowhere else: PLL_PRESET's register returns to its reset value with
+    // every relock. The decision is made there and only the one bit crosses,
+    // through two flops; it changes only as a retune starts, a few
+    // microseconds before the relock holds this domain in reset anyway.
+    localparam [7:0] AdcUndelayedCaptureMaxMHz = 8'd40;
+
+    reg adc_capture_undelayed_clock50;
+
+    always @(posedge CLOCK_50, negedge reset_n_clock50) begin
+        if (!reset_n_clock50) begin
+            adc_capture_undelayed_clock50 <= 1'b0;
+        end else begin
+            adc_capture_undelayed_clock50 <= (pll_running_mhz <= AdcUndelayedCaptureMaxMHz);
+        end
+    end
+
+    reg [1:0] adc_capture_undelayed_sync;
+
+    always @(posedge system_clock, negedge reset_n) begin
+        if (!reset_n) begin
+            adc_capture_undelayed_sync <= 2'b00;
+        end else begin
+            adc_capture_undelayed_sync <= {
+                adc_capture_undelayed_sync[0], adc_capture_undelayed_clock50
+            };
+        end
+    end
+
+    wire        adc_capture_undelayed = adc_capture_undelayed_sync[1];
+    wire        adc_capture_enable = adc_capture_undelayed ? sample_enable : sample_enable_delayed;
+
     wire        fx3_is_reading;
     wire [15:0] data_generator_out;
 
@@ -579,11 +629,11 @@ module DomesdayDuplicator #(
     // Stage 1: undecimated to 2:1.
     halfBandDecimator half_band_decimator_0 (
         // Inputs
-        .reset_n      (reset_n),                // Not reset
-        .clock        (system_clock),           // 80 MHz system clock
-        .sample_enable(sample_enable_delayed),  // 1 = a sample arrives on this edge
-        .data_in      (adc_databus),            // 10-bit ADC databus
-        .decimate     (fx3_decimate_stage1),    // 1 = filter and halve the rate
+        .reset_n      (reset_n),             // Not reset
+        .clock        (system_clock),        // 80 MHz system clock
+        .sample_enable(adc_capture_enable),  // 1 = a sample arrives on this edge
+        .data_in      (adc_databus),         // 10-bit ADC databus
+        .decimate     (fx3_decimate_stage1), // 1 = filter and halve the rate
 
         // Outputs
         .data_out     (capture_sample_stage1),  // 10-bit filtered sample
