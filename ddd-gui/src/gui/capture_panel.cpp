@@ -360,7 +360,12 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
     connect(controller_, &CaptureController::CapturingChanged, this,
             &CapturePanel::OnCapturingChanged);
     connect(controller_, &CaptureController::SettingsChanged, this,
-            [this](const CaptureSettings&) { ShowSettings(); });
+            [this](const CaptureSettings&) {
+              // The summary names the offset in force, which follows the
+              // rate and the range.
+              RefreshBoardSummary();
+              ShowSettings();
+            });
     connect(controller_, &CaptureController::BoardSetupChanged, this, [this] {
       RefreshBoardSummary();
       ShowSettings();
@@ -437,9 +442,12 @@ void CapturePanel::ShowSettings() {
 }
 
 void CapturePanel::RefreshBoardSummary() {
-  const QString summary = controller_ != nullptr
-                              ? DescribeBoardSummary(controller_->board_setup())
-                              : QString();
+  const QString summary =
+      controller_ != nullptr
+          ? DescribeBoardSummary(controller_->board_setup(),
+                                 controller_->configured_rate_mhz(),
+                                 controller_->effective_range_2vpp())
+          : QString();
   const QString link = QStringLiteral("<a href=\"board-setup\">%1</a>")
                            .arg(tr("Board setup…").toHtmlEscaped());
   board_summary_label_->setText(summary.isEmpty()

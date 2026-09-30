@@ -637,8 +637,8 @@ capture::BoardSetup FastBoard() {
   setup.name = "Bench #2";
   setup.adc = capture::AdcPart::kAds828;
   setup.rsel_wiring = capture::RselWiring::kAuto;
-  setup.dc_offset_1vpp = -6;
-  setup.dc_offset_2vpp = 3;
+  setup.dc_offset_1vpp = {40, 52, 63, 71, 80, 92, 101, 111};
+  setup.dc_offset_2vpp = {-6, 4, 9, 14, 19, 24, 29, 34};
   return setup;
 }
 
@@ -792,8 +792,43 @@ TEST_F(CaptureControllerTest, WritingTheBoardSetupIsRefusedWhileMonitoring) {
   ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
 }
 
+// The offset taken out is the one for the rate the stream runs at, not a
+// board-wide figure: it moves with the clock.
+TEST_F(CaptureControllerTest, TheOffsetAppliedIsTheOneForTheRunningRate) {
+  device_->SetGatewareCommit("0123abcd");
+  device_->SetRegister(capture::kRegisterMaxAdcRateMhz, 75);
+  device_->SetBoardSetupSupported(true);
+  device_->SetBoardSetupPage(capture::EncodeBoardSetup(FastBoard()));
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+  UseSmallQueue();
+
+  CaptureSettings settings = controller_->settings();
+  settings.pll_preset_mhz = capture::kPllPreset60Mhz;
+  settings.range_select_2vpp = true;
+  controller_->SetSettings(settings);
+
+  controller_->StartMonitoring();
+  ASSERT_TRUE(controller_->monitoring());
+  EXPECT_EQ(controller_->run_dc_offset(), 19);
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+
+  settings.range_select_2vpp = false;
+  controller_->SetSettings(settings);
+  controller_->StartMonitoring();
+  ASSERT_TRUE(controller_->monitoring());
+  EXPECT_EQ(controller_->run_dc_offset(), 80);
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+}
+
 // With RSEL routed, both ranges are measured, one run each, and nothing is
-// declared by it: the results are handed back for the Board setup page.
+// declared by it: the results are handed back for the Board setup page. A
+// gateware that cannot report its rates runs at the one it was built for,
+// which is filed as 40 MHz.
 TEST_F(CaptureControllerTest, AQuietInputIsMeasuredAtBothRanges) {
   capture::SyntheticSource::Options source = TestSourceOptions();
   source.pattern = capture::SyntheticSource::Pattern::kConstant;
@@ -818,13 +853,56 @@ TEST_F(CaptureControllerTest, AQuietInputIsMeasuredAtBothRanges) {
       << finished.front().at(1).toString().toStdString();
   ASSERT_EQ(measured.count(), 2);
   EXPECT_FALSE(measured.at(0).at(0).toBool());
-  EXPECT_EQ(measured.at(0).at(1).toInt(), 18);
+  EXPECT_EQ(measured.at(0).at(1).toInt(), 40);
+  EXPECT_EQ(measured.at(0).at(2).toInt(), 18);
   EXPECT_TRUE(measured.at(1).at(0).toBool());
-  EXPECT_EQ(measured.at(1).at(1).toInt(), 18);
+  EXPECT_EQ(measured.at(1).at(1).toInt(), 40);
+  EXPECT_EQ(measured.at(1).at(2).toInt(), 18);
 
   EXPECT_FALSE(controller_->measuring_dc_offset());
   EXPECT_FALSE(controller_->monitoring());
   EXPECT_EQ(device_->board_setup_write_count(), 0U);
+}
+
+// With a gateware that reports its rates, every rate up to the ceiling is
+// measured, both ranges at each, and each run is asked of the gateware.
+TEST_F(CaptureControllerTest, AMeasurementStepsThroughEveryRateAllowed) {
+  capture::SyntheticSource::Options source = TestSourceOptions();
+  source.pattern = capture::SyntheticSource::Pattern::kConstant;
+  source.constant_value = 530;
+  device_->SetSourceOptions(source);
+  device_->SetGatewareCommit("0123abcd");
+  device_->SetRegister(capture::kRegisterMaxAdcRateMhz, 75);
+  device_->SetBoardSetupSupported(true);
+  device_->SetBoardSetupPage(capture::EncodeBoardSetup(FastBoard()));
+
+  QSignalSpy devices(controller_.get(), &CaptureController::DevicesChanged);
+  controller_->Start();
+  ASSERT_TRUE(PumpUntil([&] { return devices.count() >= 1; }));
+  UseSmallQueue();
+
+  QSignalSpy measured(controller_.get(), &CaptureController::DcOffsetMeasured);
+  QSignalSpy finished(controller_.get(),
+                      &CaptureController::DcOffsetMeasurementFinished);
+
+  // Capped at 45 by the caller — the page passes the converter it shows — so
+  // the test is two rates rather than eight.
+  controller_->MeasureDcOffset({false, true}, capture::kPllPreset45Mhz);
+  EXPECT_EQ(controller_->dc_offset_measurement_runs(), 4U);
+
+  ASSERT_TRUE(PumpUntil([&] { return finished.count() >= 1; }, 20000ms));
+  EXPECT_TRUE(finished.front().at(0).toBool());
+  ASSERT_EQ(measured.count(), 4);
+  EXPECT_EQ(measured.at(0).at(1).toInt(), 40);
+  EXPECT_EQ(measured.at(1).at(1).toInt(), 40);
+  EXPECT_EQ(measured.at(2).at(1).toInt(), 45);
+  EXPECT_EQ(measured.at(3).at(1).toInt(), 45);
+  EXPECT_FALSE(measured.at(2).at(0).toBool());
+  EXPECT_TRUE(measured.at(3).at(0).toBool());
+
+  // The last rate asked of the gateware was the last one measured.
+  EXPECT_EQ(device_->written_to(capture::kRegisterPllPreset),
+            capture::kPllPreset45Mhz);
 }
 
 // A signal on the input — the BNC still connected — is refused rather than
@@ -852,7 +930,7 @@ TEST_F(CaptureControllerTest, AMeasurementWithASignalConnectedIsRefused) {
 // offset of +40 does it on every pass — and that is said once per run.
 TEST_F(CaptureControllerTest, AnOffsetThatDoesNotFitTheSignalIsReported) {
   capture::BoardSetup setup;
-  setup.dc_offset_2vpp = 40;
+  setup.dc_offset_2vpp[0] = 40;  // at 40 MHz, the rate these runs are at
   device_->SetBoardSetupSupported(true);
   device_->SetBoardSetupPage(capture::EncodeBoardSetup(setup));
 
@@ -877,7 +955,7 @@ TEST_F(CaptureControllerTest, AnOffsetThatDoesNotFitTheSignalIsReported) {
 // offset is applied to them and there is nothing to warn about.
 TEST_F(CaptureControllerTest, TestModeNeverReportsTheOffset) {
   capture::BoardSetup setup;
-  setup.dc_offset_2vpp = 40;
+  setup.dc_offset_2vpp[0] = 40;  // at 40 MHz, the rate these runs are at
   device_->SetBoardSetupSupported(true);
   device_->SetBoardSetupPage(capture::EncodeBoardSetup(setup));
 

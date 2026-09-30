@@ -13,6 +13,8 @@
 
 #include <QString>
 #include <QWidget>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 #include "board_setup.h"
@@ -34,9 +36,11 @@ QString DescribeBoardSetupSource(capture::BoardSetupSource source);
 QString DescribeMeasuredAt(uint32_t measured);
 
 // The board setup in one line, for the capture panel: the converter and the
-// rate it allows, the wiring, the offset in force, and the name — or that the
-// defaults are in force. Empty when no device is attached.
-QString DescribeBoardSummary(const capture::BoardSetupReading& reading);
+// rate it allows, the wiring, the offset in force at `rate_mhz` and the range
+// the capture runs at, and the name — or that the defaults are in force. Empty
+// when no device is attached.
+QString DescribeBoardSummary(const capture::BoardSetupReading& reading,
+                             uint8_t rate_mhz, bool range_2vpp);
 
 // The Board setup tab of the Settings dialog.
 //
@@ -59,21 +63,26 @@ class BoardSetupPage : public QWidget {
   static constexpr const char* kNameEditName = "board_setup_name";
   static constexpr const char* kAdcComboName = "board_setup_adc";
   static constexpr const char* kRselComboName = "board_setup_rsel";
-  static constexpr const char* kOffset1VppSpinName = "board_setup_offset_1vpp";
-  static constexpr const char* kOffset2VppSpinName = "board_setup_offset_2vpp";
   static constexpr const char* kMeasureButtonName = "board_setup_measure";
   static constexpr const char* kWriteButtonName = "board_setup_write";
   static constexpr const char* kSourceLabelName = "board_setup_source";
   static constexpr const char* kResultLabelName = "board_setup_result";
+  static constexpr const char* kMeasuredLabelName = "board_setup_measured";
+
+  // The offset field for a range at an ADC rate: "board_setup_offset_2vpp_75".
+  static QString OffsetSpinName(bool range_2vpp, uint8_t rate_mhz);
 
  private:
+  using SpinColumn = std::array<QSpinBox*, capture::kDcOffsetRateCount>;
+
   void LoadFromController();
   void UpdateEnabledState();
   void OnAdcChosen(int index);
   void OnMeasureClicked();
   void OnWriteClicked();
-  void OnMeasured(bool range_2vpp, int offset);
+  void OnMeasured(bool range_2vpp, int rate_mhz, int offset);
   void OnMeasurementFinished(bool succeeded, const QString& message);
+  void OnOffsetEdited();
 
   CaptureController* controller_ = nullptr;
 
@@ -81,19 +90,23 @@ class BoardSetupPage : public QWidget {
   QLineEdit* name_ = nullptr;
   QComboBox* adc_ = nullptr;
   QComboBox* rsel_ = nullptr;
-  QSpinBox* offset_1vpp_ = nullptr;
-  QSpinBox* offset_2vpp_ = nullptr;
-  QLabel* measured_1vpp_label_ = nullptr;
-  QLabel* measured_2vpp_label_ = nullptr;
+
+  // One field per ADC rate in each range, rows in kDcOffsetRatesMhz order.
+  SpinColumn offsets_1vpp_{};
+  SpinColumn offsets_2vpp_{};
+
+  QLabel* measured_label_ = nullptr;
   QPushButton* measure_ = nullptr;
   QPushButton* write_ = nullptr;
   QLabel* busy_note_ = nullptr;
   QLabel* result_ = nullptr;
 
-  // When each offset shown was measured, carried with the field until it is
-  // written. An offset typed by hand has none.
-  uint32_t measured_1vpp_ = 0;
-  uint32_t measured_2vpp_ = 0;
+  // When the offsets shown were measured, carried with the fields until they
+  // are written. Offsets typed by hand have none.
+  uint32_t measured_ = 0;
+
+  // Runs reported so far by the measurement in progress, for its progress.
+  size_t measured_runs_ = 0;
 
   // The converter the combo showed before the latest change, so a change the
   // user does not confirm can be put back.

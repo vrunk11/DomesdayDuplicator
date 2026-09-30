@@ -26,12 +26,15 @@ constexpr std::array<uint8_t, 4> kMagic = {'D', 'D', 'B', 'S'};
 constexpr size_t kVersionOffset = 4;
 constexpr size_t kAdcOffset = 6;
 constexpr size_t kRselOffset = 7;
-constexpr size_t kDcOffset1VppOffset = 8;
-constexpr size_t kDcOffset2VppOffset = 10;
-constexpr size_t kMeasured1VppOffset = 12;
-constexpr size_t kMeasured2VppOffset = 16;
-constexpr size_t kNameOffset = 20;
 constexpr size_t kCrcOffset = kBoardSetupRecordLength - 4;
+
+// A table of offsets per range, one entry per ADC rate.
+constexpr size_t kOffsets1VppOffset = 8;
+constexpr size_t kOffsets2VppOffset =
+    kOffsets1VppOffset + (2 * kDcOffsetRateCount);
+constexpr size_t kMeasuredOffset =
+    kOffsets2VppOffset + (2 * kDcOffsetRateCount);
+constexpr size_t kNameOffset = kMeasuredOffset + 4;
 
 static_assert(kNameOffset + kBoardNameMaximumBytes <= kCrcOffset,
               "the name must fit before the checksum");
@@ -81,7 +84,54 @@ bool DcOffsetInRange(int16_t value) {
   return value >= kDcOffsetMinimum && value <= kDcOffsetMaximum;
 }
 
+void PutTable(BoardSetupRecord& record, size_t offset,
+              const DcOffsetTable& table) {
+  for (size_t index = 0; index < table.size(); ++index) {
+    PutLittleEndian16(record, offset + (2 * index),
+                      static_cast<uint16_t>(ClampDcOffset(table[index])));
+  }
+}
+
+// False when an entry is outside what a converter can be offset by.
+bool GetTable(std::span<const uint8_t> page, size_t offset,
+              DcOffsetTable& table) {
+  for (size_t index = 0; index < table.size(); ++index) {
+    table[index] =
+        static_cast<int16_t>(GetLittleEndian16(page, offset + (2 * index)));
+    if (!DcOffsetInRange(table[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// The fields after the converter and the wiring. False when the record holds
+// an offset this build cannot interpret.
+bool DecodeFields(std::span<const uint8_t> page, BoardSetup& setup) {
+  if (!GetTable(page, kOffsets1VppOffset, setup.dc_offset_1vpp) ||
+      !GetTable(page, kOffsets2VppOffset, setup.dc_offset_2vpp)) {
+    return false;
+  }
+  setup.measured = GetLittleEndian32(page, kMeasuredOffset);
+
+  const auto name_begin =
+      page.begin() + static_cast<std::ptrdiff_t>(kNameOffset);
+  setup.name = TruncateBoardName(std::string(
+      name_begin,
+      name_begin + static_cast<std::ptrdiff_t>(kBoardNameMaximumBytes)));
+  return true;
+}
+
 }  // namespace
+
+int DcOffsetRateIndex(uint8_t rate_mhz) {
+  for (size_t index = 0; index < kDcOffsetRatesMhz.size(); ++index) {
+    if (kDcOffsetRatesMhz[index] == rate_mhz) {
+      return static_cast<int>(index);
+    }
+  }
+  return -1;
+}
 
 const char* AdcPartName(AdcPart part) {
   switch (part) {
@@ -131,8 +181,21 @@ bool EffectiveRange2Vpp(const BoardSetup& setup, bool requested_2vpp) {
   return true;
 }
 
-int16_t DcOffsetFor(const BoardSetup& setup, bool range_2vpp) {
+const DcOffsetTable& DcOffsetsFor(const BoardSetup& setup, bool range_2vpp) {
   return range_2vpp ? setup.dc_offset_2vpp : setup.dc_offset_1vpp;
+}
+
+DcOffsetTable& DcOffsetsFor(BoardSetup& setup, bool range_2vpp) {
+  return range_2vpp ? setup.dc_offset_2vpp : setup.dc_offset_1vpp;
+}
+
+int16_t DcOffsetFor(const BoardSetup& setup, bool range_2vpp,
+                    uint8_t rate_mhz) {
+  const int index = DcOffsetRateIndex(rate_mhz);
+  if (index < 0) {
+    return 0;
+  }
+  return DcOffsetsFor(setup, range_2vpp)[static_cast<size_t>(index)];
 }
 
 std::string TruncateBoardName(std::string_view name) {
@@ -172,12 +235,9 @@ BoardSetupRecord EncodeBoardSetup(const BoardSetup& setup) {
 
   record[kAdcOffset] = static_cast<uint8_t>(setup.adc);
   record[kRselOffset] = static_cast<uint8_t>(setup.rsel_wiring);
-  PutLittleEndian16(record, kDcOffset1VppOffset,
-                    static_cast<uint16_t>(ClampDcOffset(setup.dc_offset_1vpp)));
-  PutLittleEndian16(record, kDcOffset2VppOffset,
-                    static_cast<uint16_t>(ClampDcOffset(setup.dc_offset_2vpp)));
-  PutLittleEndian32(record, kMeasured1VppOffset, setup.measured_1vpp);
-  PutLittleEndian32(record, kMeasured2VppOffset, setup.measured_2vpp);
+  PutTable(record, kOffsets1VppOffset, setup.dc_offset_1vpp);
+  PutTable(record, kOffsets2VppOffset, setup.dc_offset_2vpp);
+  PutLittleEndian32(record, kMeasuredOffset, setup.measured);
 
   const std::string name = TruncateBoardName(setup.name);
   std::copy(name.begin(), name.end(),
@@ -226,24 +286,10 @@ DecodedBoardSetup DecodeBoardSetup(std::span<const uint8_t> page) {
   setup.adc = static_cast<AdcPart>(adc);
   setup.rsel_wiring = static_cast<RselWiring>(rsel);
 
-  setup.dc_offset_1vpp =
-      static_cast<int16_t>(GetLittleEndian16(page, kDcOffset1VppOffset));
-  setup.dc_offset_2vpp =
-      static_cast<int16_t>(GetLittleEndian16(page, kDcOffset2VppOffset));
-  if (!DcOffsetInRange(setup.dc_offset_1vpp) ||
-      !DcOffsetInRange(setup.dc_offset_2vpp)) {
+  if (!DecodeFields(page, setup)) {
     decoded.state = BoardSetupRecordState::kDamaged;
     return decoded;
   }
-
-  setup.measured_1vpp = GetLittleEndian32(page, kMeasured1VppOffset);
-  setup.measured_2vpp = GetLittleEndian32(page, kMeasured2VppOffset);
-
-  const auto name_begin =
-      page.begin() + static_cast<std::ptrdiff_t>(kNameOffset);
-  const auto name_end =
-      name_begin + static_cast<std::ptrdiff_t>(kBoardNameMaximumBytes);
-  setup.name = TruncateBoardName(std::string(name_begin, name_end));
 
   decoded.state = BoardSetupRecordState::kValid;
   decoded.setup = setup;

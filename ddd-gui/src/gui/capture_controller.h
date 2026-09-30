@@ -133,10 +133,18 @@ class CaptureController : public QObject {
   // the scope subtracts when asked to show the signal as it is written.
   int32_t run_dc_offset() const { return run_dc_offset_; }
 
-  // Whether a DC offset measurement is running.
+  // The ADC rate, in MHz, the capture settings run at — "board default" taken
+  // as the 40 MHz every figure assumes for it. The rate whose offset applies.
+  uint8_t configured_rate_mhz() const {
+    return settings_.pll_preset_mhz != 0 ? settings_.pll_preset_mhz
+                                         : capture::kPllPreset40Mhz;
+  }
+
+  // Whether a DC offset measurement is running, and how many runs it has.
   bool measuring_dc_offset() const {
     return measure_phase_ != MeasurePhase::kIdle;
   }
+  size_t dc_offset_measurement_runs() const { return measure_steps_.size(); }
 
   const CaptureSettings& settings() const { return settings_; }
 
@@ -250,25 +258,31 @@ class CaptureController : public QObject {
   // device between them.
   void StopCapture();
 
-  // Measure the board's DC offset with nothing connected to its input: for
-  // each input range in `ranges` (true for 2Vpp), start the stream at that
-  // range, let it settle, average a second of it, and stop. Empty means each
-  // range the declared wiring can select; the Board setup page passes the
-  // ranges of the wiring it is showing, which may not have been written yet.
+  // Measure the board's DC offset with nothing connected to its input: at each
+  // ADC rate up to `max_rate_mhz` that the gateware can drive, and for each
+  // input range in `ranges` (true for 2Vpp), start the stream, let it settle,
+  // average a second of it, and stop.
+  //
+  // Empty `ranges` means each range the declared wiring can select, and a zero
+  // `max_rate_mhz` the declared converter's rating; the Board setup page passes
+  // what it is showing, which may not have been written yet. Eight rates and
+  // two ranges is sixteen runs, a little over twenty seconds.
   //
   // Refused while monitoring, for the reason WriteBoardSetup is. Nothing is
   // declared by this: each result arrives through DcOffsetMeasured for the
   // Board setup page to show, and it reaches the device only when that page
   // writes it. DcOffsetMeasurementFinished follows once, however it ended.
-  void MeasureDcOffset(const std::vector<bool>& ranges = {});
+  void MeasureDcOffset(const std::vector<bool>& ranges = {},
+                       uint8_t max_rate_mhz = 0);
 
  signals:
   // The board setup changed — read off a device that appeared, written, or
   // cleared because the device went away. Read it with board_setup().
   void BoardSetupChanged();
 
-  // One range's measurement, in converter codes.
-  void DcOffsetMeasured(bool range_2vpp, int offset);
+  // One run's measurement: the range, the ADC rate in MHz, and the offset in
+  // converter codes.
+  void DcOffsetMeasured(bool range_2vpp, int rate_mhz, int offset);
 
   // The measurement is over. `message` says why when it did not succeed.
   void DcOffsetMeasurementFinished(bool succeeded, const QString& message);
@@ -348,6 +362,10 @@ class CaptureController : public QObject {
   // The input range the next run streams at: a measurement's forced one, or
   // effective_range_2vpp().
   bool RunRange2Vpp() const;
+
+  // The ADC rate, in MHz, the next run streams at: a measurement's forced one,
+  // or the setting's, with "board default" taken as 40.
+  uint8_t RunRateMhz() const;
 
   // The DC offset the next run's writers take out, in converter codes: the
   // declared one for its range, and 0 in test mode or while measuring.
@@ -472,7 +490,15 @@ class CaptureController : public QObject {
     kStopping
   };
   MeasurePhase measure_phase_ = MeasurePhase::kIdle;
-  std::vector<bool> measure_ranges_;
+
+  // One run of a measurement: the range and the ADC rate it is taken at, and
+  // whether the rate is asked of the gateware or is simply the one it runs at.
+  struct MeasureStep {
+    bool range_2vpp = true;
+    uint8_t rate_mhz = 0;
+    bool sets_rate = true;
+  };
+  std::vector<MeasureStep> measure_steps_;
   size_t measure_index_ = 0;
   QTimer measure_timer_;
   QElapsedTimer measure_clock_;
@@ -481,8 +507,10 @@ class CaptureController : public QObject {
   uint16_t measure_maximum_ = 0;
   QString measure_failure_;
 
-  // The input range a measurement run forces, whatever the settings say.
+  // The input range and ADC rate a measurement run forces, whatever the
+  // settings say.
   std::optional<bool> range_override_;
+  std::optional<uint8_t> rate_override_;
 
   // Set only around the measurement's own call to StartMonitoring(), which is
   // the one start a running measurement admits.

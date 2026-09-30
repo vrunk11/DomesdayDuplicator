@@ -36,10 +36,10 @@ to keep it on the board.
 
 | Field | Choices | When nothing has been declared |
 | --- | --- | --- |
-| Board name | Free text, up to 32 bytes | Empty |
+| Board name | Free text, up to 16 bytes | Empty |
 | ADC fitted | **ADS825** — up to 40 MSPS · **ADS828** — up to 75 MSPS | ADS825 |
 | RSEL wiring | **Auto** — routed to the FPGA · **Low** — tied low, always 1Vpp · **High** — tied high, always 2Vpp | High |
-| DC offset at 1Vpp, at 2Vpp (10-bit) | −512 to +511, in steps of the 10-bit converter, with **Measure…** | 0 |
+| DC offset (10-bit) | A table: one value per ADC rate (40 to 75 MSPS) in each range, −512 to +511 in steps of the 10-bit converter, with **Measure…** | 0 everywhere |
 
 The defaults are the conservative board: every Duplicator ever built runs at 40 MSPS, and one
 whose RSEL is not routed captures at 2Vpp.
@@ -76,7 +76,15 @@ signal is centred in the file. The scope's [Corrected](signal-analysis.md#correc
 the result.
 
 One per range, because a DC error in the front end is a voltage, and 1Vpp spreads the same
-voltage over twice as many codes.
+voltage over twice as many codes. And one per ADC rate, because on real boards the offset moves
+with the clock: the converter's switched-capacitor input and its reference draw current in
+proportion to the sample rate, and on a board whose front end is biased from the converter's
+own reference pins (R402/R403 on the reference design) that shifts the signal's DC level. On
+the bench it moved by tens of codes between 40 and 75 MSPS.
+
+A capture uses the offset for its own rate and range. Only the rows the declared converter can
+run at, and the columns the RSEL wiring can select, are editable; the others can never be in
+force.
 
 Whole codes, deliberately. Samples are written as the converter code times 64, so their six low
 bits are always zero and FLAC stores them for nothing; a fractional correction would fill them.
@@ -90,18 +98,24 @@ not the converter's.
 1. Stop monitoring.
 2. **Disconnect the BNC input.** The dialog that opens asks you to, and **Cancel** there
    changes nothing.
-3. **Measure…** starts the stream at each range the RSEL wiring can select, lets it settle for a
-   quarter of a second, averages one second of it, and stops. One second is tens of millions of
-   samples, so the converter's noise averages away, and it is a whole number of mains cycles at
-   50 Hz and at 60 Hz, so hum does too.
-4. The results fill the fields, each with the time it was measured. They are not on the board
+3. **Measure…** goes through every ADC rate the declared converter allows and, at each, every
+   range the RSEL wiring can select: it starts the stream there, lets it settle for a quarter of
+   a second, averages one second of it, and stops. One second is tens of millions of samples, so
+   the converter's noise averages away, and it is a whole number of mains cycles at 50 Hz and at
+   60 Hz, so hum does too. For an ADS828 with RSEL on auto that is sixteen runs, a little over
+   twenty seconds; the tab counts them.
+4. The results fill the table, with the time they were measured. They are not on the board
    yet: **Write to board** puts them there.
+
+A gateware that cannot report which rates it supports cannot be asked for one either; its single
+measurement is filed under 40 MSPS, the rate every figure assumes for such a board.
 
 A measurement is refused when the input is not quiet — when the signal covered more than 64
 codes while it was being averaged. That is what the BNC still connected looks like, and the
 mean of a player's output would otherwise be declared as the board's own offset.
 
-An offset typed by hand is marked *not measured*.
+Editing any value by hand marks the table *not measured*: it is one declaration, and part of it
+is no longer what was measured.
 
 ## When the offset is wrong
 

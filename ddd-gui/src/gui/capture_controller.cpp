@@ -207,11 +207,18 @@ void CaptureController::CheckFirmware(
                      : capture::BoardSetupReading{};
   if (logger_ != nullptr) {
     const capture::BoardSetup& board = board_setup_.setup;
+    const auto table = [](const capture::DcOffsetTable& offsets) {
+      std::string text;
+      for (const int16_t offset : offsets) {
+        text += (text.empty() ? "" : " ") + std::to_string(offset);
+      }
+      return text;
+    };
     std::string described =
         std::string(capture::AdcPartName(board.adc)) + ", RSEL " +
-        capture::RselWiringName(board.rsel_wiring) + ", DC offset " +
-        std::to_string(board.dc_offset_1vpp) + " at 1Vpp and " +
-        std::to_string(board.dc_offset_2vpp) + " at 2Vpp";
+        capture::RselWiringName(board.rsel_wiring) +
+        ", DC offsets at 40-75 MHz: 1Vpp " + table(board.dc_offset_1vpp) +
+        ", 2Vpp " + table(board.dc_offset_2vpp);
     switch (board_setup_.source) {
       case capture::BoardSetupSource::kDeclared:
         logger_->Info("Board setup: " +
@@ -378,6 +385,13 @@ bool CaptureController::RunRange2Vpp() const {
                                      : effective_range_2vpp();
 }
 
+uint8_t CaptureController::RunRateMhz() const {
+  // "Board default" is the historical 40 MHz as far as every figure worked out
+  // from the rate is concerned (CaptureSettings::BaseSampleRateHz), and so it
+  // is here: the offset measured at 40 is the one that applies.
+  return rate_override_.value_or(configured_rate_mhz());
+}
+
 int32_t CaptureController::RunDcOffset() const {
   // Nothing is corrected in test mode, whose samples are the gateware's
   // counter and not the converter's, or while measuring, where what is wanted
@@ -385,7 +399,7 @@ int32_t CaptureController::RunDcOffset() const {
   if (settings_.test_mode || measuring_dc_offset()) {
     return 0;
   }
-  return capture::DcOffsetFor(board_setup_.setup, RunRange2Vpp());
+  return capture::DcOffsetFor(board_setup_.setup, RunRange2Vpp(), RunRateMhz());
 }
 
 bool CaptureController::WriteBoardSetup(const capture::BoardSetup& setup,
@@ -457,7 +471,8 @@ bool CaptureController::WriteBoardSetup(const capture::BoardSetup& setup,
   return true;
 }
 
-void CaptureController::MeasureDcOffset(const std::vector<bool>& ranges) {
+void CaptureController::MeasureDcOffset(const std::vector<bool>& ranges,
+                                        uint8_t max_rate_mhz) {
   if (measuring_dc_offset()) {
     return;
   }
@@ -477,12 +492,44 @@ void CaptureController::MeasureDcOffset(const std::vector<bool>& ranges) {
   // has an offset of its own; only the wired one where it does not, since the
   // other cannot be selected and a measurement labelled with it would be of the
   // wired one.
-  measure_ranges_ = ranges;
-  if (measure_ranges_.empty()) {
-    measure_ranges_ = input_range_selectable()
+  std::vector<bool> measured_ranges = ranges;
+  if (measured_ranges.empty()) {
+    measured_ranges = input_range_selectable()
                           ? std::vector<bool>{false, true}
                           : std::vector<bool>{effective_range_2vpp()};
   }
+
+  // Every rate the gateware can drive and the converter is declared for,
+  // since the offset moves with the clock. A gateware that cannot report its
+  // capability cannot be asked for a rate either: it runs at the one it was
+  // built for, which every figure takes to be 40 MHz, so that is where its
+  // measurement is filed.
+  measure_steps_.clear();
+  if (max_adc_rate_mhz_ == 0) {
+    for (const bool range_2vpp : measured_ranges) {
+      measure_steps_.push_back({range_2vpp, capture::kPllPreset40Mhz, false});
+    }
+  } else {
+    const uint8_t ceiling = max_rate_mhz != 0
+                                ? std::min(max_rate_mhz, max_adc_rate_mhz_)
+                                : max_adc_rate_mhz();
+    for (const uint8_t rate : capture::kDcOffsetRatesMhz) {
+      if (rate > ceiling) {
+        continue;
+      }
+      // Both ranges at one rate before moving on, so the PLL is retuned once
+      // per rate rather than once per run.
+      for (const bool range_2vpp : measured_ranges) {
+        measure_steps_.push_back({range_2vpp, rate, true});
+      }
+    }
+  }
+  if (measure_steps_.empty()) {
+    emit DcOffsetMeasurementFinished(
+        false, tr("This board has no ADC rate to measure at."));
+    return;
+  }
+
   measure_index_ = 0;
   measure_failure_.clear();
   measure_phase_ = MeasurePhase::kStarting;
@@ -490,7 +537,8 @@ void CaptureController::MeasureDcOffset(const std::vector<bool>& ranges) {
   if (logger_ != nullptr) {
     logger_->Info("Measuring the DC offset over " +
                   std::to_string(capture::kDcOffsetAveragingMilliseconds) +
-                  " ms per input range");
+                  " ms at each of " + std::to_string(measure_steps_.size()) +
+                  " rates and ranges");
   }
 
   measure_timer_.start();
@@ -504,7 +552,13 @@ void CaptureController::MeasurementStep() {
       return;
 
     case MeasurePhase::kStarting: {
-      range_override_ = measure_ranges_[measure_index_];
+      const MeasureStep& step = measure_steps_[measure_index_];
+      range_override_ = step.range_2vpp;
+      if (step.sets_rate) {
+        rate_override_ = step.rate_mhz;
+      } else {
+        rate_override_.reset();
+      }
       measure_run_starting_ = true;
       StartMonitoring();
       measure_run_starting_ = false;
@@ -558,7 +612,7 @@ void CaptureController::MeasurementStep() {
         return;
       }
 
-      const bool range_2vpp = measure_ranges_[measure_index_];
+      const MeasureStep& step = measure_steps_[measure_index_];
       const capture::DcOffsetResult result = capture::ComputeDcOffset(
           measure_start_, {stats.metrics.sample_count, stats.metrics.sum},
           measure_minimum_, measure_maximum_);
@@ -566,11 +620,15 @@ void CaptureController::MeasurementStep() {
       if (result.valid) {
         if (logger_ != nullptr) {
           logger_->Info(std::string("DC offset at ") +
-                        capture::InputRangeName(range_2vpp) + ": mean " +
+                        capture::InputRangeName(step.range_2vpp) + ", " +
+                        std::to_string(step.rate_mhz) + " MHz: mean " +
                         capture::FormatDecimal(result.mean, 2) +
-                        " codes, declared as " + std::to_string(result.offset));
+                        " codes over a span of " +
+                        std::to_string(static_cast<int>(measure_maximum_) -
+                                       static_cast<int>(measure_minimum_)) +
+                        ", declared as " + std::to_string(result.offset));
         }
-        emit DcOffsetMeasured(range_2vpp, result.offset);
+        emit DcOffsetMeasured(step.range_2vpp, step.rate_mhz, result.offset);
       } else {
         measure_failure_ = QString::fromStdString(result.problem);
       }
@@ -587,7 +645,7 @@ void CaptureController::MeasurementStep() {
       }
       ++measure_index_;
       if (!measure_failure_.isEmpty() ||
-          measure_index_ >= measure_ranges_.size()) {
+          measure_index_ >= measure_steps_.size()) {
         FinishMeasurement();
         return;
       }
@@ -601,6 +659,7 @@ void CaptureController::FinishMeasurement() {
   measure_timer_.stop();
   measure_phase_ = MeasurePhase::kIdle;
   range_override_.reset();
+  rate_override_.reset();
 
   if (monitoring_) {
     StopMonitoring();
@@ -670,18 +729,21 @@ void CaptureController::StartMonitoring() {
   // rather than the capture, which has not started, so a delay that turns
   // out to be far too generous costs a one-time pause when the rate is
   // changed and nothing while capturing.
-  if (settings_.pll_preset_mhz != last_pll_preset_sent_) {
-    if (!device_->WriteRegister(path, capture::kRegisterPllPreset,
-                                settings_.pll_preset_mhz)) {
+  //
+  // A DC offset measurement steps through the rates itself, so its own rate
+  // wins over the setting for the runs it starts.
+  const uint8_t preset = rate_override_.value_or(settings_.pll_preset_mhz);
+  if (preset != last_pll_preset_sent_) {
+    if (!device_->WriteRegister(path, capture::kRegisterPllPreset, preset)) {
       emit Failed(tr("The ADC rate could not be set"),
                   tr("The device did not accept the sample-rate preset "
                      "request. It may have been unplugged, or another "
                      "application may be using it."));
       return;
     }
-    last_pll_preset_sent_ = settings_.pll_preset_mhz;
+    last_pll_preset_sent_ = preset;
 
-    if (settings_.pll_preset_mhz != 0) {
+    if (preset != 0) {
       QThread::msleep(kPllPresetSettleMilliseconds);
     }
   }

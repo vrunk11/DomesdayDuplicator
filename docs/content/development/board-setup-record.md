@@ -59,20 +59,19 @@ interpreting it, so a field added in a later layout needs no firmware change.
 
 ## Layout
 
-64 bytes. Multi-byte fields are little-endian except the magic.
+64 bytes. Multi-byte fields are little-endian except the magic. The DC offset is held per ADC
+rate as well as per input range, because on real boards the offset moves with the clock.
 
 | Offset | Size | Field |
 | --- | --- | --- |
 | 0 | 4 | Magic `DDBS` (`0x44 0x44 0x42 0x53`), in that byte order so the page reads as itself in a dump |
-| 4 | 2 | Layout version. `1`. Zero is never valid, so a page of zeros is not a record |
+| 4 | 2 | Layout version, `1`. Zero is never valid, so a page of zeros is not a record |
 | 6 | 1 | Converter: `0` ADS825, `1` ADS828 |
 | 7 | 1 | RSEL wiring: `0` auto (routed to the FPGA), `1` tied low (1Vpp), `2` tied high (2Vpp) |
-| 8 | 2 | DC offset at 1Vpp, signed, in converter codes, −512 to +511 |
-| 10 | 2 | DC offset at 2Vpp, the same |
-| 12 | 4 | When the 1Vpp offset was measured, seconds since the Unix epoch; `0` for one entered by hand |
-| 16 | 4 | The same for 2Vpp |
-| 20 | 32 | Board name, UTF-8, padded with zeros; never cut inside a character |
-| 52 | 8 | Reserved, zero |
+| 8 | 16 | DC offsets at 1Vpp: eight signed 16-bit values, in converter codes, −512 to +511, for 40, 45, 50, 55, 60, 65, 70 and 75 MSPS in that order — every `PLL_PRESET` the gateware implements |
+| 24 | 16 | DC offsets at 2Vpp, the same |
+| 40 | 4 | When the offsets were last measured, seconds since the Unix epoch; `0` when any was entered by hand |
+| 44 | 16 | Board name, UTF-8, padded with zeros; never cut inside a character |
 | 60 | 4 | CRC-32 of bytes 0–59 |
 
 The CRC-32 is the reflected one — polynomial `0xEDB88320`, initial value all ones, final
@@ -80,9 +79,9 @@ complement — which is the one the [FPGA boot block](epcs-layout-and-boot-flow.
 its check value over `123456789` is `0xCBF43926`.
 
 The firmware accepts a page when the length is 64, the magic matches, the layout version is not
-zero and the CRC matches. The application additionally refuses, as damaged, a layout-1 record
-whose converter or wiring is not one of the values above or whose offsets are out of range, and
-treats a layout it does not know as written by a newer application — recognised, and not read.
+zero and the CRC matches. The application additionally refuses, as damaged, a record whose
+converter or wiring is not one of the values above or whose offsets are out of range, and treats
+a layout later than 1 as written by a newer application — recognised, and not read.
 
 ### When nothing has been declared
 
@@ -96,7 +95,8 @@ a damaged record, a newer layout, and a device whose firmware cannot store one.
   the declared converter's rating: 40 for the ADS825, 75 for the ADS828.
 - **Input range.** With RSEL auto the capture chooses; tied low or high, the capture runs at the
   wired range, and that is what is written to the `RANGE_SELECT` register and recorded.
-- **DC offset.** The declared offset for the range in use is taken out of every sample written:
+- **DC offset.** The declared offset for the rate and range in use — a gateware with no rate
+  presets counting as 40 MSPS — is taken out of every sample written:
   `(code − 512 − offset) × 64`, saturated to the 16-bit range rather than wrapped. The offset is
   in whole codes so the six low bits stay zero. It is recorded as `DDD_DC_OFFSET` and as
   `dc_offset` in the metadata. Test mode is never corrected.

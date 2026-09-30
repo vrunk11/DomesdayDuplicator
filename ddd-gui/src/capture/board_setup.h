@@ -72,8 +72,26 @@ enum class RselWiring : uint8_t {
 inline constexpr int kDcOffsetMinimum = -512;
 inline constexpr int kDcOffsetMaximum = 511;
 
+// The ADC rates an offset is kept for: every PLL_PRESET the gateware
+// implements (kPllPreset40Mhz..kPllPreset75Mhz in wire_protocol.h).
+//
+// Per rate, because on real boards the offset is not a constant of the board.
+// The converter's switched-capacitor input and its reference both draw current
+// in proportion to the clock, and on a board whose front end is biased from
+// the converter's own reference pins that moves the signal's DC level with the
+// rate — by tens of codes between 40 and 75 MHz on the bench.
+inline constexpr std::array<uint8_t, 8> kDcOffsetRatesMhz = {40, 45, 50, 55,
+                                                             60, 65, 70, 75};
+inline constexpr size_t kDcOffsetRateCount = kDcOffsetRatesMhz.size();
+
+// Where a rate sits in kDcOffsetRatesMhz, or -1 for a rate that is not one of
+// them.
+int DcOffsetRateIndex(uint8_t rate_mhz);
+
+using DcOffsetTable = std::array<int16_t, kDcOffsetRateCount>;
+
 // The board name, in UTF-8, at most this many bytes.
-inline constexpr size_t kBoardNameMaximumBytes = 32;
+inline constexpr size_t kBoardNameMaximumBytes = 16;
 
 // The record layout this build writes, and the only one it reads. A later
 // layout is recognised as a record and refused as one this build cannot
@@ -86,15 +104,15 @@ struct BoardSetup {
   RselWiring rsel_wiring = RselWiring::kHigh;
 
   // Per input range, because a DC error in the front end is a voltage and
-  // 1Vpp spreads the same voltage over twice as many codes.
-  int16_t dc_offset_1vpp = 0;
-  int16_t dc_offset_2vpp = 0;
+  // 1Vpp spreads the same voltage over twice as many codes — and per ADC
+  // rate, indexed as kDcOffsetRatesMhz is. See there for why.
+  DcOffsetTable dc_offset_1vpp{};
+  DcOffsetTable dc_offset_2vpp{};
 
-  // When each offset was last measured, in seconds since the Unix epoch, or 0
-  // for one entered by hand or never set. Shown beside the offset so that a
-  // figure measured on another board, months ago, looks like what it is.
-  uint32_t measured_1vpp = 0;
-  uint32_t measured_2vpp = 0;
+  // When the offsets were last measured, in seconds since the Unix epoch, or 0
+  // for offsets entered by hand or never set. Shown beside them so that a
+  // table measured on another board, months ago, looks like what it is.
+  uint32_t measured = 0;
 
   bool operator==(const BoardSetup&) const = default;
 };
@@ -116,8 +134,14 @@ bool InputRangeIsSelectable(const BoardSetup& setup);
 // routed to the FPGA, the wired one when it is not.
 bool EffectiveRange2Vpp(const BoardSetup& setup, bool requested_2vpp);
 
-// The declared offset for an input range.
-int16_t DcOffsetFor(const BoardSetup& setup, bool range_2vpp);
+// The declared offset for an input range at an ADC rate. 0 for a rate that is
+// not one of kDcOffsetRatesMhz: nothing was measured there, and a figure
+// borrowed from another rate would be a correction nobody checked.
+int16_t DcOffsetFor(const BoardSetup& setup, bool range_2vpp, uint8_t rate_mhz);
+
+// The table for an input range, to read or to fill.
+const DcOffsetTable& DcOffsetsFor(const BoardSetup& setup, bool range_2vpp);
+DcOffsetTable& DcOffsetsFor(BoardSetup& setup, bool range_2vpp);
 
 // A name cut to what the record holds: at most kBoardNameMaximumBytes, never
 // part of a UTF-8 sequence, and nothing from the first NUL on.

@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "capture_controller.h"
+#include "capture_format.h"
 
 namespace ddd::gui {
 namespace {
@@ -78,33 +79,23 @@ QString DescribeMeasuredAt(uint32_t measured) {
                .toString(QStringLiteral("yyyy-MM-dd HH:mm")));
 }
 
-QString DescribeBoardSummary(const capture::BoardSetupReading& reading) {
+QString DescribeBoardSummary(const capture::BoardSetupReading& reading,
+                             uint8_t rate_mhz, bool range_2vpp) {
   if (reading.source == capture::BoardSetupSource::kUnavailable) {
     return QString();
   }
 
   const capture::BoardSetup& setup = reading.setup;
-  const auto signed_code = [](int value) {
-    return value > 0 ? QStringLiteral("+%1").arg(value)
-                     : QString::number(value);
-  };
+  const int offset = capture::DcOffsetFor(setup, range_2vpp, rate_mhz);
 
-  QString offsets;
-  switch (setup.rsel_wiring) {
-    case capture::RselWiring::kAuto:
-      offsets = BoardSetupPage::tr("offset %1 at 1Vpp, %2 at 2Vpp")
-                    .arg(signed_code(setup.dc_offset_1vpp),
-                         signed_code(setup.dc_offset_2vpp));
-      break;
-    case capture::RselWiring::kLow:
-      offsets = BoardSetupPage::tr("offset %1")
-                    .arg(signed_code(setup.dc_offset_1vpp));
-      break;
-    case capture::RselWiring::kHigh:
-      offsets = BoardSetupPage::tr("offset %1")
-                    .arg(signed_code(setup.dc_offset_2vpp));
-      break;
-  }
+  // The one offset in force for the rate and range the capture runs at: the
+  // table has sixteen, and fifteen of them do not apply to this capture.
+  const QString offsets =
+      BoardSetupPage::tr("offset %1 at %2 MSPS, %3")
+          .arg(offset > 0 ? QStringLiteral("+%1").arg(offset)
+                          : QString::number(offset))
+          .arg(static_cast<int>(rate_mhz))
+          .arg(QString::fromUtf8(capture::InputRangeName(range_2vpp)));
 
   QString wiring;
   switch (setup.rsel_wiring) {
@@ -205,38 +196,58 @@ BoardSetupPage::BoardSetupPage(CaptureController* controller, QWidget* parent)
   grid->addWidget(new QLabel(tr("RSEL wiring"), this), 2, 0);
   grid->addWidget(rsel_, 2, 1, 1, 3);
 
-  const auto make_offset = [this](const char* name) {
+  layout->addLayout(grid);
+
+  // The offsets: a row per ADC rate and a column per input range, because the
+  // offset moves with the clock as well as with the range.
+  auto* table = new QGridLayout();
+  table->addWidget(new QLabel(tr("DC offset (10-bit)"), this), 0, 0);
+  table->addWidget(new QLabel(tr("1Vpp"), this), 0, 1, Qt::AlignHCenter);
+  table->addWidget(new QLabel(tr("2Vpp"), this), 0, 2, Qt::AlignHCenter);
+
+  const auto make_offset = [this](bool range_2vpp, uint8_t rate_mhz) {
     auto* spin = new QSpinBox(this);
-    spin->setObjectName(QLatin1String(name));
+    spin->setObjectName(OffsetSpinName(range_2vpp, rate_mhz));
     spin->setRange(capture::kDcOffsetMinimum, capture::kDcOffsetMaximum);
     spin->setToolTip(
         tr("How far this board's signal sits from the centre with nothing "
-           "connected, in steps of the 10-bit converter: 0 to 1023, centred "
-           "on 512, so +20 means the signal sits at 532. It is taken out of "
-           "every sample written, and recorded in the file so it can be put "
-           "back."));
+           "connected, at this ADC rate and range, in steps of the 10-bit "
+           "converter: 0 to 1023, centred on 512, so +20 means the signal sits "
+           "at 532. It is taken out of every sample written at this rate and "
+           "range, and recorded in the file so it can be put back."));
+    connect(spin, &QSpinBox::valueChanged, this, [this] { OnOffsetEdited(); });
     return spin;
   };
-  offset_1vpp_ = make_offset(kOffset1VppSpinName);
-  offset_2vpp_ = make_offset(kOffset2VppSpinName);
-  measured_1vpp_label_ = MakeNote(QString(), this);
-  measured_2vpp_label_ = MakeNote(QString(), this);
+
+  for (size_t index = 0; index < capture::kDcOffsetRateCount; ++index) {
+    const uint8_t rate = capture::kDcOffsetRatesMhz[index];
+    const int row = static_cast<int>(index) + 1;
+    table->addWidget(
+        new QLabel(tr("%1 MSPS").arg(static_cast<int>(rate)), this), row, 0);
+    offsets_1vpp_[index] = make_offset(false, rate);
+    offsets_2vpp_[index] = make_offset(true, rate);
+    table->addWidget(offsets_1vpp_[index], row, 1);
+    table->addWidget(offsets_2vpp_[index], row, 2);
+  }
 
   measure_ = new QPushButton(tr("Measure…"), this);
   measure_->setObjectName(QLatin1String(kMeasureButtonName));
   measure_->setToolTip(
       tr("Average one second of the stream with nothing connected to the "
-         "input, at each range the wiring can select."));
+         "input, at every ADC rate the declared converter allows and every "
+         "range the wiring can select — up to sixteen runs, a little over "
+         "twenty seconds."));
+  measured_label_ = MakeNote(QString(), this);
+  measured_label_->setObjectName(QLatin1String(kMeasuredLabelName));
 
-  grid->addWidget(new QLabel(tr("DC offset at 1Vpp (10-bit)"), this), 3, 0);
-  grid->addWidget(offset_1vpp_, 3, 1);
-  grid->addWidget(measured_1vpp_label_, 3, 2);
-  grid->addWidget(new QLabel(tr("DC offset at 2Vpp (10-bit)"), this), 4, 0);
-  grid->addWidget(offset_2vpp_, 4, 1);
-  grid->addWidget(measured_2vpp_label_, 4, 2);
-  grid->addWidget(measure_, 3, 3, 2, 1);
-  grid->setColumnStretch(2, 1);
-  layout->addLayout(grid);
+  auto* side = new QVBoxLayout();
+  side->addWidget(measure_);
+  side->addWidget(measured_label_);
+  side->addStretch(1);
+  table->addLayout(side, 1, 3, static_cast<int>(capture::kDcOffsetRateCount),
+                   1);
+  table->setColumnStretch(4, 1);
+  layout->addLayout(table);
 
   layout->addWidget(MakeNote(
       tr("Declaring a converter that is not fitted does not make the board "
@@ -272,18 +283,6 @@ BoardSetupPage::BoardSetupPage(CaptureController* controller, QWidget* parent)
           &BoardSetupPage::OnAdcChosen);
   connect(rsel_, &QComboBox::currentIndexChanged, this,
           [this] { UpdateEnabledState(); });
-  connect(offset_1vpp_, &QSpinBox::valueChanged, this, [this] {
-    if (!loading_) {
-      measured_1vpp_ = 0;
-      measured_1vpp_label_->setText(DescribeMeasuredAt(measured_1vpp_));
-    }
-  });
-  connect(offset_2vpp_, &QSpinBox::valueChanged, this, [this] {
-    if (!loading_) {
-      measured_2vpp_ = 0;
-      measured_2vpp_label_->setText(DescribeMeasuredAt(measured_2vpp_));
-    }
-  });
   connect(measure_, &QPushButton::clicked, this,
           &BoardSetupPage::OnMeasureClicked);
   connect(write_, &QPushButton::clicked, this, &BoardSetupPage::OnWriteClicked);
@@ -302,17 +301,35 @@ BoardSetupPage::BoardSetupPage(CaptureController* controller, QWidget* parent)
   LoadFromController();
 }
 
+QString BoardSetupPage::OffsetSpinName(bool range_2vpp, uint8_t rate_mhz) {
+  return QStringLiteral("board_setup_offset_%1_%2")
+      .arg(range_2vpp ? QStringLiteral("2vpp") : QStringLiteral("1vpp"))
+      .arg(static_cast<int>(rate_mhz));
+}
+
 capture::BoardSetup BoardSetupPage::Edited() const {
   capture::BoardSetup setup;
   setup.name = name_->text().toStdString();
   setup.adc = static_cast<capture::AdcPart>(adc_->currentData().toInt());
   setup.rsel_wiring =
       static_cast<capture::RselWiring>(rsel_->currentData().toInt());
-  setup.dc_offset_1vpp = static_cast<int16_t>(offset_1vpp_->value());
-  setup.dc_offset_2vpp = static_cast<int16_t>(offset_2vpp_->value());
-  setup.measured_1vpp = measured_1vpp_;
-  setup.measured_2vpp = measured_2vpp_;
+  for (size_t index = 0; index < capture::kDcOffsetRateCount; ++index) {
+    setup.dc_offset_1vpp[index] =
+        static_cast<int16_t>(offsets_1vpp_[index]->value());
+    setup.dc_offset_2vpp[index] =
+        static_cast<int16_t>(offsets_2vpp_[index]->value());
+  }
+  setup.measured = measured_;
   return setup;
+}
+
+void BoardSetupPage::OnOffsetEdited() {
+  // A figure typed by hand is not a measurement, and the table is one
+  // declaration: once any of it is edited, none of it is "measured on" a date.
+  if (!loading_) {
+    measured_ = 0;
+    measured_label_->setText(DescribeMeasuredAt(measured_));
+  }
 }
 
 void BoardSetupPage::LoadFromController() {
@@ -327,12 +344,12 @@ void BoardSetupPage::LoadFromController() {
   adc_->setCurrentIndex(adc_->findData(static_cast<int>(setup.adc)));
   adc_index_ = adc_->currentIndex();
   rsel_->setCurrentIndex(rsel_->findData(static_cast<int>(setup.rsel_wiring)));
-  offset_1vpp_->setValue(setup.dc_offset_1vpp);
-  offset_2vpp_->setValue(setup.dc_offset_2vpp);
-  measured_1vpp_ = setup.measured_1vpp;
-  measured_2vpp_ = setup.measured_2vpp;
-  measured_1vpp_label_->setText(DescribeMeasuredAt(measured_1vpp_));
-  measured_2vpp_label_->setText(DescribeMeasuredAt(measured_2vpp_));
+  for (size_t index = 0; index < capture::kDcOffsetRateCount; ++index) {
+    offsets_1vpp_[index]->setValue(setup.dc_offset_1vpp[index]);
+    offsets_2vpp_[index]->setValue(setup.dc_offset_2vpp[index]);
+  }
+  measured_ = setup.measured;
+  measured_label_->setText(DescribeMeasuredAt(measured_));
   loading_ = false;
 
   UpdateEnabledState();
@@ -342,10 +359,18 @@ void BoardSetupPage::UpdateEnabledState() {
   const auto wiring =
       static_cast<capture::RselWiring>(rsel_->currentData().toInt());
 
-  // Only the offsets of the ranges the wiring can select: the other one can
-  // never be in force, and a figure for it would be one nobody could check.
-  offset_1vpp_->setEnabled(wiring != capture::RselWiring::kHigh);
-  offset_2vpp_->setEnabled(wiring != capture::RselWiring::kLow);
+  // Only the offsets of the ranges the wiring can select, at the rates the
+  // declared converter can run at: any other can never be in force, and a
+  // figure for it would be one nobody could check.
+  const uint8_t max_rate = capture::AdcPartMaxRateMhz(
+      static_cast<capture::AdcPart>(adc_->currentData().toInt()));
+  for (size_t index = 0; index < capture::kDcOffsetRateCount; ++index) {
+    const bool rate_allowed = capture::kDcOffsetRatesMhz[index] <= max_rate;
+    offsets_1vpp_[index]->setEnabled(rate_allowed &&
+                                     wiring != capture::RselWiring::kHigh);
+    offsets_2vpp_[index]->setEnabled(rate_allowed &&
+                                     wiring != capture::RselWiring::kLow);
+  }
 
   const bool attached =
       controller_ != nullptr && controller_->board_setup().source !=
@@ -386,6 +411,9 @@ void BoardSetupPage::OnAdcChosen(int index) {
     }
   }
   adc_index_ = index;
+
+  // The rows the declared converter can run at.
+  UpdateEnabledState();
 }
 
 void BoardSetupPage::OnMeasureClicked() {
@@ -420,23 +448,41 @@ void BoardSetupPage::OnMeasureClicked() {
       break;
   }
 
+  // And the rates the converter on this page is rated for, for the same reason.
+  const uint8_t max_rate = capture::AdcPartMaxRateMhz(
+      static_cast<capture::AdcPart>(adc_->currentData().toInt()));
+
+  measured_runs_ = 0;
   result_->setText(tr("Measuring…"));
-  controller_->MeasureDcOffset(ranges);
+  controller_->MeasureDcOffset(ranges, max_rate);
+  if (controller_->measuring_dc_offset()) {
+    result_->setText(tr("Measuring… 0 of %1")
+                         .arg(static_cast<qulonglong>(
+                             controller_->dc_offset_measurement_runs())));
+  }
   UpdateEnabledState();
 }
 
-void BoardSetupPage::OnMeasured(bool range_2vpp, int offset) {
-  loading_ = true;
-  if (range_2vpp) {
-    offset_2vpp_->setValue(offset);
-    measured_2vpp_ = Now();
-    measured_2vpp_label_->setText(DescribeMeasuredAt(measured_2vpp_));
-  } else {
-    offset_1vpp_->setValue(offset);
-    measured_1vpp_ = Now();
-    measured_1vpp_label_->setText(DescribeMeasuredAt(measured_1vpp_));
+void BoardSetupPage::OnMeasured(bool range_2vpp, int rate_mhz, int offset) {
+  const int index = capture::DcOffsetRateIndex(static_cast<uint8_t>(rate_mhz));
+  if (index < 0) {
+    return;
   }
+
+  loading_ = true;
+  SpinColumn& column = range_2vpp ? offsets_2vpp_ : offsets_1vpp_;
+  column[static_cast<size_t>(index)]->setValue(offset);
+  measured_ = Now();
+  measured_label_->setText(DescribeMeasuredAt(measured_));
   loading_ = false;
+
+  ++measured_runs_;
+  if (controller_ != nullptr) {
+    result_->setText(tr("Measuring… %1 of %2")
+                         .arg(static_cast<qulonglong>(measured_runs_))
+                         .arg(static_cast<qulonglong>(
+                             controller_->dc_offset_measurement_runs())));
+  }
 }
 
 void BoardSetupPage::OnMeasurementFinished(bool succeeded,

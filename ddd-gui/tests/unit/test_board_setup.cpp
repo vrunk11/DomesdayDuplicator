@@ -17,6 +17,7 @@
 #include <string>
 
 #include "board_setup.h"
+#include "capture_format.h"
 #include "fake_usb_device.h"
 #include "wire_protocol.h"
 
@@ -30,10 +31,11 @@ BoardSetup BenchBoard() {
   setup.name = "Bench #2";
   setup.adc = AdcPart::kAds828;
   setup.rsel_wiring = RselWiring::kAuto;
-  setup.dc_offset_1vpp = -12;
-  setup.dc_offset_2vpp = 5;
-  setup.measured_1vpp = 1790000000U;
-  setup.measured_2vpp = 1790000060U;
+  // The shape a real board measured: rising with the clock, and further at
+  // 1Vpp, where the same voltage spans twice the codes.
+  setup.dc_offset_1vpp = {40, 52, 63, 71, 80, 92, 101, 111};
+  setup.dc_offset_2vpp = {-2, 4, 9, 14, 19, 24, 29, 34};
+  setup.measured = 1790000000U;
   return setup;
 }
 
@@ -44,13 +46,13 @@ BoardSetup BenchBoard() {
 // accept them.
 constexpr BoardSetupRecord kBenchBoardRecord = {
     0x44, 0x44, 0x42, 0x53, 0x01, 0x00, 0x01, 0x00,  //
-    0xF4, 0xFF, 0x05, 0x00, 0x80, 0x3B, 0xB1, 0x6A,  //
-    0xBC, 0x3B, 0xB1, 0x6A, 0x42, 0x65, 0x6E, 0x63,  //
+    0x28, 0x00, 0x34, 0x00, 0x3F, 0x00, 0x47, 0x00,  //
+    0x50, 0x00, 0x5C, 0x00, 0x65, 0x00, 0x6F, 0x00,  //
+    0xFE, 0xFF, 0x04, 0x00, 0x09, 0x00, 0x0E, 0x00,  //
+    0x13, 0x00, 0x18, 0x00, 0x1D, 0x00, 0x22, 0x00,  //
+    0x80, 0x3B, 0xB1, 0x6A, 0x42, 0x65, 0x6E, 0x63,  //
     0x68, 0x20, 0x23, 0x32, 0x00, 0x00, 0x00, 0x00,  //
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  //
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  //
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  //
-    0x00, 0x00, 0x00, 0x00, 0xAF, 0xE9, 0x77, 0xE5,  //
+    0x00, 0x00, 0x00, 0x00, 0xBC, 0x92, 0x87, 0x67,  //
 };
 
 // Recompute the checksum after a test has changed a byte on purpose, so that
@@ -74,8 +76,8 @@ TEST(BoardSetupTest, TheDefaultsAreTheConservativeBoard) {
   const BoardSetup setup;
   EXPECT_EQ(setup.adc, AdcPart::kAds825);
   EXPECT_EQ(setup.rsel_wiring, RselWiring::kHigh);
-  EXPECT_EQ(setup.dc_offset_1vpp, 0);
-  EXPECT_EQ(setup.dc_offset_2vpp, 0);
+  EXPECT_EQ(setup.dc_offset_1vpp, DcOffsetTable{});
+  EXPECT_EQ(setup.dc_offset_2vpp, DcOffsetTable{});
   EXPECT_TRUE(setup.name.empty());
 }
 
@@ -123,10 +125,33 @@ TEST(BoardSetupTest, TheWiringIsIndependentOfTheConverter) {
   EXPECT_FALSE(EffectiveRange2Vpp(setup, false));
 }
 
-TEST(BoardSetupTest, EachRangeHasItsOwnOffset) {
+// Every rate the gateware can be asked for has a place in the table, and
+// nothing else does.
+TEST(BoardSetupTest, TheTableHasAPlaceForEveryPreset) {
+  EXPECT_EQ(DcOffsetRateIndex(40), 0);
+  EXPECT_EQ(DcOffsetRateIndex(75), 7);
+  for (int mhz = 0; mhz <= 255; ++mhz) {
+    const auto rate = static_cast<uint8_t>(mhz);
+    EXPECT_EQ(DcOffsetRateIndex(rate) >= 0, IsSupportedPllPreset(rate))
+        << "rate " << mhz;
+  }
+}
+
+TEST(BoardSetupTest, EachRangeAndRateHasItsOwnOffset) {
   const BoardSetup setup = BenchBoard();
-  EXPECT_EQ(DcOffsetFor(setup, false), -12);
-  EXPECT_EQ(DcOffsetFor(setup, true), 5);
+  EXPECT_EQ(DcOffsetFor(setup, false, 40), 40);
+  EXPECT_EQ(DcOffsetFor(setup, false, 75), 111);
+  EXPECT_EQ(DcOffsetFor(setup, true, 40), -2);
+  EXPECT_EQ(DcOffsetFor(setup, true, 60), 19);
+  EXPECT_EQ(DcOffsetFor(setup, true, 75), 34);
+}
+
+// A rate nothing was measured at is not corrected with a figure borrowed from
+// another one.
+TEST(BoardSetupTest, ARateOutsideTheTableIsNotCorrected) {
+  const BoardSetup setup = BenchBoard();
+  EXPECT_EQ(DcOffsetFor(setup, true, 0), 0);
+  EXPECT_EQ(DcOffsetFor(setup, true, 62), 0);
 }
 
 // --- The board name ---------------------------------------------------------
@@ -144,10 +169,10 @@ TEST(BoardSetupTest, ALongNameIsCutToWhatTheRecordHolds) {
 // A cut through the middle of a multi-byte character would leave the record
 // holding bytes no UTF-8 reader accepts.
 TEST(BoardSetupTest, ANameIsNeverCutInsideACharacter) {
-  // 31 ASCII bytes and then "é" (two bytes): the second byte would be byte 33.
-  const std::string name = std::string(31, 'a') + "\xC3\xA9";
+  // 15 ASCII bytes and then "é" (two bytes): the second byte would be byte 17.
+  const std::string name = std::string(15, 'a') + "\xC3\xA9";
   const std::string cut = TruncateBoardName(name);
-  EXPECT_EQ(cut, std::string(31, 'a'));
+  EXPECT_EQ(cut, std::string(15, 'a'));
 }
 
 TEST(BoardSetupTest, ANameEndsAtItsFirstNul) {
@@ -185,8 +210,8 @@ TEST(BoardSetupTest, TheDefaultsRoundTripToo) {
 
 TEST(BoardSetupTest, TheOffsetsAtTheEndsOfTheirRangeRoundTrip) {
   BoardSetup setup;
-  setup.dc_offset_1vpp = static_cast<int16_t>(kDcOffsetMinimum);
-  setup.dc_offset_2vpp = static_cast<int16_t>(kDcOffsetMaximum);
+  setup.dc_offset_1vpp.fill(static_cast<int16_t>(kDcOffsetMinimum));
+  setup.dc_offset_2vpp.fill(static_cast<int16_t>(kDcOffsetMaximum));
   EXPECT_EQ(DecodeBoardSetup(EncodeBoardSetup(setup)).setup, setup);
 }
 
@@ -194,12 +219,12 @@ TEST(BoardSetupTest, TheOffsetsAtTheEndsOfTheirRangeRoundTrip) {
 // clamps rather than writing a figure the decoder would call damaged.
 TEST(BoardSetupTest, AnOffsetBeyondTheConverterIsClampedWhenEncoded) {
   BoardSetup setup;
-  setup.dc_offset_1vpp = 2000;
-  setup.dc_offset_2vpp = -2000;
+  setup.dc_offset_1vpp.fill(2000);
+  setup.dc_offset_2vpp.fill(-2000);
   const DecodedBoardSetup decoded = DecodeBoardSetup(EncodeBoardSetup(setup));
   EXPECT_EQ(decoded.state, BoardSetupRecordState::kValid);
-  EXPECT_EQ(decoded.setup.dc_offset_1vpp, kDcOffsetMaximum);
-  EXPECT_EQ(decoded.setup.dc_offset_2vpp, kDcOffsetMinimum);
+  EXPECT_EQ(decoded.setup.dc_offset_1vpp[3], kDcOffsetMaximum);
+  EXPECT_EQ(decoded.setup.dc_offset_2vpp[7], kDcOffsetMinimum);
 }
 
 // What an EEPROM nothing has declared on reads as. Not a damaged record — no
@@ -238,10 +263,10 @@ TEST(BoardSetupTest, LayoutVersionZeroIsDamage) {
 }
 
 // A newer application may have written fields this one does not know. It is a
-// record, so it is not blank, and it is not read as if it were layout 1.
+// record, so it is not blank, and it is not read as if it were this layout.
 TEST(BoardSetupTest, ALaterLayoutIsRecognisedAndNotInterpreted) {
   BoardSetupRecord page = kBenchBoardRecord;
-  page[4] = 2;
+  page[4] = static_cast<uint8_t>(kBoardSetupLayoutVersion + 1);
   const DecodedBoardSetup decoded = DecodeBoardSetup(Sealed(page));
   EXPECT_EQ(decoded.state, BoardSetupRecordState::kNewerLayout);
   EXPECT_EQ(decoded.setup, BoardSetup{});
