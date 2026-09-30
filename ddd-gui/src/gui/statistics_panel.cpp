@@ -79,6 +79,7 @@ StatisticsPanel::StatisticsPanel(CaptureController* controller, QWidget* parent)
   };
 
   throughput_ = add_row(tr("Throughput"), kThroughputLabelName);
+  sample_rate_ = add_row(tr("Sample rate"), kSampleRateLabelName);
   sequence_ = add_row(tr("Integrity"), kSequenceLabelName, true);
 
   // The device's buffer, then this machine's, in the order the samples travel
@@ -221,6 +222,7 @@ void StatisticsPanel::RefreshFreeSpace() {
 
 void StatisticsPanel::Apply(const StatisticsView& view) {
   throughput_->setText(view.throughput);
+  sample_rate_->setText(view.sample_rate);
   sequence_->setText(view.integrity);
   amplitude_->setText(view.signal_level);
   extremes_->setText(view.extremes);

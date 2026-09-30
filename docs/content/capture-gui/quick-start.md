@@ -83,8 +83,10 @@ end of it.
 
 First check the machine is doing its job, in the **Statistics** panel:
 
-1. **Throughput** should settle at about **76 MB/s (40.00 Msps)**. That figure is the
-   converter's rate, and a working device cannot exceed it.
+1. **Throughput** should settle at about **76 MB/s (40.00 Msps)** on a 40 MHz board, or
+   **143 MB/s (75.00 Msps)** on a 75 MHz one. That figure is the converter's rate, and a
+   working device cannot exceed it — **Sample rate**, just below it, shows it beside the
+   rate the settings expect.
 2. **Integrity** should say **Verified — no samples lost**.
 
 Now play a disc and ask the three questions of the signal itself. They are the three panels

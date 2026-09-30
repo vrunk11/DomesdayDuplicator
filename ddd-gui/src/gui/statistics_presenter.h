@@ -33,6 +33,11 @@ namespace ddd::gui {
 // for this panel actually ask for.
 struct StatisticsView {
   QString throughput;
+
+  // The rate samples are actually arriving at, beside the rate the settings
+  // say they should - see FormatSampleRate.
+  QString sample_rate;
+
   QString integrity;
 
   QString buffer;
@@ -186,6 +191,16 @@ QString FormatSpaceRemaining(
 // getting all of the signal. Showing only one leaves the other to be worked out
 // with a calculator.
 QString FormatThroughput(double bytes_per_second);
+
+// The sample rate received, measured from the throughput, beside the one the
+// settings expect: the ADC rate divided by the decimation.
+//
+// Both, because the difference between them is the point. Every figure worked
+// out from the rate - the file's label and tags, the displays, the duration
+// limit - is worked out from the expected one, and a device that did not
+// apply a rate change goes on streaming quite happily at the old one. Nothing
+// else on screen would show it; this line does, as two numbers that disagree.
+QString FormatSampleRate(double bytes_per_second, uint32_t expected_hz);
 
 // A sample range as a proportion of the 10-bit scale, which is the form the
 // number is actually used in: a user adjusting RF gain wants to know how much

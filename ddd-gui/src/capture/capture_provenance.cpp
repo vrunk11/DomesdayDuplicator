@@ -72,6 +72,10 @@ std::vector<FlacWriter::Tag> BuildProvenanceTags(
 
   tags.push_back({kTagTestMode, provenance.test_mode ? "true" : "false"});
 
+  if (!provenance.input_range.empty()) {
+    tags.push_back({kTagInputRange, provenance.input_range});
+  }
+
   if (!provenance.front_end_gain.empty()) {
     tags.push_back({kTagFrontEndGain, provenance.front_end_gain});
   }

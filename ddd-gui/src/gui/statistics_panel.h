@@ -49,6 +49,7 @@ class StatisticsPanel : public QWidget {
                            QWidget* parent = nullptr);
 
   static constexpr const char* kThroughputLabelName = "statistics_throughput";
+  static constexpr const char* kSampleRateLabelName = "statistics_sample_rate";
   static constexpr const char* kSequenceLabelName = "statistics_sequence";
   static constexpr const char* kBufferBarName = "statistics_buffer_fill";
   static constexpr const char* kBackPressureBarName =
@@ -91,6 +92,7 @@ class StatisticsPanel : public QWidget {
   uint32_t SampleRateHz() const;
 
   QLabel* throughput_ = nullptr;
+  QLabel* sample_rate_ = nullptr;
   QLabel* sequence_ = nullptr;
   QProgressBar* buffer_fill_ = nullptr;
   QProgressBar* back_pressure_ = nullptr;

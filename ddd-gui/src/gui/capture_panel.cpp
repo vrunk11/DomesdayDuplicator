@@ -171,29 +171,25 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
 
   sample_rate_combo_ = new QComboBox(contents);
   sample_rate_combo_->setObjectName(QLatin1String(kSampleRateComboName));
-  // Named by what each choice is for rather than by an absolute rate: this is
-  // a divisor of the ADC rate set below, not a rate of its own, and the two
-  // are independent settings. Stating a number here ("40 MSPS", "20 MSPS")
-  // was only ever true while the converter's own rate was fixed at 40 MSPS —
-  // once it became selectable via ADC rate, the same label would lie for
-  // every other choice there.
-  sample_rate_combo_->addItem(tr("Every sample (LaserDisc)"),
-                              capture::kUndecimatedFactor);
-  sample_rate_combo_->addItem(tr("Half rate (VHS and other tape)"),
-                              capture::kTapeDecimationFactor);
-  sample_rate_combo_->addItem(tr("Quarter rate"),
-                              capture::kQuarterDecimationFactor);
+  // Spelled as the divisor itself rather than as a rate: this divides the ADC
+  // rate set below, and is not a rate of its own. Stating a number here ("40
+  // MSPS", "20 MSPS") was only ever true while the converter's own rate was
+  // fixed at 40 MSPS - once it became selectable, the same label would lie
+  // for every other choice there. What each divisor is for is the tooltip's
+  // to say, and the rate that results is the Statistics panel's.
+  sample_rate_combo_->addItem(tr("/1"), capture::kUndecimatedFactor);
+  sample_rate_combo_->addItem(tr("/2"), capture::kTapeDecimationFactor);
+  sample_rate_combo_->addItem(tr("/4"), capture::kQuarterDecimationFactor);
   sample_rate_combo_->setToolTip(
       tr("How much further to divide the ADC rate set below, in the FPGA, "
-         "before samples reach this machine. Decimating low-passes the "
-         "signal first — at half its input rate for each step — so halving "
-         "twice for quarter rate costs two stages rather than one. Half "
-         "rate is enough for any tape RF, whose bandwidth is a fraction of a "
-         "LaserDisc's: VHS names the common case rather than the only one, "
-         "Betamax and Video8 are the same choice. Quarter rate is for "
-         "sources narrower still, or when the disk budget does not allow "
-         "half. Energy close to the new Nyquist still folds down around it, "
-         "so a signal with content up there should be captured at a lower "
+         "before samples reach this machine. /1 keeps every sample, which is "
+         "what a LaserDisc needs. Decimating low-passes the signal first — "
+         "at half its input rate for each step — so /4 costs two stages "
+         "rather than one. /2 is enough for any tape RF, whose bandwidth is "
+         "a fraction of a LaserDisc's: VHS, Betamax and Video8 alike. /4 is "
+         "for sources narrower still, or when the disk budget does not allow "
+         "/2. Energy close to the new Nyquist still folds down around it, so "
+         "a signal with content up there should be captured at a lower "
          "decimation instead."));
   form->addRow(tr("Decimation"), sample_rate_combo_);
 
@@ -413,14 +409,20 @@ void CapturePanel::RefreshPllPresetOptions() {
                                 : QVariant(0);
   pll_preset_combo_->clear();
 
-  pll_preset_combo_->addItem(tr("Board default"), 0);
-
   // 0 (no controller yet, or a board/gateware that predates or does not
-  // implement MAX_ADC_RATE_MHZ) offers nothing else - see max_adc_rate_mhz()
-  // and the register interface documentation for why 0 has to be read as
-  // "unknown" rather than as a literal zero-MHz converter.
+  // implement MAX_ADC_RATE_MHZ) is the one case with nothing to name - see
+  // max_adc_rate_mhz() and the register interface documentation for why 0 has
+  // to be read as "unknown" rather than as a literal zero-MHz converter. That
+  // board runs at whatever it was built for, and "Board default" is the only
+  // honest entry. A board that reports its capability is offered its rates by
+  // name instead, and the controller has already set the setting to the one
+  // the board comes up at (see CaptureController::CheckFirmware).
   const uint8_t max_rate =
       controller_ != nullptr ? controller_->max_adc_rate_mhz() : 0;
+
+  if (max_rate == 0) {
+    pll_preset_combo_->addItem(tr("Board default"), 0);
+  }
 
   static constexpr uint8_t kKnownPresets[] = {
       capture::kPllPreset40Mhz, capture::kPllPreset45Mhz,
@@ -442,8 +444,12 @@ void CapturePanel::RefreshPllPresetOptions() {
       controller_ != nullptr
           ? QVariant(static_cast<int>(controller_->settings().pll_preset_mhz))
           : previous;
+  // A setting not on the list lands on the fastest entry - the rate the board
+  // comes up at - rather than the slowest, which would claim a rate change
+  // nobody asked for.
   const int restored = pll_preset_combo_->findData(wanted);
-  pll_preset_combo_->setCurrentIndex(restored >= 0 ? restored : 0);
+  pll_preset_combo_->setCurrentIndex(
+      restored >= 0 ? restored : pll_preset_combo_->count() - 1);
 }
 
 void CapturePanel::UpdateNamePlaceholder() {

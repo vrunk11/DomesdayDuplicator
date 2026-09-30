@@ -155,6 +155,7 @@ void CaptureController::CheckFirmware(
     warned_device_product_.clear();
     fpga_version_ = capture::FpgaVersion{};
     max_adc_rate_mhz_ = 0;
+    last_pll_preset_sent_ = -1;
     return;
   }
 
@@ -166,6 +167,13 @@ void CaptureController::CheckFirmware(
   warned_device_path_ = path;
   warned_device_product_ = product;
 
+  // A device seen for the first time, or again after it went away, has been
+  // sent no preset. Its PLL came up at the rate its gateware was compiled for
+  // whatever this application last asked of a device, and remembering the old
+  // request here skipped the write that would have changed it: a board
+  // replugged after a 60 MHz request captured at 75 MHz, in a file labelled 60.
+  last_pll_preset_sent_ = -1;
+
   // Read the gateware's identity while the device is being looked at anyway,
   // so the Firmware dialog can show all three versions without opening the
   // device itself. A device that cannot answer leaves this default
@@ -174,6 +182,25 @@ void CaptureController::CheckFirmware(
   // both land here and both capture perfectly well.
   fpga_version_ = ReadFpgaVersion(selected->path);
   max_adc_rate_mhz_ = ReadMaxAdcRateMhz(selected->path);
+
+  // A board that reports its capability runs at a rate this application can
+  // name, so the setting names it rather than leaving it as "board default" -
+  // which every figure worked out from the rate (the file's label and tags,
+  // the displays, the duration limit) had to read as the historical 40 MHz,
+  // wrongly for any faster board. A setting the board cannot run is replaced
+  // the same way. Applied for this session rather than saved, because a
+  // command line's overrides may be in effect and those are never written;
+  // the next change made in the window saves it along with everything else.
+  if (max_adc_rate_mhz_ != 0 && !monitoring_) {
+    const uint8_t wanted = settings_.pll_preset_mhz;
+    const uint8_t board_rate =
+        capture::HighestPllPresetAtMost(max_adc_rate_mhz_);
+    if (board_rate != 0 && (wanted > max_adc_rate_mhz_ ||
+                            !capture::IsSupportedPllPreset(wanted))) {
+      settings_.pll_preset_mhz = board_rate;
+      emit SettingsChanged(settings_);
+    }
+  }
 
   const capture::FirmwareIdentity firmware =
       capture::DescribeFirmware(selected->product_string);
@@ -499,6 +526,8 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
     provenance.test_mode = settings_.test_mode;
     provenance.decimation_factor = decimation;
     provenance.base_sample_rate_hz = settings_.BaseSampleRateHz();
+    provenance.input_range =
+        capture::InputRangeName(settings_.range_select_2vpp);
     provenance.started = now;
     provenance.disc = disc_provenance_;
 
@@ -545,6 +574,8 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
   pending_metadata_.test_mode = settings_.test_mode;
   pending_metadata_.decimation_factor = decimation;
   pending_metadata_.sample_rate_hz = settings_.SampleRateHz();
+  pending_metadata_.input_range =
+      capture::InputRangeName(settings_.range_select_2vpp);
   pending_metadata_.started = now;
   pending_metadata_.device = CurrentDeviceBuild();
   pending_metadata_.player = player_identity_;
@@ -895,14 +926,15 @@ void CaptureController::CheckDurationLimit(const capture::CaptureStats& stats) {
   // number compared against a counter, not a ring that would have to be
   // reallocated.
   //
-  // Divided by the decimation, because samples_written counts what reached the
-  // file rather than what came off the device: a 2:1 capture puts half as many
-  // samples in a file per second of signal, and a limit that ignored that would
-  // run for twice as long as it was asked to.
+  // At the rate samples reach the file, because samples_written counts what
+  // reached the file rather than what came off the device: a 2:1 capture puts
+  // half as many samples in a file per second of signal, and a limit that
+  // ignored that would run for twice as long as it was asked to. The same goes
+  // for the converter's own rate - a limit worked out from the default 40 MHz
+  // stopped a 75 MHz capture a little past halfway.
   const uint64_t limit_samples =
       static_cast<uint64_t>(settings_.duration_limit_seconds) *
-      capture::kSampleRateHz /
-      static_cast<uint64_t>(settings_.decimation_factor);
+      settings_.SampleRateHz();
 
   if (stats.samples_written < limit_samples) {
     return;

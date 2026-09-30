@@ -152,6 +152,30 @@ QString FormatThroughput(double bytes_per_second) {
       .arg(megasamples, 0, 'f', 2);
 }
 
+QString FormatSampleRate(double bytes_per_second, uint32_t expected_hz) {
+  const double expected_megasamples =
+      static_cast<double>(expected_hz) / 1'000'000.0;
+
+  if (bytes_per_second <= 0.0) {
+    return expected_hz == 0 ? None()
+                            : Translate("%1  (expected %2 Msps)")
+                                  .arg(None())
+                                  .arg(expected_megasamples, 0, 'f', 2);
+  }
+
+  const double received_megasamples =
+      bytes_per_second / static_cast<double>(capture::kBytesPerSample) /
+      1'000'000.0;
+
+  if (expected_hz == 0) {
+    return Translate("%1 Msps received").arg(received_megasamples, 0, 'f', 2);
+  }
+
+  return Translate("%1 Msps received  (expected %2 Msps)")
+      .arg(received_megasamples, 0, 'f', 2)
+      .arg(expected_megasamples, 0, 'f', 2);
+}
+
 QString FormatAmplitude(const capture::SampleMetricsSnapshot& metrics,
                         const analysis::FrontEndGain& gain) {
   if (metrics.sample_count == 0) {
@@ -275,6 +299,7 @@ StatisticsView PresentIdleStatistics(const analysis::FrontEndGain& gain,
                                      double bytes_per_second) {
   StatisticsView view;
   view.throughput = None();
+  view.sample_rate = None();
   view.integrity = None();
   view.buffer = None();
   view.back_pressure = None();
@@ -302,6 +327,8 @@ StatisticsView PresentStatistics(const capture::CaptureStats& stats,
       PresentIdleStatistics(gain, speed, space, bytes_per_second);
 
   view.throughput = FormatThroughput(stats.throughput_bytes_per_second);
+  view.sample_rate =
+      FormatSampleRate(stats.throughput_bytes_per_second, sample_rate_hz);
   view.integrity = DescribeSequenceState(stats.sequence_state);
 
   if (stats.slot_count > 0) {

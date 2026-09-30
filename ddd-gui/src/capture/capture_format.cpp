@@ -31,6 +31,23 @@ bool IsSupportedPllPreset(uint8_t mhz) {
          mhz == kPllPreset70Mhz || mhz == kPllPreset75Mhz;
 }
 
+uint8_t HighestPllPresetAtMost(uint8_t max_mhz) {
+  static constexpr uint8_t kFastestFirst[] = {
+      kPllPreset75Mhz, kPllPreset70Mhz, kPllPreset65Mhz, kPllPreset60Mhz,
+      kPllPreset55Mhz, kPllPreset50Mhz, kPllPreset45Mhz, kPllPreset40Mhz};
+
+  for (const uint8_t preset : kFastestFirst) {
+    if (preset <= max_mhz) {
+      return preset;
+    }
+  }
+  return 0;
+}
+
+const char* InputRangeName(bool range_select_2vpp) {
+  return range_select_2vpp ? "2Vpp" : "1Vpp";
+}
+
 uint32_t FlacSampleRateLabelFor(int decimation_factor, uint32_t base_rate_hz) {
   const uint32_t label = base_rate_hz / kFlacLabelScale;
   if (!IsSupportedDecimationFactor(decimation_factor)) {

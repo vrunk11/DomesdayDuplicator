@@ -240,6 +240,31 @@ TEST(StatisticsPresenterTest, NoThroughputYetIsBlankRatherThanZero) {
   EXPECT_EQ(FormatThroughput(0.0), None());
 }
 
+// The received rate beside the expected one. A device that did not apply a
+// rate change streams on at the old rate, and this is the one place the two
+// numbers can be seen to disagree.
+TEST(StatisticsPresenterTest, TheSampleRateShowsReceivedBesideExpected) {
+  // 150,000,000 bytes per second is 75 Msps; the settings asked for 60.
+  const QString text = FormatSampleRate(150'000'000.0, 60'000'000);
+
+  EXPECT_TRUE(text.contains(QStringLiteral("75.00"))) << text.toStdString();
+  EXPECT_TRUE(text.contains(QStringLiteral("60.00"))) << text.toStdString();
+  EXPECT_LT(text.indexOf(QStringLiteral("75.00")),
+            text.indexOf(QStringLiteral("60.00")))
+      << "the received rate comes first: " << text.toStdString();
+}
+
+TEST(StatisticsPresenterTest, NothingReceivedYetStillSaysWhatIsExpected) {
+  const QString text = FormatSampleRate(0.0, 75'000'000);
+
+  EXPECT_TRUE(text.startsWith(None())) << text.toStdString();
+  EXPECT_TRUE(text.contains(QStringLiteral("75.00"))) << text.toStdString();
+}
+
+TEST(StatisticsPresenterTest, WithNeitherRateTheSampleRateIsBlank) {
+  EXPECT_EQ(FormatSampleRate(0.0, 0), None());
+}
+
 TEST(StatisticsPresenterTest, TheAmplitudeIsGivenAsAProportionOfTheRange) {
   capture::SampleMetricsSnapshot metrics;
   metrics.sample_count = 1000;

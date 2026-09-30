@@ -167,11 +167,12 @@ same reason: the higher levels are very nearly free on a multithreaded libFLAC a
 of gigabytes over a disc side. Encoding after the fact is not racing the device, so there is
 no argument at all for a lower one.
 
-`--sample-rate=40000` is the **label**, not the rate — the same 40,000 Hz stand-in the
-application writes, for the reason given above. A capture taken at **Half rate (VHS and
-other tape)** takes `--sample-rate=20000` instead, and one taken at **Quarter rate** takes
-`--sample-rate=10000`. Nothing in the raw file distinguishes any of these, so this is the
-step that the rate has to have been written down for.
+`--sample-rate=40000` is the **label**, not the rate — the rate the capture was written at,
+divided by 1,000, which is the stand-in the application writes for the reason given above.
+`40000` is an undecimated capture at 40 MHz; one at **/2** takes `--sample-rate=20000`, one
+at **/4** takes `--sample-rate=10000`, and a 75 MHz board undecimated takes `75000`. Nothing
+in the raw file distinguishes any of these, so this is the step that the rate has to have
+been written down for.
 
 Verify before deleting the raw file:
 
@@ -201,10 +202,12 @@ sidecar, put back what is known by hand:
 metaflac --set-tag=DDD_SAMPLE_RATE_HZ=40000000 \
          --set-tag=DDD_DECIMATION=1 \
          --set-tag=DDD_TEST_MODE=false \
+         --set-tag=DDD_INPUT_RANGE=2Vpp \
          capture.ddd.flac
 ```
 
-For a 20 Msps capture that is `DDD_SAMPLE_RATE_HZ=20000000` and `DDD_DECIMATION=2`. Leave
+For a 20 Msps capture that is `DDD_SAMPLE_RATE_HZ=20000000` and `DDD_DECIMATION=2`, and
+`DDD_INPUT_RANGE` is whichever of `2Vpp` or `1Vpp` the capture was taken with. Leave
 out anything that is being guessed at rather than known — a tag that is wrong is worse than
 a tag that is missing, which is the same rule the application follows with front-end gain.
 

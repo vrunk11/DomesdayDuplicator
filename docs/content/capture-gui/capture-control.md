@@ -144,20 +144,21 @@ Both are read back by **Tools → Test data → Analyse test data…** and by `-
 
 | Choice | What you get |
 | --- | --- |
-| **Every sample (LaserDisc)** | The converter's own rate, undivided. The default |
-| **Half rate (VHS and other tape)** | Half the rate, half the file |
-| **Quarter rate** | A quarter of the rate, a quarter of the file |
+| **/1** | Every sample: the converter's own rate, undivided. What a LaserDisc needs. The default |
+| **/2** | Half the rate, half the file. Enough for VHS and other tape |
+| **/4** | A quarter of the rate, a quarter of the file |
 
-The choices are named by what they are for and by how much they divide, rather than by an
-absolute number: this setting divides the [ADC rate](#adc-rate) below, and that rate is
-itself a separate, independently selectable setting — a build with a reconfigurable PLL is
-not always running at 40 Msps, so a fixed number here would only be true for the default rate.
-"Half" always means half of whatever the ADC rate is, however that was chosen.
+The choices are spelled as the divisor, rather than as a rate: this setting divides the
+[ADC rate](#adc-rate) below, and that rate is itself a separate, independently selectable
+setting — a build with a reconfigurable PLL is not always running at 40 Msps, so a fixed
+number here would only be true for one rate. **/2** always means half of whatever the ADC
+rate is, however that was chosen. The rate that results is on the **Sample rate** line of the
+[Statistics](statistics.md) panel.
 
-**VHS names the common case for half rate rather than the only one** — Betamax, Video8 and
-any other tape format are the same choice, because what they share is a bandwidth that is a
-fraction of a LaserDisc's. Quarter rate is for sources narrower still, or for when the disk
-budget does not allow half.
+**VHS is the common case for /2 rather than the only one** — Betamax, Video8 and any other
+tape format are the same choice, because what they share is a bandwidth that is a fraction of
+a LaserDisc's. **/4** is for sources narrower still, or for when the disk budget does not
+allow /2.
 
 **Decimation happens in the FPGA, not on this machine**, and that is what makes it worth
 having: dividing the rate correctly means low-passing the signal first, at half of whatever
@@ -225,18 +226,29 @@ wired to read it back from, so the setting is harmless to leave alone on either 
 Written to the device before the stream is opened, on the same terms as decimation above:
 fixed from the moment monitoring starts, and not changeable under a running stream.
 
+Every capture records the range it was taken with — the `DDD_INPUT_RANGE` tag in a FLAC file
+and `input_range` in the [metadata file](capture-naming.md#what-the-metadata-file-contains) —
+because the same sample value is twice the voltage at 2Vpp that it is at 1Vpp, and levels
+from two captures can only be compared when both say which.
+
 ### ADC rate
 
 The converter's own rate, before decimation above divides it further — sent to the device as
-PLL_PRESET. **Board default** is whatever rate this build's gateware was compiled for, and is
-the only choice offered by a board or gateware build that cannot report which other rates it
-supports; a board built with a reconfigurable PLL offers every rate up to its own
-`MAX_ADC_RATE_MHZ` capability instead.
+PLL_PRESET. A board that reports its capability (`MAX_ADC_RATE_MHZ`) is offered every rate up
+to that maximum **by name**, and the setting starts on the rate the board comes up at, which
+is that maximum — so a 75 MHz board shows **75 MSPS**, never an unnamed default. A setting the
+connected board cannot run is replaced the same way when the board is found.
+
+**Board default** is offered only by a board or gateware build that cannot report its
+capability. It means "whatever rate this gateware was compiled for", and the application
+works out its figures for such a board at the historical 40 Msps.
 
 This is a property of the converter, not of the capture: decimation above always divides
-whatever this is set to, and nothing in the application assumes it is any particular number.
-A capture's real rate — after both settings are applied — is what is written into the FLAC
-label and the `DDD_SAMPLE_RATE_HZ` tag, not a number baked into either control.
+whatever this is set to. A capture's rate — after both settings are applied — is what is
+written into the FLAC label and the `DDD_SAMPLE_RATE_HZ` tag, and what the displays, the
+duration limit and the metadata file are worked out from. The **Sample rate** line of the
+[Statistics](statistics.md) panel shows it beside the rate actually arriving, so a board that
+did not apply a change is visible as two numbers that disagree.
 
 Refused by the device if it is above what the connected board can do, on the same terms as
 every other register write here: fixed from the moment monitoring starts, and not changeable

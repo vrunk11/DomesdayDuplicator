@@ -201,8 +201,9 @@ a field that was never encoded — are written as `\x00` escapes rather than dro
 | `file` | The capture's file name — the name alone, never the path, so the pair survives being copied to an archive drive |
 | `format` | `FLAC` or `signed 16-bit` |
 | `test_mode` | Whether this is signal or a test ramp. Always written, either way |
-| `sample_rate_hz` | The real rate — `40000000`, or `20000000` when decimating |
-| `decimation_factor` | `1` or `2` |
+| `sample_rate_hz` | The rate the file was written at: the ADC rate divided by the decimation — `75000000` for an undecimated capture on a 75 MHz board, `37500000` for the same board at /2 |
+| `decimation_factor` | `1`, `2` or `4` |
+| `input_range` | `2Vpp` or `1Vpp` — the ADC's input range, without which a sample value cannot be turned into a voltage |
 | `front_end_gain` | The declared SW401 position — **only when one was actually declared** |
 | `started`, `finished` | ISO 8601, local time with the offset, so the timestamps agree with the file name and are still unambiguous |
 | `duration_seconds` | Worked out from the file's own sample count, not from a clock |
@@ -343,6 +344,7 @@ examination at all.
   "test_mode": false
   "sample_rate_hz": 40000000
   "decimation_factor": 1
+  "input_range": "2Vpp"
   "front_end_gain": "SW401 4 — 20 dB"
   "started": "2026-08-17T14:30:00+01:00"
   "finished": "2026-08-17T15:11:12+01:00"

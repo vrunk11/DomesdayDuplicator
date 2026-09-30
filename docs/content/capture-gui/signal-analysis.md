@@ -69,8 +69,7 @@ was ever stored in the derived units.
 ## At 20 Msps
 
 Every figure on these three panels is a property of the stream, so all of them follow the
-[Decimation](capture-control.md#decimation) setting. Choose **Half rate (VHS and other
-tape)** and:
+[Decimation](capture-control.md#decimation) setting. Choose **/2** and:
 
 | Reading | At 40 Msps | At 20 Msps (half rate) | At 10 Msps (quarter rate) |
 | --- | --- | --- | --- |

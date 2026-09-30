@@ -102,6 +102,20 @@ bool IsSupportedDecimationFactor(int factor);
 // to be one the gateware actually has a scan sequence for.
 bool IsSupportedPllPreset(uint8_t mhz);
 
+// The highest preset IsSupportedPllPreset accepts that is no faster than
+// max_mhz, or 0 when there is none - which includes a max_mhz of 0, the
+// "capability unknown" reading of MAX_ADC_RATE_MHZ.
+//
+// This is the rate a board comes up at: the gateware's power-on self-check
+// (pllPresetController.v) scans the PLL down to exactly this preset whenever
+// the build's compiled-in rate is faster than its MaxAdcRateMHz, and on every
+// build this project makes the compiled-in rate is otherwise that maximum.
+uint8_t HighestPllPresetAtMost(uint8_t max_mhz);
+
+// What a capture records its input range as: the ADC's RSEL setting, spelled
+// the way the source's output level is specified.
+const char* InputRangeName(bool range_select_2vpp);
+
 // The rate label for a file written at a given decimation of base_rate_hz —
 // the converter's own rate, defaulting to the device's default 40,000,000 Hz
 // for a build that has not asked for a different one via PLL_PRESET. A 2:1

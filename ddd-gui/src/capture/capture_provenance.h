@@ -32,6 +32,7 @@ inline constexpr const char* kTagSampleRate = "DDD_SAMPLE_RATE_HZ";
 inline constexpr const char* kTagDecimation = "DDD_DECIMATION";
 inline constexpr const char* kTagTestMode = "DDD_TEST_MODE";
 inline constexpr const char* kTagFrontEndGain = "DDD_FRONT_END_GAIN";
+inline constexpr const char* kTagInputRange = "DDD_INPUT_RANGE";
 
 // What the device was running: the FX3's commit and the FPGA's. Written only
 // where the device said, on the same terms as everything else here.
@@ -127,6 +128,13 @@ struct CaptureProvenance {
   // of it, and a wrong assumption here would be silent in exactly the way a
   // decimated file with no decimation_factor was.
   uint32_t base_sample_rate_hz = kSampleRateHz;
+
+  // The ADC's input range the capture was taken with, as InputRangeName()
+  // spells it - or empty, which writes no tag. What a sample value means in
+  // volts depends on it: the same code is twice the voltage at 2Vpp that it
+  // is at 1Vpp, so a file that does not say which is one whose levels cannot
+  // be compared with any other.
+  std::string input_range;
 
   // The front-end gain the user declared, as a sentence — or empty for a gain
   // that was never declared.

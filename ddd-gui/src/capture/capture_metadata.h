@@ -313,6 +313,10 @@ struct CaptureMetadata {
   int decimation_factor = 1;
   uint32_t sample_rate_hz = 0;
 
+  // The ADC's input range, as InputRangeName() spells it, or empty for a
+  // capture that did not record one. See CaptureProvenance::input_range.
+  std::string input_range;
+
   // The declared front-end gain, as a sentence, or empty for a gain that was
   // never declared. Empty is the important case: a figure nobody checked would
   // read as calibration data.

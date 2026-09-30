@@ -151,6 +151,22 @@ TEST_F(CaptureProvenanceTest, ADeclaredGainTravelsWithTheSamples) {
             "switches 1, 3 (x3.34, 599 mV p-p full scale)");
 }
 
+// The same sample code is twice the voltage at 2Vpp that it is at 1Vpp, so a
+// file that does not say which cannot have its levels compared with another.
+TEST_F(CaptureProvenanceTest, TheInputRangeTravelsWithTheSamples) {
+  CaptureProvenance facts = Facts();
+  facts.input_range = InputRangeName(false);
+
+  EXPECT_EQ(Value(BuildProvenanceTags(facts), kTagInputRange), "1Vpp");
+}
+
+TEST_F(CaptureProvenanceTest, AnUnrecordedInputRangeWritesNoTag) {
+  CaptureProvenance facts = Facts();
+  facts.input_range.clear();
+
+  EXPECT_FALSE(Value(BuildProvenanceTags(facts), kTagInputRange).has_value());
+}
+
 TEST_F(CaptureProvenanceTest, TheDateIsIso8601) {
   EXPECT_EQ(Value(BuildProvenanceTags(Facts()), kTagDate), "2026-08-13");
 }

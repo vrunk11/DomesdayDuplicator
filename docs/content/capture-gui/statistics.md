@@ -18,10 +18,26 @@ why the figure reads the device's true 40 Msps throughout instead of creeping up
 over the first minute.
 
 Both units, because both are useful: MB/s against the drive and the USB link, Msps against
-the converter. A working device delivers 40.00 Msps and physically cannot deliver more — it
-is clocked by a 40 MHz converter. **A figure noticeably above that means the samples are not
-coming from the ADC at all**, which is an unprogrammed or wrongly programmed FPGA rather
-than a fast one.
+the converter. A working device delivers the [ADC rate](capture-control.md#adc-rate) divided
+by the [decimation](capture-control.md#decimation) — 40.00 Msps from a 40 MHz board at /1,
+75.00 from a 75 MHz one — and physically cannot deliver more. **A figure noticeably above
+that means the samples are not coming from the ADC at all**, which is an unprogrammed or
+wrongly programmed FPGA rather than a fast one.
+
+## Sample rate
+
+```
+75.00 Msps received  (expected 75.00 Msps)
+```
+
+The rate the samples are actually arriving at, worked out from the throughput above, beside
+the rate the capture settings say they should: the ADC rate divided by the decimation.
+
+The two should agree to within a fraction of a percent. **When they do not, believe the
+received one.** Everything worked out from the rate — the FLAC label and the
+`DDD_SAMPLE_RATE_HZ` tag, the scope and spectrum axes, the duration limit, the metadata file
+— uses the expected rate, so a board that did not apply an ADC rate change goes on streaming
+at its old rate while every label says the new one. This line is where that shows.
 
 ## Integrity
 
