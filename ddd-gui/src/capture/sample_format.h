@@ -133,21 +133,24 @@ inline constexpr int16_t ToSigned16Bit(int32_t ten_bit_value) {
                               kSampleScale);
 }
 
-// The converter's own resolution, and the least a capture may keep of it.
-//
-// Six is the floor, four bits dropped. Each bit dropped costs 6 dB of
-// quantisation noise, and below eight the sync tips, the dropout detection and
-// the chroma in the FM sidebands start to be what is lost rather than fine
-// detail — allowed, because it is the user's trade to make, and recorded in
-// every file so that it can never be mistaken for a full capture.
+// The converter's own resolution.
 inline constexpr int kConverterBits = 10;
-inline constexpr int kMinimumKeptBits = 6;
 
 // The largest bit shift: four bits, a digital gain of x16.
 inline constexpr int kMaximumBitShift = 4;
 
+// The most low bits a capture may drop: four, leaving six of the ten.
+//
+// Each bit dropped costs 6 dB of quantisation noise, and beyond two the sync
+// tips, the dropout detection and the chroma in the FM sidebands start to be
+// what is lost rather than fine detail — allowed, because it is the user's
+// trade to make, and recorded in every file so that it can never be mistaken
+// for a full capture.
+inline constexpr int kMaximumLsbDrop = 4;
+
 // Everything done to a converter code on its way into a capture — every
-// writer applies exactly this, and every capture records exactly this.
+// writer applies exactly this, and every capture records exactly this. Each is
+// the action taken, not what it leaves, which is also how the files record it.
 //
 //  - dc_offset: the board's declared DC offset, in whole converter codes,
 //    taken out (board_setup.h).
@@ -156,34 +159,33 @@ inline constexpr int kMaximumBitShift = 4;
 //    bits it opens at the bottom are zero in every sample, which FLAC stores
 //    for free — but a weak signal at full scale is easier to read in every
 //    tool that displays one.
-//  - kept_bits: how much of the converter's resolution is kept, 10 down to 6.
+//  - lsb_drop: how many of the converter's low bits are dropped, 0 to 4.
 //    Dropping bits is the one way to make a capture meaningfully smaller: the
 //    low bits are mostly noise and noise does not compress, so each one
 //    dropped saves nearly a bit a sample. Counted in the converter's bits
-//    whatever the shift, so that a shift and a reduction cannot cancel: a
-//    shift of two at eight bits keeps eight bits of the signal, not ten with
+//    whatever the shift, so that a shift and a drop cannot cancel: a shift of
+//    two with two bits dropped keeps eight bits of the signal, not ten with
 //    two zeros removed.
 //
-// Applied in that order, and the order is the point — see
+// Declared, and applied, in that order, and the order is the point — see
 // UnsaturatedConverted(). Values outside those ranges are clamped wherever
 // they are used, so a settings file from elsewhere cannot ask for something no
 // writer does.
 struct SampleConversion {
   int32_t dc_offset = 0;
-  int kept_bits = kConverterBits;
   int bit_shift = 0;
+  int lsb_drop = 0;
 
   bool operator==(const SampleConversion& other) const = default;
 };
 
-// The low bits a conversion drops, and the bits it shifts up by, as used.
-inline constexpr int DroppedBits(const SampleConversion& conversion) {
-  return std::clamp(kConverterBits - conversion.kept_bits, 0,
-                    kConverterBits - kMinimumKeptBits);
-}
-
+// The bits a conversion shifts up by and the low bits it drops, as used.
 inline constexpr int BitShift(const SampleConversion& conversion) {
   return std::clamp(conversion.bit_shift, 0, kMaximumBitShift);
+}
+
+inline constexpr int LsbDrop(const SampleConversion& conversion) {
+  return std::clamp(conversion.lsb_drop, 0, kMaximumLsbDrop);
 }
 
 // A centred value rounded to a step of 2^step_bits, half to even.
@@ -221,7 +223,7 @@ inline constexpr int32_t RoundToStep(int32_t centred, int step_bits) {
 inline constexpr int32_t ConvertedTopSample(
     const SampleConversion& conversion) {
   return (kSampleZeroOffset * kSampleScale) -
-         (kSampleScale << (DroppedBits(conversion) + BitShift(conversion)));
+         (kSampleScale << (LsbDrop(conversion) + BitShift(conversion)));
 }
 
 // The converted sample before it is saturated, in 32 bits.
@@ -234,8 +236,8 @@ inline constexpr int32_t ConvertedTopSample(
 //  2. Bit shift. Shifted up in 32 bits, where nothing can overflow, so a sample
 //     the shift takes past full scale is still known exactly at the end rather
 //     than having been clipped half way through.
-//  3. Dropping bits, last. Rounded to the step that keeps kept_bits of the
-//     converter's resolution at this shift — 2^(dropped + bit_shift) in the
+//  3. Dropping LSBs, last. Rounded to the step that drops lsb_drop of the
+//     converter's bits at this shift — 2^(lsb_drop + bit_shift) in the
 //     shifted units — so the shift is never mistaken for resolution.
 //
 // Saturating to sixteen bits is not a step of its own but the end of the
@@ -246,7 +248,7 @@ inline constexpr int32_t UnsaturatedConverted(
       ten_bit_value - kSampleZeroOffset - conversion.dc_offset;
   const int32_t shifted = centred * (int32_t{1} << BitShift(conversion));
   const int32_t rounded =
-      RoundToStep(shifted, DroppedBits(conversion) + BitShift(conversion));
+      RoundToStep(shifted, LsbDrop(conversion) + BitShift(conversion));
   return rounded * kSampleScale;
 }
 

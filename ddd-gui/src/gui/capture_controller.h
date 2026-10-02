@@ -131,7 +131,7 @@ class CaptureController : public QObject {
   bool WriteBoardSetup(const capture::BoardSetup& setup, QString& message);
 
   // What the running stream's writers do to every sample — the DC offset, the
-  // bit shift and the resolution kept — fixed when the stream starts, and
+  // bit shift and the LSB drop — fixed when the stream starts, and
   // the converter untouched in test mode or while measuring. What the scope
   // applies when asked to show the signal as it is written, and what every
   // file opened during the run is written with.
@@ -414,7 +414,7 @@ class CaptureController : public QObject {
   int32_t RunDcOffset() const;
 
   // The whole conversion the next run's writers apply: RunDcOffset(), and the
-  // settings' resolution and bit shift — none of it in test mode or while
+  // settings' bit shift and LSB drop — none of it in test mode or while
   // measuring.
   capture::SampleConversion RunConversion() const;
 

@@ -207,18 +207,18 @@ TEST_F(CaptureProvenanceTest, NoBoardToDescribeWritesNoBoardTags) {
 }
 
 // What was done to the signal travels with it, the defaults included: a file
-// that was not reduced has to be able to say so, or an untouched capture and
+// nothing was done to has to be able to say so, or an untouched capture and
 // one written before these tags existed could not be told apart.
-TEST_F(CaptureProvenanceTest, TheResolutionAndTheBitShiftAreAlwaysRecorded) {
+TEST_F(CaptureProvenanceTest, TheBitShiftAndTheLsbDropAreAlwaysRecorded) {
   const std::vector<FlacWriter::Tag> untouched = BuildProvenanceTags(Facts());
-  EXPECT_EQ(Value(untouched, kTagSampleBits), "10");
+  EXPECT_EQ(Value(untouched, kTagLsbDrop), "0");
   EXPECT_EQ(Value(untouched, kTagBitShift), "0");
 
   CaptureProvenance facts = Facts();
-  facts.sample_bits = 8;
+  facts.lsb_drop = 2;
   facts.bit_shift = 2;
   const std::vector<FlacWriter::Tag> reduced = BuildProvenanceTags(facts);
-  EXPECT_EQ(Value(reduced, kTagSampleBits), "8");
+  EXPECT_EQ(Value(reduced, kTagLsbDrop), "2");
   EXPECT_EQ(Value(reduced, kTagBitShift), "2");
 }
 

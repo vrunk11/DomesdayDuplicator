@@ -1274,19 +1274,19 @@ TEST_F(CaptureToDiskTest, AnUncompressedCaptureGetsTheSameMetadataFile) {
 
 // --- What is kept of the signal -------------------------------------------
 
-// Eight bits, shifted up one: every sample in the file sits on the step that
-// leaves, and the file says what was done to it.
+// Shifted up one, two LSBs dropped: every sample in the file sits on the step
+// that leaves, and the file says what was done to it.
 TEST_F(CaptureToDiskTest, AReducedCaptureHoldsWhatItSaysItHolds) {
   Settings([](CaptureSettings& settings) {
     settings.output_format = capture::CaptureOutputFormat::kSigned16Bit;
-    settings.sample_bits = 8;
     settings.bit_shift = 1;
+    settings.lsb_drop = 2;
   });
 
   controller_->StartCapture();
   ASSERT_TRUE(controller_->capturing());
-  EXPECT_EQ(controller_->run_conversion().kept_bits, 8);
   EXPECT_EQ(controller_->run_conversion().bit_shift, 1);
+  EXPECT_EQ(controller_->run_conversion().lsb_drop, 2);
 
   ASSERT_TRUE(PumpUntil([&] {
     return !WrittenFiles().empty() &&
@@ -1313,20 +1313,20 @@ TEST_F(CaptureToDiskTest, AReducedCaptureHoldsWhatItSaysItHolds) {
   }
 
   const std::string document = ReadWholeFile(MetadataFiles().front());
-  EXPECT_NE(document.find("\"sample_bits\": 8"), std::string::npos) << document;
+  EXPECT_NE(document.find("\"lsb_drop\": 2"), std::string::npos) << document;
   EXPECT_NE(document.find("\"bit_shift\": 1"), std::string::npos) << document;
   EXPECT_NE(document.find("\"shift_clipped_samples\":"), std::string::npos)
       << document;
 }
 
-// A test capture is written exactly as counted whatever the reduction and the
-// bit shift are set to, so its ramp still checks — and it says so.
+// A test capture is written exactly as counted whatever the bit shift and the
+// LSB drop are set to, so its ramp still checks — and it says so.
 TEST_F(CaptureToDiskTest, ATestCaptureIsNeverReducedOrAmplified) {
   Settings([](CaptureSettings& settings) {
     settings.test_mode = true;
     settings.output_format = capture::CaptureOutputFormat::kSigned16Bit;
-    settings.sample_bits = 8;
     settings.bit_shift = 2;
+    settings.lsb_drop = 2;
   });
 
   controller_->StartCapture();
@@ -1349,8 +1349,7 @@ TEST_F(CaptureToDiskTest, ATestCaptureIsNeverReducedOrAmplified) {
       << analysis.message;
 
   const std::string document = ReadWholeFile(MetadataFiles().front());
-  EXPECT_NE(document.find("\"sample_bits\": 10"), std::string::npos)
-      << document;
+  EXPECT_NE(document.find("\"lsb_drop\": 0"), std::string::npos) << document;
   EXPECT_NE(document.find("\"bit_shift\": 0"), std::string::npos) << document;
 }
 

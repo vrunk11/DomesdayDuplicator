@@ -429,32 +429,32 @@ TEST_F(CaptureCliDirectoryTest, AFileWhereAFolderWasNamedIsRefused) {
       << parsed.error.toStdString();
 }
 
-// --- --sample-bits and --bit-shift --------------------------------------
+// --- --bit-shift and --lsb-drop ----------------------------------------
 
-TEST(CaptureCliTest, TheResolutionAndTheBitShiftAreTakenAsGiven) {
+TEST(CaptureCliTest, TheBitShiftAndTheLsbDropAreTakenAsGiven) {
   const Parsed parsed =
-      Parse({QStringLiteral("--sample-bits"), QStringLiteral("6"),
-             QStringLiteral("--bit-shift"), QStringLiteral("4")});
+      Parse({QStringLiteral("--bit-shift"), QStringLiteral("4"),
+             QStringLiteral("--lsb-drop"), QStringLiteral("3")});
 
   ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
-  EXPECT_EQ(parsed.options.sample_bits, std::optional<int>(6));
   EXPECT_EQ(parsed.options.bit_shift, std::optional<int>(4));
+  EXPECT_EQ(parsed.options.lsb_drop, std::optional<int>(3));
 
   CaptureSettings settings;
   ApplyCliOverrides(settings, parsed.options);
-  EXPECT_EQ(settings.sample_bits, 6);
   EXPECT_EQ(settings.bit_shift, 4);
+  EXPECT_EQ(settings.lsb_drop, 3);
 }
 
-// Six bits is the floor: four dropped, and no more. Above ten there is nothing
-// to keep.
-TEST(CaptureCliTest, AResolutionOutsideSixToTenBitsIsRefused) {
-  for (const char* bits : {"5", "11", "eight", ""}) {
+// A count of the bits dropped, not of the bits kept: 8 is refused rather than
+// taken to mean "keep eight", and four is as many as may go.
+TEST(CaptureCliTest, AnLsbDropOutsideZeroToFourBitsIsRefused) {
+  for (const char* drop : {"5", "8", "two", ""}) {
     const Parsed parsed =
-        Parse({QStringLiteral("--sample-bits"), QLatin1String(bits)});
-    EXPECT_TRUE(parsed.accepted) << bits;
-    EXPECT_TRUE(parsed.error.contains(QStringLiteral("--sample-bits")))
-        << bits << ": " << parsed.error.toStdString();
+        Parse({QStringLiteral("--lsb-drop"), QLatin1String(drop)});
+    EXPECT_TRUE(parsed.accepted) << drop;
+    EXPECT_TRUE(parsed.error.contains(QStringLiteral("--lsb-drop")))
+        << drop << ": " << parsed.error.toStdString();
   }
 }
 
@@ -471,15 +471,15 @@ TEST(CaptureCliTest, AShiftOutsideZeroToFourBitsIsRefused) {
 
 // Both change the samples themselves, so both apply to what the pipe carries
 // as much as to a file — unlike the options that name a file.
-TEST(CaptureCliTest, ThePipeAloneTakesTheResolutionAndTheBitShift) {
+TEST(CaptureCliTest, ThePipeAloneTakesTheBitShiftAndTheLsbDrop) {
   const Parsed parsed =
       Parse({QStringLiteral("--start-capture"), QStringLiteral("--pipe"),
-             QStringLiteral("--sample-bits"), QStringLiteral("9"),
-             QStringLiteral("--bit-shift"), QStringLiteral("1")});
+             QStringLiteral("--bit-shift"), QStringLiteral("1"),
+             QStringLiteral("--lsb-drop"), QStringLiteral("1")});
 
   ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
-  EXPECT_EQ(parsed.options.sample_bits, std::optional<int>(9));
   EXPECT_EQ(parsed.options.bit_shift, std::optional<int>(1));
+  EXPECT_EQ(parsed.options.lsb_drop, std::optional<int>(1));
 }
 
 // --- Laying them over the settings -----------------------------------------

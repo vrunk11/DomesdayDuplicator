@@ -69,7 +69,7 @@ struct CaptureCliOptionSet {
   QCommandLineOption input_range;
   QCommandLineOption duration_limit;
   QCommandLineOption output_format;
-  QCommandLineOption sample_bits;
+  QCommandLineOption lsb_drop;
   QCommandLineOption bit_shift;
   QCommandLineOption pipe;
   QCommandLineOption save;
@@ -121,10 +121,10 @@ struct CaptureCliOptions {
   std::optional<int> duration_limit_seconds;
   std::optional<capture::CaptureOutputFormat> output_format;
 
-  // The converter bits kept, 6 to 10, and the bit shift, 0 to 4 — see
+  // The bit shift, 0 to 4, and the low bits dropped, 0 to 4 — see
   // capture::SampleConversion. Both apply to standard output under
   // --pipe as much as to a file, since both change the samples themselves.
-  std::optional<int> sample_bits;
+  std::optional<int> lsb_drop;
   std::optional<int> bit_shift;
 
   // Whether anything about the capture itself was named. An attribute given

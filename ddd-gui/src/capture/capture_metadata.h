@@ -351,12 +351,12 @@ struct CaptureMetadata {
   std::string input_range;
 
   // What was done to the signal beyond the DC offset, which the board block
-  // carries: how much of the converter's resolution was kept, and the
-  // bit shift applied. Written always, at their defaults too, so that a
-  // file that was not reduced says so rather than leaving it to be assumed.
-  // See SampleConversion.
-  int sample_bits = kConverterBits;
+  // carries, as the actions taken: how many bits it was shifted up, and how
+  // many of the converter's low bits were dropped. Written always, at zero
+  // too, so that a file nothing was done to says so rather than leaving it to
+  // be assumed. See SampleConversion.
   int bit_shift = 0;
+  int lsb_drop = 0;
 
   // The declared front-end gain, as a sentence, or empty for a gain that was
   // never declared. Empty is the important case: a figure nobody checked would

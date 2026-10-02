@@ -238,26 +238,10 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
          "encoder-backlog figures in the Statistics panel are what say so."));
   form->addRow(tr("Compression"), compression_spin_);
 
-  // What is kept of the signal, and how far it is shifted up. Both are applied
-  // after the DC offset and are recorded in the file's tags and its metadata,
-  // so a reduced capture can never be taken for a full one.
-  sample_bits_combo_ = new QComboBox(contents);
-  sample_bits_combo_->setObjectName(QLatin1String(kSampleBitsComboName));
-  sample_bits_combo_->addItem(
-      tr("%1 bits (all of them)").arg(capture::kConverterBits),
-      capture::kConverterBits);
-  for (int bits = capture::kConverterBits - 1;
-       bits >= capture::kMinimumKeptBits; --bits) {
-    sample_bits_combo_->addItem(tr("%1 bits").arg(bits), bits);
-  }
-  sample_bits_combo_->setToolTip(
-      tr("How much of the converter's resolution the capture keeps. The low "
-         "bits are mostly noise and noise does not compress, so each bit "
-         "dropped makes a FLAC capture noticeably smaller — and costs 6 dB "
-         "of quantisation noise. Rounded, never truncated. Not applied in "
-         "test mode."));
-  form->addRow(tr("Resolution"), sample_bits_combo_);
-
+  // What is done to the signal after the DC offset, in the order it is done:
+  // shifted up, then its low bits dropped. Both are recorded in the file's
+  // tags and its metadata as the actions they are, so a reduced capture can
+  // never be taken for a full one.
   bit_shift_combo_ = new QComboBox(contents);
   bit_shift_combo_->setObjectName(QLatin1String(kBitShiftComboName));
   for (int shift = 0; shift <= capture::kMaximumBitShift; ++shift) {
@@ -274,6 +258,28 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
          "scale is clipped: a warning says so while monitoring. Not applied "
          "in test mode."));
   form->addRow(tr("Bit shift (digital gain)"), bit_shift_combo_);
+
+  lsb_drop_combo_ = new QComboBox(contents);
+  lsb_drop_combo_->setObjectName(QLatin1String(kLsbDropComboName));
+  for (int drop = 0; drop <= capture::kMaximumLsbDrop; ++drop) {
+    const int kept = capture::kConverterBits - drop;
+    QString label;
+    if (drop == 0) {
+      label = tr("0 bits (keep all %1)").arg(kept);
+    } else if (drop == 1) {
+      label = tr("1 bit (keep %1)").arg(kept);
+    } else {
+      label = tr("%1 bits (keep %2)").arg(drop).arg(kept);
+    }
+    lsb_drop_combo_->addItem(label, drop);
+  }
+  lsb_drop_combo_->setToolTip(
+      tr("Drop this many of the converter's low bits before the capture is "
+         "written. They are mostly noise and noise does not compress, so "
+         "each bit dropped makes a FLAC capture noticeably smaller — and "
+         "costs 6 dB of quantisation noise. Rounded, never truncated. Not "
+         "applied in test mode."));
+  form->addRow(tr("LSB drop"), lsb_drop_combo_);
 
   // The limit and the button that clears it, side by side. A limit is the one
   // setting here that is set for a single capture and then wants to be gone
@@ -392,7 +398,7 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
           [this](int) { ApplySettingsFromWidgets(); });
   connect(compression_spin_, &QSpinBox::valueChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
-  connect(sample_bits_combo_, &QComboBox::currentIndexChanged, this,
+  connect(lsb_drop_combo_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
   connect(bit_shift_combo_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
@@ -484,8 +490,8 @@ void CapturePanel::ShowSettings() {
       range_select_combo_->findData(controller_->effective_range_2vpp()));
   RefreshPllPresetOptions();
   compression_spin_->setValue(settings.compression_level);
-  sample_bits_combo_->setCurrentIndex(
-      sample_bits_combo_->findData(settings.sample_bits));
+  lsb_drop_combo_->setCurrentIndex(
+      lsb_drop_combo_->findData(settings.lsb_drop));
   bit_shift_combo_->setCurrentIndex(
       bit_shift_combo_->findData(settings.bit_shift));
   // Rounded to the nearest whole minute for display. The stored value is in
@@ -617,7 +623,7 @@ void CapturePanel::ApplySettingsFromWidgets() {
   settings.pll_preset_mhz =
       static_cast<uint8_t>(pll_preset_combo_->currentData().toInt());
   settings.compression_level = compression_spin_->value();
-  settings.sample_bits = sample_bits_combo_->currentData().toInt();
+  settings.lsb_drop = lsb_drop_combo_->currentData().toInt();
   settings.bit_shift = bit_shift_combo_->currentData().toInt();
   settings.duration_limit_seconds = duration_spin_->value() * 60;
   settings.low_space_warning_minutes = low_space_spin_->value();
@@ -1035,7 +1041,7 @@ void CapturePanel::UpdateEnabledState() {
   // Fixed for a run when it starts, as the DC offset is: the pipeline counts
   // what the shift clips and the scope draws what the file holds, and both
   // have to be judging the conversion the writers are actually applying.
-  sample_bits_combo_->setEnabled(!monitoring_);
+  lsb_drop_combo_->setEnabled(!monitoring_);
   bit_shift_combo_->setEnabled(!monitoring_);
 
   // These three are read as the capture runs rather than when it starts, so all

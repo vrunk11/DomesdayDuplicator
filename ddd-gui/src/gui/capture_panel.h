@@ -74,8 +74,7 @@ class CapturePanel : public QWidget {
   static constexpr const char* kPllPresetComboName = "capture_pll_preset_combo";
   static constexpr const char* kCompressionSpinName =
       "capture_compression_spin";
-  static constexpr const char* kSampleBitsComboName =
-      "capture_sample_bits_combo";
+  static constexpr const char* kLsbDropComboName = "capture_lsb_drop_combo";
   static constexpr const char* kBitShiftComboName = "capture_bit_shift_combo";
   static constexpr const char* kDurationSpinName = "capture_duration_spin";
   static constexpr const char* kDurationResetButtonName =
@@ -211,7 +210,7 @@ class CapturePanel : public QWidget {
   QComboBox* range_select_combo_ = nullptr;
   QComboBox* pll_preset_combo_ = nullptr;
   QSpinBox* compression_spin_ = nullptr;
-  QComboBox* sample_bits_combo_ = nullptr;
+  QComboBox* lsb_drop_combo_ = nullptr;
   QComboBox* bit_shift_combo_ = nullptr;
   QSpinBox* duration_spin_ = nullptr;
   QPushButton* duration_reset_button_ = nullptr;

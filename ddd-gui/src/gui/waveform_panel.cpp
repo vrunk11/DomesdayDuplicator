@@ -779,8 +779,8 @@ void WaveformPanel::OnWaveformReady(const std::vector<uint16_t>& codes) {
   }
 
   // The same thing the writers do, in the 10-bit domain the plot draws in:
-  // each code centred by the offset, shifted up, rounded to the
-  // bits kept and held at the end of the range it would otherwise leave —
+  // each code centred by the offset, shifted up, its low bits dropped by
+  // rounding, and held at the end of the range it would otherwise leave —
   // which is exactly what the file holds. See capture::ConvertedTenBitCode.
   corrected_codes_.resize(codes.size());
   for (size_t index = 0; index < codes.size(); ++index) {

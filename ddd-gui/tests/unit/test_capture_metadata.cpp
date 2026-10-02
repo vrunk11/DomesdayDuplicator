@@ -309,20 +309,20 @@ TEST_F(CaptureMetadataTest, SamplesTheCorrectionPushedOutOfRangeAreRecorded) {
 }
 
 // Every change made to the signal is in the sidecar beside the DC offset: the
-// resolution kept and the bit shift applied, written at their defaults too, and
+// bit shift and the LSB drop, as the actions taken and written at zero too, and
 // the samples the shift clipped counted with the rest of the signal's figures.
-TEST_F(CaptureMetadataTest, TheResolutionAndTheBitShiftAreRecorded) {
+TEST_F(CaptureMetadataTest, TheBitShiftAndTheLsbDropAreRecorded) {
   CaptureMetadata metadata = Ordinary();
   const std::string untouched = BuildCaptureMetadataYaml(metadata);
-  EXPECT_TRUE(Contains(untouched, "\"sample_bits\": 10"));
+  EXPECT_TRUE(Contains(untouched, "\"lsb_drop\": 0"));
   EXPECT_TRUE(Contains(untouched, "\"bit_shift\": 0"));
 
-  metadata.sample_bits = 9;
+  metadata.lsb_drop = 1;
   metadata.bit_shift = 1;
   metadata.signal.known = true;
   metadata.signal.shift_clipped_samples = 77;
   const std::string reduced = BuildCaptureMetadataYaml(metadata);
-  EXPECT_TRUE(Contains(reduced, "\"sample_bits\": 9"));
+  EXPECT_TRUE(Contains(reduced, "\"lsb_drop\": 1"));
   EXPECT_TRUE(Contains(reduced, "\"bit_shift\": 1"));
   EXPECT_TRUE(Contains(reduced, "\"shift_clipped_samples\": 77"));
 }

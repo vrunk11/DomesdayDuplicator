@@ -406,7 +406,7 @@ TEST(SequenceValidatorTest, TheSamplesTheBitShiftClipsAreCountedOnTheirOwn) {
   builder.AppendConstant(512, 98);
 
   SequenceValidator validator;
-  validator.SetConversion(SampleConversion{0, kConverterBits, 1});
+  validator.SetConversion(SampleConversion{0, 1});
   const SequenceValidator::Outcome outcome =
       validator.Process(builder.bytes().data(), builder.bytes().size());
 
@@ -423,7 +423,7 @@ TEST(SequenceValidatorTest, ASampleIsBlamedOnTheFirstCauseThatLostIt) {
   builder.AppendConstant(512, 118);
 
   SequenceValidator validator;
-  validator.SetConversion(SampleConversion{3, kConverterBits, 2});
+  validator.SetConversion(SampleConversion{3, 2});
   const SequenceValidator::Outcome outcome =
       validator.Process(builder.bytes().data(), builder.bytes().size());
 

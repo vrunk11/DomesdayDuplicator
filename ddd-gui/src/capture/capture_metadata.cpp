@@ -262,8 +262,8 @@ std::string BuildCaptureMetadataYaml(const CaptureMetadata& metadata) {
   yaml.Unsigned("sample_rate_hz", metadata.sample_rate_hz);
   yaml.Integer("decimation_factor", metadata.decimation_factor);
   yaml.StringIfPresent("input_range", metadata.input_range);
-  yaml.Integer("sample_bits", metadata.sample_bits);
   yaml.Integer("bit_shift", metadata.bit_shift);
+  yaml.Integer("lsb_drop", metadata.lsb_drop);
   yaml.StringIfPresent("front_end_gain", metadata.front_end_gain);
   yaml.StringIfPresent("started", FormatTimestamp(metadata.started));
   yaml.StringIfPresent("finished", FormatTimestamp(metadata.finished));

@@ -62,10 +62,10 @@ QString DescribePipedStream(uint32_t sample_rate_hz, bool range_2vpp,
   if (test_mode) {
     text += QObject::tr(", in test mode");
   } else {
-    text += QObject::tr(", DC offset %1 taken out, %2 bits kept, bit shift %3")
+    text += QObject::tr(", DC offset %1 taken out, bit shift %2, LSB drop %3")
                 .arg(conversion.dc_offset)
-                .arg(capture::kConverterBits - capture::DroppedBits(conversion))
-                .arg(capture::BitShift(conversion));
+                .arg(capture::BitShift(conversion))
+                .arg(capture::LsbDrop(conversion));
   }
   return text + QStringLiteral(".");
 }
@@ -443,8 +443,8 @@ capture::SampleConversion CaptureController::RunConversion() const {
   // gateware counted it for the ramp check to mean anything, nor while
   // measuring, where what is wanted is the converter as it is.
   if (!settings_.test_mode && !measuring_dc_offset()) {
-    conversion.kept_bits = settings_.sample_bits;
     conversion.bit_shift = settings_.bit_shift;
+    conversion.lsb_drop = settings_.lsb_drop;
   }
   return conversion;
 }
@@ -1016,9 +1016,8 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
   const bool range_2vpp = RunRange2Vpp();
   const capture::SampleConversion conversion = run_conversion_;
   const int32_t dc_offset = conversion.dc_offset;
-  const int sample_bits =
-      capture::kConverterBits - capture::DroppedBits(conversion);
   const int bit_shift = capture::BitShift(conversion);
+  const int lsb_drop = capture::LsbDrop(conversion);
   const capture::BoardSetup& board = board_setup_.setup;
   const bool board_known =
       board_setup_.source != capture::BoardSetupSource::kUnavailable;
@@ -1057,8 +1056,8 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
       provenance.board_rsel_wiring = capture::RselWiringName(board.rsel_wiring);
       provenance.dc_offset = dc_offset;
     }
-    provenance.sample_bits = sample_bits;
     provenance.bit_shift = bit_shift;
+    provenance.lsb_drop = lsb_drop;
     provenance.started = now;
     provenance.disc = disc_provenance_;
 
@@ -1128,8 +1127,8 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
         capture::RselWiringName(board.rsel_wiring);
     pending_metadata_.board.dc_offset = dc_offset;
   }
-  pending_metadata_.sample_bits = sample_bits;
   pending_metadata_.bit_shift = bit_shift;
+  pending_metadata_.lsb_drop = lsb_drop;
   pending_metadata_.started = now;
   pending_metadata_.device = CurrentDeviceBuild();
   pending_metadata_.player = player_identity_;
@@ -1165,9 +1164,9 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
         " Msps, ring " + capture::FormatBytes(settings_.queue_size_bytes) +
         ", test mode " + (settings_.test_mode ? "on" : "off") +
         ", input range " + capture::InputRangeName(range_2vpp) +
-        ", DC offset " + std::to_string(dc_offset) + ", " +
-        std::to_string(sample_bits) + " bits kept, bit shift " +
-        std::to_string(bit_shift) + ", duration limit " +
+        ", DC offset " + std::to_string(dc_offset) + ", " + "bit shift " +
+        std::to_string(bit_shift) + ", LSB drop " + std::to_string(lsb_drop) +
+        ", duration limit " +
         (settings_.duration_limit_seconds > 0
              ? capture::FormatDuration(
                    static_cast<double>(settings_.duration_limit_seconds))

@@ -275,20 +275,6 @@ and **Buffer queue** figures in [Statistics](statistics.md) are what say whether
 problem: a backlog that climbs is the encoder, a queue that climbs with no backlog is the
 disk.
 
-### Resolution
-
-How much of the converter's ten bits the capture keeps: **10 bits** (the default, all of
-them) down to **6 bits**. It is the one setting that makes a capture meaningfully smaller.
-The low bits are mostly noise, noise does not compress, and so each bit dropped saves nearly
-a bit a sample in a FLAC file. Each also costs 6 dB of quantisation noise. Six is the floor,
-and below eight the trade changes: what goes is no longer fine detail but the sync tips, the
-dropout detection and the chroma. Nothing stops you making it, and every file records it.
-
-Samples are rounded, not truncated, and rounded about the signal's real zero. A reduced file
-is still the same signed 16-bit format, with fewer distinct values in it, so nothing that
-reads a capture has to change. The uncompressed format is still two bytes a sample
-whatever this is set to, so the saving is FLAC's.
-
 ### Bit shift (digital gain)
 
 **0 bits** (the default) up to **4 bits**: shift the signal up by that many bits before it
@@ -301,12 +287,32 @@ the samples it clipped. The real remedy for a weak signal is still analogue: mor
 gain, or the 1Vpp range, which give the converter's own resolution to the signal rather than
 spreading it out afterwards.
 
+### LSB drop
+
+**0 bits** (the default) up to **4 bits**: drop that many of the converter's low bits, so
+that 10 down to 6 of its ten are kept. It is the one setting that makes a capture
+meaningfully smaller. The low bits are mostly noise, noise does not compress, and so each bit
+dropped saves nearly a bit a sample in a FLAC file. Each also costs 6 dB of quantisation
+noise. Four is the most, and beyond two the trade changes: what goes is no longer fine detail
+but the sync tips, the dropout detection and the chroma. Nothing stops you making it, and
+every file records it.
+
+Samples are rounded, not truncated, and rounded about the signal's real zero. A file with
+bits dropped is still the same signed 16-bit format, with fewer distinct values in it, so
+nothing that reads a capture has to change. The uncompressed format is still two bytes a
+sample whatever this is set to, so the saving is FLAC's.
+
+### The order they are applied in
+
 **The order is fixed.** Every writer applies the same steps in the same order: the DC offset
 first, so that everything after it is centred on the signal's real zero; then the bit shift;
-then the rounding that drops bits, last, at the step that keeps the chosen number of the
-converter's bits. The shift never counts as resolution: two bits of shift at 8 bits keeps 8
-bits of the signal, not 10 with two zeros removed. The 16-bit limit is applied once, to the
-finished value, so nothing clips half way through.
+then the LSB drop, last, rounding at the step that drops the chosen number of the
+converter's bits. The shift never counts as resolution: a two-bit shift with two LSBs
+dropped keeps 8 bits of the signal, not 10 with the shift's two zeros removed. The 16-bit
+limit is applied once, to the finished value, so nothing clips half way through.
+
+Both settings, and the files, describe the action taken rather than what it leaves: a bit
+shift of 1 and an LSB drop of 2, not "x2" and "8 bits".
 
 Both are fixed for a stream when it starts, like the input range, so that the clipping count
 and the scope's [Corrected](signal-analysis.md#corrected) view describe what is actually

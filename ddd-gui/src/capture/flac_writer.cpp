@@ -57,7 +57,7 @@ struct FlacWriter::Impl {
   std::vector<int32_t> scratch;
 
   // What is done to every sample on its way to the encoder: the board's DC
-  // offset, the bit shift and the resolution kept. See
+  // offset, the bit shift and the LSB drop. See
   // SampleConversion.
   SampleConversion conversion;
 

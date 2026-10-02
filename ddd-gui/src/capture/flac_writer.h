@@ -84,7 +84,7 @@ class FlacWriter {
     uint32_t sample_rate_label = 40'000;
 
     // What is done to every sample written: the board's declared DC offset,
-    // the bit shift and the resolution kept (SampleConversion). The default
+    // the bit shift and the LSB drop (SampleConversion). The default
     // writes exactly what the converter produced; a test-mode capture is always
     // written with it, because its samples are the gateware's counter rather
     // than the converter's, and the ramp check needs every one of them as it

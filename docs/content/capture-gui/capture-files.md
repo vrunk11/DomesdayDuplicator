@@ -89,8 +89,8 @@ later travel with it rather than in somebody's notes:
 | `DDD_BOARD_ADC` | `ADS825` or `ADS828` — the converter the board setup says is fitted |
 | `DDD_BOARD_RSEL_WIRING` | `auto`, `low` or `high` |
 | `DDD_DC_OFFSET` | The DC offset taken out of every sample, in converter codes. `0` when nothing was |
-| `DDD_SAMPLE_BITS` | How many of the converter's ten bits were kept: `10` down to `6`. Always written — see [Resolution](capture-control.md#resolution) |
 | `DDD_BIT_SHIFT` | How many bits the signal was shifted up: `0` to `4`, a digital gain of x1 to x16. Always written — see [Bit shift](capture-control.md#bit-shift-digital-gain) |
+| `DDD_LSB_DROP` | How many of the converter's low bits were dropped: `0` to `4`. Always written — see [LSB drop](capture-control.md#lsb-drop) |
 
 **The DC offset is the one board tag that changes the samples.** Every sample in the file is
 the converter's code less `DDD_DC_OFFSET`, still scaled by 64, so the samples the converter
@@ -99,13 +99,13 @@ is a whole number of codes, so the six low bits of every sample stay zero and FL
 for nothing, exactly as before. A test-mode capture is never corrected — its samples come from
 the gateware's counter, not the converter — and records `0`.
 
-**The resolution and the bit shift change the samples too, and say so the same way.** After the
-offset, every sample is shifted up by `DDD_BIT_SHIFT` bits and rounded to the step that keeps
-`DDD_SAMPLE_BITS` of the converter's bits, so a value divided by 64 × 2^`DDD_BIT_SHIFT` is
+**The bit shift and the LSB drop change the samples too, and say so the same way.** After the
+offset, every sample is shifted up by `DDD_BIT_SHIFT` bits and rounded to the step that drops
+`DDD_LSB_DROP` of the converter's low bits, so a value divided by 64 × 2^`DDD_BIT_SHIFT` is
 the converter's code less the offset, to within the rounding. Both tags are written on every
-capture, at `10` and `0` too: a file that was not reduced says so, rather than leaving a
+capture, at `0` too: a file nothing was done to says so, rather than leaving a
 reader to tell it apart from a file made before the tags existed. A test-mode capture is
-never reduced or shifted and records `10` and `0`.
+never shifted or reduced and records `0` for both.
 
 The board tags are written only when a device was attached to read the board setup from.
 

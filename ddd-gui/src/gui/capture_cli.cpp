@@ -33,7 +33,7 @@ constexpr const char* kAdcRateName = "adc-rate";
 constexpr const char* kInputRangeName = "input-range";
 constexpr const char* kDurationLimitName = "duration-limit";
 constexpr const char* kOutputFormatName = "output-format";
-constexpr const char* kSampleBitsName = "sample-bits";
+constexpr const char* kLsbDropName = "lsb-drop";
 constexpr const char* kBitShiftName = "bit-shift";
 constexpr const char* kPipeName = "pipe";
 constexpr const char* kSaveName = "save";
@@ -131,7 +131,7 @@ bool CaptureCliOptions::HasAttributeOverrides() const {
   return capture_directory.has_value() || capture_name.has_value() ||
          decimation_factor.has_value() || pll_preset_mhz.has_value() ||
          range_select_2vpp.has_value() || duration_limit_seconds.has_value() ||
-         output_format.has_value() || sample_bits.has_value() ||
+         output_format.has_value() || lsb_drop.has_value() ||
          bit_shift.has_value();
 }
 
@@ -196,12 +196,12 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
                                   QLatin1String(kSigned16BitFormatWord)),
                          QStringLiteral("format")),
       QCommandLineOption(
-          QLatin1String(kSampleBitsName),
+          QLatin1String(kLsbDropName),
           QStringLiteral(
-              "Keep this many of the converter's 10 bits, from 10 down to 6. "
-              "Each "
-              "bit dropped makes a FLAC capture noticeably smaller and costs "
-              "6 dB of quantisation noise. Rounded, not truncated."),
+              "Drop this many of the converter's low bits, 0 to 4, after the "
+              "bit shift. Each bit dropped makes a FLAC capture noticeably "
+              "smaller and costs 6 dB of quantisation noise. Rounded, not "
+              "truncated."),
           QStringLiteral("bits")),
       QCommandLineOption(
           QLatin1String(kBitShiftName),
@@ -235,7 +235,7 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
   parser.addOption(set.input_range);
   parser.addOption(set.duration_limit);
   parser.addOption(set.output_format);
-  parser.addOption(set.sample_bits);
+  parser.addOption(set.lsb_drop);
   parser.addOption(set.bit_shift);
   parser.addOption(set.pipe);
   parser.addOption(set.save);
@@ -376,19 +376,18 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
     }
   }
 
-  if (parser.isSet(set.sample_bits)) {
-    const QString text = parser.value(set.sample_bits).trimmed();
+  if (parser.isSet(set.lsb_drop)) {
+    const QString text = parser.value(set.lsb_drop).trimmed();
     bool numeric = false;
-    const int bits = text.toInt(&numeric);
-    if (!numeric || bits < capture::kMinimumKeptBits ||
-        bits > capture::kConverterBits) {
-      result.error = QStringLiteral("Unknown --sample-bits '%1'. Use %2 to %3.")
-                         .arg(text)
-                         .arg(capture::kMinimumKeptBits)
-                         .arg(capture::kConverterBits);
+    const int drop = text.toInt(&numeric);
+    if (!numeric || drop < 0 || drop > capture::kMaximumLsbDrop) {
+      result.error =
+          QStringLiteral("Unknown --lsb-drop '%1'. Use 0 to %2 bits.")
+              .arg(text)
+              .arg(capture::kMaximumLsbDrop);
       return result;
     }
-    options.sample_bits = bits;
+    options.lsb_drop = drop;
   }
 
   if (parser.isSet(set.bit_shift)) {
@@ -485,8 +484,8 @@ void ApplyCliOverrides(CaptureSettings& settings,
   if (options.output_format.has_value()) {
     settings.output_format = *options.output_format;
   }
-  if (options.sample_bits.has_value()) {
-    settings.sample_bits = *options.sample_bits;
+  if (options.lsb_drop.has_value()) {
+    settings.lsb_drop = *options.lsb_drop;
   }
   if (options.bit_shift.has_value()) {
     settings.bit_shift = *options.bit_shift;
