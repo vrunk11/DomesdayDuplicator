@@ -198,15 +198,16 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
       QCommandLineOption(
           QLatin1String(kSampleBitsName),
           QStringLiteral(
-              "Keep this many of the converter's 10 bits: 10, 9 or 8. Each "
+              "Keep this many of the converter's 10 bits, from 10 down to 6. "
+              "Each "
               "bit dropped makes a FLAC capture noticeably smaller and costs "
               "6 dB of quantisation noise. Rounded, not truncated."),
           QStringLiteral("bits")),
       QCommandLineOption(
           QLatin1String(kBitShiftName),
           QStringLiteral(
-              "Shift the signal up by 0, 1 or 2 bits before it is written — a "
-              "digital gain of x1, x2 or x4 — so a weak one is easier to read. "
+              "Shift the signal up by 0 to 4 bits before it is written — a "
+              "digital gain of x1 to x16 — so a weak one is easier to read. "
               "Adds no detail; clips what it takes past full scale."),
           QStringLiteral("bits")),
       QCommandLineOption(
@@ -381,12 +382,10 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
     const int bits = text.toInt(&numeric);
     if (!numeric || bits < capture::kMinimumKeptBits ||
         bits > capture::kConverterBits) {
-      result.error =
-          QStringLiteral("Unknown --sample-bits '%1'. Use %2, %3 or %4.")
-              .arg(text)
-              .arg(capture::kConverterBits)
-              .arg(capture::kConverterBits - 1)
-              .arg(capture::kMinimumKeptBits);
+      result.error = QStringLiteral("Unknown --sample-bits '%1'. Use %2 to %3.")
+                         .arg(text)
+                         .arg(capture::kMinimumKeptBits)
+                         .arg(capture::kConverterBits);
       return result;
     }
     options.sample_bits = bits;
@@ -398,7 +397,7 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
     const int shift = text.toInt(&numeric);
     if (!numeric || shift < 0 || shift > capture::kMaximumBitShift) {
       result.error =
-          QStringLiteral("Unknown --bit-shift '%1'. Use 0, 1 or %2 bits.")
+          QStringLiteral("Unknown --bit-shift '%1'. Use 0 to %2 bits.")
               .arg(text)
               .arg(capture::kMaximumBitShift);
       return result;

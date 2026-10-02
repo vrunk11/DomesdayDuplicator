@@ -135,26 +135,28 @@ inline constexpr int16_t ToSigned16Bit(int32_t ten_bit_value) {
 
 // The converter's own resolution, and the least a capture may keep of it.
 //
-// Eight is a floor rather than a suggestion: each bit dropped costs 6 dB of
+// Six is the floor, four bits dropped. Each bit dropped costs 6 dB of
 // quantisation noise, and below eight the sync tips, the dropout detection and
-// the chroma in the FM sidebands are what is lost, not just fine detail.
+// the chroma in the FM sidebands start to be what is lost rather than fine
+// detail — allowed, because it is the user's trade to make, and recorded in
+// every file so that it can never be mistaken for a full capture.
 inline constexpr int kConverterBits = 10;
-inline constexpr int kMinimumKeptBits = 8;
+inline constexpr int kMinimumKeptBits = 6;
 
-// The largest bit shift: two bits, a digital gain of x4.
-inline constexpr int kMaximumBitShift = 2;
+// The largest bit shift: four bits, a digital gain of x16.
+inline constexpr int kMaximumBitShift = 4;
 
 // Everything done to a converter code on its way into a capture — every
 // writer applies exactly this, and every capture records exactly this.
 //
 //  - dc_offset: the board's declared DC offset, in whole converter codes,
 //    taken out (board_setup.h).
-//  - bit_shift: how many bits the signal is shifted up, 0, 1 or 2 — a digital
+//  - bit_shift: how many bits the signal is shifted up, 0 to 4 — a digital
 //    gain of 2^bit_shift. It adds no information and costs FLAC nothing — the
 //    bits it opens at the bottom are zero in every sample, which FLAC stores
 //    for free — but a weak signal at full scale is easier to read in every
 //    tool that displays one.
-//  - kept_bits: how much of the converter's resolution is kept, 10, 9 or 8.
+//  - kept_bits: how much of the converter's resolution is kept, 10 down to 6.
 //    Dropping bits is the one way to make a capture meaningfully smaller: the
 //    low bits are mostly noise and noise does not compress, so each one
 //    dropped saves nearly a bit a sample. Counted in the converter's bits

@@ -48,8 +48,8 @@ outside: see [Running it from a Flatpak](#running-it-from-a-flatpak) and
 | `--input-range <range>` | `2vpp` or `1vpp` | The ADC's input range |
 | `--duration-limit <seconds>` | 1 to 86400 | Stop by itself after this long. Leave it out to capture until stopped |
 | `--output-format <format>` | `flac` or `s16` | Write [FLAC, or uncompressed `.ddd.s16`](capture-files.md) |
-| `--sample-bits <bits>` | `10`, `9` or `8` | Keep this many of the converter's bits. Each dropped makes a FLAC capture smaller and costs 6 dB. Applies to `--pipe` too |
-| `--bit-shift <bits>` | `0`, `1` or `2` | Shift the signal up by this many bits, a digital gain of x1, x2 or x4. Adds no detail; clips what it takes past full scale. Applies to `--pipe` too |
+| `--sample-bits <bits>` | `10` down to `6` | Keep this many of the converter's bits. Each dropped makes a FLAC capture smaller and costs 6 dB. Applies to `--pipe` too |
+| `--bit-shift <bits>` | `0` to `4` | Shift the signal up by this many bits, a digital gain of x1 to x16. Adds no detail; clips what it takes past full scale. Applies to `--pipe` too |
 | `--pipe` | | Stream the capture to standard output for another program. Needs `--start-capture`. See [Streaming to another program](#streaming-to-another-program) |
 | `--save` | | With `--pipe`, write the capture file as well |
 

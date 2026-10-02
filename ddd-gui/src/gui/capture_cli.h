@@ -121,8 +121,8 @@ struct CaptureCliOptions {
   std::optional<int> duration_limit_seconds;
   std::optional<capture::CaptureOutputFormat> output_format;
 
-  // The converter bits kept, 8 to 10, and the bit shift, 0 to
-  // 2 — see capture::SampleConversion. Both apply to standard output under
+  // The converter bits kept, 6 to 10, and the bit shift, 0 to 4 — see
+  // capture::SampleConversion. Both apply to standard output under
   // --pipe as much as to a file, since both change the samples themselves.
   std::optional<int> sample_bits;
   std::optional<int> bit_shift;

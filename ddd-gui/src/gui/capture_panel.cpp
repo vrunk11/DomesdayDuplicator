@@ -243,9 +243,13 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
   // so a reduced capture can never be taken for a full one.
   sample_bits_combo_ = new QComboBox(contents);
   sample_bits_combo_->setObjectName(QLatin1String(kSampleBitsComboName));
-  sample_bits_combo_->addItem(tr("10 bits (all of them)"), 10);
-  sample_bits_combo_->addItem(tr("9 bits"), 9);
-  sample_bits_combo_->addItem(tr("8 bits"), 8);
+  sample_bits_combo_->addItem(
+      tr("%1 bits (all of them)").arg(capture::kConverterBits),
+      capture::kConverterBits);
+  for (int bits = capture::kConverterBits - 1;
+       bits >= capture::kMinimumKeptBits; --bits) {
+    sample_bits_combo_->addItem(tr("%1 bits").arg(bits), bits);
+  }
   sample_bits_combo_->setToolTip(
       tr("How much of the converter's resolution the capture keeps. The low "
          "bits are mostly noise and noise does not compress, so each bit "
@@ -256,9 +260,12 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
 
   bit_shift_combo_ = new QComboBox(contents);
   bit_shift_combo_->setObjectName(QLatin1String(kBitShiftComboName));
-  bit_shift_combo_->addItem(tr("0 bits (x1)"), 0);
-  bit_shift_combo_->addItem(tr("1 bit (x2)"), 1);
-  bit_shift_combo_->addItem(tr("2 bits (x4)"), 2);
+  for (int shift = 0; shift <= capture::kMaximumBitShift; ++shift) {
+    const QString label = shift == 1
+                              ? tr("1 bit (x2)")
+                              : tr("%1 bits (x%2)").arg(shift).arg(1 << shift);
+    bit_shift_combo_->addItem(label, shift);
+  }
   bit_shift_combo_->setToolTip(
       tr("Shift the signal up by this many bits before it is written — a "
          "digital gain of x2 per bit — so that a weak one fills the range and "

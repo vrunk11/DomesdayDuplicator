@@ -204,8 +204,8 @@ a field that was never encoded — are written as `\x00` escapes rather than dro
 | `sample_rate_hz` | The rate the file was written at: the ADC rate divided by the decimation — `75000000` for an undecimated capture on a 75 MHz board, `37500000` for the same board at decimation 2 |
 | `decimation_factor` | `1`, `2` or `4` |
 | `input_range` | `2Vpp` or `1Vpp` — the ADC's input range, without which a sample value cannot be turned into a voltage |
-| `sample_bits` | How many of the converter's ten bits the file keeps: `10`, `9` or `8`. Always written. See [Resolution](capture-control.md#resolution) |
-| `bit_shift` | How many bits every sample was shifted up: `0`, `1` or `2`, a digital gain of x1, x2 or x4. Always written. See [Bit shift](capture-control.md#bit-shift-digital-gain) |
+| `sample_bits` | How many of the converter's ten bits the file keeps: `10` down to `6`. Always written. See [Resolution](capture-control.md#resolution) |
+| `bit_shift` | How many bits every sample was shifted up: `0` to `4`, a digital gain of x1 to x16. Always written. See [Bit shift](capture-control.md#bit-shift-digital-gain) |
 | `front_end_gain` | The declared SW401 position — **only when one was actually declared** |
 | `started`, `finished` | ISO 8601, local time with the offset, so the timestamps agree with the file name and are still unambiguous |
 | `duration_seconds` | Worked out from the file's own sample count, not from a clock |

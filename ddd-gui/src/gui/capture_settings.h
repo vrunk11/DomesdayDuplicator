@@ -154,9 +154,9 @@ struct CaptureSettings {
   // format, which has no encoder to ask.
   int compression_level = capture::FlacWriter::Options{}.compression_level;
 
-  // How much of the converter's resolution a capture keeps, 8 to 10 bits, and
-  // how many bits the signal is shifted up, 0, 1 or 2 — a digital gain of x1,
-  // x2 or x4. See capture::SampleConversion, which applies them after the DC
+  // How much of the converter's resolution a capture keeps, 6 to 10 bits, and
+  // how many bits the signal is shifted up, 0 to 4 — a digital gain of x1 to
+  // x16. See capture::SampleConversion, which applies them after the DC
   // offset, the shift before the rounding. Persisted like the compression
   // level: both are decisions about what is kept, made once for a collection
   // rather than per capture. Neither applies in test mode, whose ramp has to

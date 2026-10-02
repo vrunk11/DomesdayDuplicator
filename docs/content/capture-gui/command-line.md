@@ -133,8 +133,8 @@ worked examples and what each platform needs — in
 | `--input-range <range>` | `2vpp` or `1vpp` — the ADC's input range |
 | `--duration-limit <seconds>` | 1 to 86400. Leave it out to capture until stopped |
 | `--output-format <format>` | `flac` or `s16` |
-| `--sample-bits <bits>` | `10`, `9` or `8` — how much of the converter's resolution to keep. See [Resolution](capture-control.md#resolution) |
-| `--bit-shift <bits>` | `0`, `1` or `2` — shift the signal up by this many bits, a digital gain of x1, x2 or x4. See [Bit shift](capture-control.md#bit-shift-digital-gain) |
+| `--sample-bits <bits>` | `10` down to `6` — how much of the converter's resolution to keep. See [Resolution](capture-control.md#resolution) |
+| `--bit-shift <bits>` | `0` to `4` — shift the signal up by this many bits, a digital gain of x1 to x16. See [Bit shift](capture-control.md#bit-shift-digital-gain) |
 | `--pipe` | Stream the capture to standard output as signed 16-bit samples, for another program to read. Needs `--start-capture`; writes no file unless `--save` is given too |
 | `--save` | With `--pipe`, write the capture file as well. The file comes first: a reader that falls behind loses blocks of its copy, never any of the file |
 

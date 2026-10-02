@@ -89,8 +89,8 @@ later travel with it rather than in somebody's notes:
 | `DDD_BOARD_ADC` | `ADS825` or `ADS828` — the converter the board setup says is fitted |
 | `DDD_BOARD_RSEL_WIRING` | `auto`, `low` or `high` |
 | `DDD_DC_OFFSET` | The DC offset taken out of every sample, in converter codes. `0` when nothing was |
-| `DDD_SAMPLE_BITS` | How many of the converter's ten bits were kept: `10`, `9` or `8`. Always written — see [Resolution](capture-control.md#resolution) |
-| `DDD_BIT_SHIFT` | How many bits the signal was shifted up: `0`, `1` or `2`, a digital gain of x1, x2 or x4. Always written — see [Bit shift](capture-control.md#bit-shift-digital-gain) |
+| `DDD_SAMPLE_BITS` | How many of the converter's ten bits were kept: `10` down to `6`. Always written — see [Resolution](capture-control.md#resolution) |
+| `DDD_BIT_SHIFT` | How many bits the signal was shifted up: `0` to `4`, a digital gain of x1 to x16. Always written — see [Bit shift](capture-control.md#bit-shift-digital-gain) |
 
 **The DC offset is the one board tag that changes the samples.** Every sample in the file is
 the converter's code less `DDD_DC_OFFSET`, still scaled by 64, so the samples the converter

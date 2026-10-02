@@ -376,7 +376,7 @@ TEST(RawSinkTest, ADeclaredOffsetIsTakenOutOfEverySample) {
 
   {
     RawSink sink;
-    ASSERT_TRUE(sink.Open(file.path(), 23)) << sink.LastError();
+    ASSERT_TRUE(sink.Open(file.path(), SampleConversion{23})) << sink.LastError();
     ASSERT_TRUE(sink.Write(wire.data(), values.size())) << sink.LastError();
     ASSERT_TRUE(sink.Finish()) << sink.LastError();
   }
