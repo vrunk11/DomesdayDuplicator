@@ -14,7 +14,11 @@
 #include <algorithm>
 
 #ifdef _WIN32
+#include <io.h>
 #include <windows.h>
+
+#include <cstdint>
+#include <cstdio>
 #else
 #include <fcntl.h>
 #include <unistd.h>
@@ -33,12 +37,39 @@ namespace {
 // named so that the loop below does not depend on that staying true.
 constexpr size_t kLargestWrite = size_t{1} << 30;
 
+// Standard output as the process was started with it — the pipe or the file a
+// command line redirected it to — rather than whatever GetStdHandle() says now.
+//
+// The two stop agreeing the moment this windowed application borrows the
+// console it was started from (console_attach.cpp): AttachConsole() replaces
+// the process's standard handles with the console's own, so GetStdHandle()
+// answers with the console even though the caller redirected the stream. The
+// C runtime bound its stdout to the redirection at startup and keeps it, and
+// AttachParentConsole() leaves a redirected stream exactly as it found it — so
+// the runtime's handle is the one that leads where the caller asked.
+//
+// Checked for a negative descriptor first, because there is none when nothing
+// was redirected and no console was found, and handing that to
+// _get_osfhandle() would end the process in the runtime's invalid-parameter
+// handler rather than answer.
+HANDLE StartupStandardOutput() {
+  const int descriptor = _fileno(stdout);
+  if (descriptor < 0) {
+    return INVALID_HANDLE_VALUE;
+  }
+  const intptr_t handle = _get_osfhandle(descriptor);
+  if (handle == -1 || handle == -2) {
+    return INVALID_HANDLE_VALUE;
+  }
+  return reinterpret_cast<HANDLE>(handle);
+}
+
 }  // namespace
 
 bool StandardOutputStream::Write(const uint8_t* data, size_t size) {
   // Asked on every write rather than once, because it costs nothing and a
   // handle cached at construction would outlive anything that replaced it.
-  const HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+  const HANDLE handle = StartupStandardOutput();
   if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
     return false;
   }
@@ -57,7 +88,7 @@ bool StandardOutputStream::Write(const uint8_t* data, size_t size) {
 }
 
 bool StandardOutputIsRedirected() {
-  const HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+  const HANDLE handle = StartupStandardOutput();
   if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
     return false;
   }
