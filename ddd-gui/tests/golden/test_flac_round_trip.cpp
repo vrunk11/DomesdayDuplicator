@@ -352,7 +352,7 @@ TEST(FlacRoundTripTest, ADeclaredOffsetIsTakenOutOfEverySample) {
       FlacWriter writer;
       FlacWriter::Options options;
       options.sample_rate_label = kFlacSampleRateLabel;
-      options.dc_offset = offset;
+      options.conversion.dc_offset = offset;
       std::string error;
       ASSERT_TRUE(writer.Open(file.path(), options, error)) << error;
       ASSERT_TRUE(writer.WriteRawDeviceSamples(wire.data(), values.size()));

@@ -17,6 +17,7 @@
 #include <string>
 
 #include "capture_naming.h"
+#include "sample_format.h"
 
 namespace ddd::capture {
 
@@ -294,6 +295,10 @@ struct SignalSummary {
 
   uint64_t clipped_low_samples = 0;
   uint64_t clipped_high_samples = 0;
+
+  // Samples in this file the bit shift took out of range that neither the
+  // converter nor the DC offset had clipped. See BitShiftClips().
+  uint64_t shift_clipped_samples = 0;
 };
 
 // The whole document.
@@ -344,6 +349,14 @@ struct CaptureMetadata {
   // The ADC's input range, as InputRangeName() spells it, or empty for a
   // capture that did not record one. See CaptureProvenance::input_range.
   std::string input_range;
+
+  // What was done to the signal beyond the DC offset, which the board block
+  // carries: how much of the converter's resolution was kept, and the
+  // bit shift applied. Written always, at their defaults too, so that a
+  // file that was not reduced says so rather than leaving it to be assumed.
+  // See SampleConversion.
+  int sample_bits = kConverterBits;
+  int bit_shift = 0;
 
   // The declared front-end gain, as a sentence, or empty for a gain that was
   // never declared. Empty is the important case: a figure nobody checked would

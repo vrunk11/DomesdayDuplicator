@@ -56,9 +56,10 @@ struct FlacWriter::Impl {
   // path.
   std::vector<int32_t> scratch;
 
-  // The board's declared DC offset, in converter codes, taken out of every
-  // sample on its way to the encoder. See ToCorrectedSigned16Bit().
-  int32_t dc_offset = 0;
+  // What is done to every sample on its way to the encoder: the board's DC
+  // offset, the bit shift and the resolution kept. See
+  // SampleConversion.
+  SampleConversion conversion;
 
   std::atomic<size_t> bytes_written{0};
   std::atomic<size_t> samples_written{0};
@@ -233,7 +234,7 @@ bool FlacWriter::Open(const std::filesystem::path& file_path,
   }
 
   impl_->scratch.resize(kEncodeChunkSamples);
-  impl_->dc_offset = options.dc_offset;
+  impl_->conversion = options.conversion;
   impl_->bytes_written = 0;
   impl_->samples_written = 0;
   impl_->samples_encoded = 0;
@@ -257,8 +258,8 @@ bool FlacWriter::WriteRawDeviceSamples(const uint8_t* device_data,
     const size_t chunk = std::min(remaining, kEncodeChunkSamples);
 
     // Widen the device's 16-bit words into the int32 buffer libFLAC wants,
-    // applying the bias and scale ld-decode calls the DdD 16-bit format and
-    // taking out the board's declared DC offset.
+    // applying the bias and scale ld-decode calls the DdD 16-bit format and the
+    // capture's conversion, the same one every other writer applies.
     // Reading the two bytes individually rather than casting to uint16_t* keeps
     // this correct on a big-endian host and free of alignment assumptions about
     // the buffer it was handed.
@@ -266,8 +267,8 @@ bool FlacWriter::WriteRawDeviceSamples(const uint8_t* device_data,
       const uint16_t ten_bit_value = static_cast<uint16_t>(
           static_cast<uint16_t>(read_pointer[0]) |
           static_cast<uint16_t>(static_cast<uint16_t>(read_pointer[1]) << 8));
-      impl_->scratch[i] = ToCorrectedSigned16Bit(
-          static_cast<int32_t>(ten_bit_value), impl_->dc_offset);
+      impl_->scratch[i] = ToConvertedSigned16Bit(
+          static_cast<int32_t>(ten_bit_value), impl_->conversion);
       read_pointer += kBytesPerSample;
     }
 

@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "sample_format.h"
 #include "sample_metrics.h"
 
 namespace ddd::capture {
@@ -111,18 +112,21 @@ class SequenceValidator {
   // True once the validator has decided whether this stream carries markers.
   bool synchronised() const { return state_ != SequenceState::kSynchronising; }
 
-  // The DC offset the writers correct by, in converter codes, so that the
-  // measurement can count the samples the correction pushes out of range —
-  // BufferTally::offset_saturated_count. Counted here and not in a writer
-  // because monitoring has no writer, and monitoring is when a wrong
-  // declaration is worth noticing. Not cleared by Reset(): it belongs to the
-  // run, not to the validator's lock on the stream.
-  void SetDcOffset(int32_t dc_offset) { dc_offset_ = dc_offset; }
+  // The conversion the writers apply, so that the measurement can count the
+  // samples the DC offset pushes out of range and the samples the bit
+  // shift clips — BufferTally::offset_saturated_count and shift_clipped_count.
+  // Counted here and not in a writer because monitoring has no writer, and
+  // monitoring is when a wrong declaration or too large a shift is worth
+  // noticing. Not cleared by Reset(): it belongs to the run, not to the
+  // validator's lock on the stream.
+  void SetConversion(const SampleConversion& conversion) {
+    conversion_ = conversion;
+  }
 
   void Reset();
 
  private:
-  int32_t dc_offset_ = 0;
+  SampleConversion conversion_;
 
   SequenceState state_ = SequenceState::kSynchronising;
 

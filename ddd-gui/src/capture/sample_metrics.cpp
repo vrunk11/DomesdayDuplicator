@@ -40,6 +40,7 @@ void SampleMetrics::Accumulate(const BufferTally& tally) {
   sum_of_squares_ += tally.sum_of_squares;
   sum_ += tally.sum;
   offset_saturated_count_ += tally.offset_saturated_count;
+  shift_clipped_count_ += tally.shift_clipped_count;
 
   recent_ = tally;
 
@@ -56,6 +57,7 @@ void SampleMetrics::Accumulate(const BufferTally& tally) {
     capture_.clipped_high_count += tally.clipped_high_count;
     capture_.sum_of_squares += tally.sum_of_squares;
     capture_.offset_saturated_count += tally.offset_saturated_count;
+    capture_.shift_clipped_count += tally.shift_clipped_count;
   }
 }
 
@@ -80,6 +82,7 @@ SampleMetricsSnapshot SampleMetrics::Snapshot() const {
   snapshot.rms = RootMeanSquare(sum_of_squares_, sample_count_);
   snapshot.sum = sum_;
   snapshot.offset_saturated_count = offset_saturated_count_;
+  snapshot.shift_clipped_count = shift_clipped_count_;
 
   snapshot.recent_minimum_value =
       (recent_.sample_count == 0) ? 0 : recent_.minimum_value;
@@ -89,6 +92,7 @@ SampleMetricsSnapshot SampleMetrics::Snapshot() const {
   snapshot.recent_rms =
       RootMeanSquare(recent_.sum_of_squares, recent_.sample_count);
   snapshot.recent_offset_saturated_count = recent_.offset_saturated_count;
+  snapshot.recent_shift_clipped_count = recent_.shift_clipped_count;
 
   snapshot.capture_sample_count = capture_.sample_count;
   snapshot.capture_minimum_value =
@@ -99,6 +103,7 @@ SampleMetricsSnapshot SampleMetrics::Snapshot() const {
   snapshot.capture_rms =
       RootMeanSquare(capture_.sum_of_squares, capture_.sample_count);
   snapshot.capture_offset_saturated_count = capture_.offset_saturated_count;
+  snapshot.capture_shift_clipped_count = capture_.shift_clipped_count;
 
   return snapshot;
 }
@@ -112,6 +117,7 @@ void SampleMetrics::Reset() {
   sum_of_squares_ = 0;
   sum_ = 0;
   offset_saturated_count_ = 0;
+  shift_clipped_count_ = 0;
   recent_ = BufferTally{};
   capture_ = BufferTally{};
   capturing_ = false;

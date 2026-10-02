@@ -275,6 +275,44 @@ and **Buffer queue** figures in [Statistics](statistics.md) are what say whether
 problem: a backlog that climbs is the encoder, a queue that climbs with no backlog is the
 disk.
 
+### Resolution
+
+How much of the converter's ten bits the capture keeps: **10 bits** (the default, all of
+them), **9 bits** or **8 bits**. It is the one setting that makes a capture meaningfully
+smaller. The low bits are mostly noise, noise does not compress, and so each bit dropped
+saves nearly a bit a sample in a FLAC file. Each also costs 6 dB of quantisation noise. Eight
+is the floor: below it, what goes is no longer fine detail but the sync tips, the dropout
+detection and the chroma.
+
+Samples are rounded, not truncated, and rounded about the signal's real zero. A file at 9 or
+8 bits is still the same signed 16-bit format, with fewer distinct values in it, so nothing
+that reads a capture has to change. The uncompressed format is still two bytes a sample
+whatever this is set to, so the saving is FLAC's.
+
+### Bit shift (digital gain)
+
+**0 bits** (the default), **1 bit** or **2 bits**: shift the signal up by that many bits
+before it is written. Each bit doubles it, so this is a digital gain of x1, x2 or x4, and a
+weak signal then fills the range and is easier to read in any tool that displays it. It adds
+no detail, and it costs a FLAC capture nothing, because the bits it opens at the bottom are
+zero in every sample. A signal it takes past full scale is clipped. The panel shows a warning
+when that happens while monitoring, and the [metadata file](capture-naming.md#signal) counts
+the samples it clipped. The real remedy for a weak signal is still analogue: more front-end
+gain, or the 1Vpp range, which give the converter's own resolution to the signal rather than
+spreading it out afterwards.
+
+**The order is fixed.** Every writer applies the same steps in the same order: the DC offset
+first, so that everything after it is centred on the signal's real zero; then the bit shift;
+then the rounding that drops bits, last, at the step that keeps the chosen number of the
+converter's bits. The shift never counts as resolution: two bits of shift at 8 bits keeps 8
+bits of the signal, not 10 with two zeros removed. The 16-bit limit is applied once, to the
+finished value, so nothing clips half way through.
+
+Both are fixed for a stream when it starts, like the input range, so that the clipping count
+and the scope's [Corrected](signal-analysis.md#corrected) view describe what is actually
+being written. Neither is applied in test mode, whose ramp has to reach the file exactly as
+the gateware counted it. Both are recorded in every file's tags and its metadata.
+
 ### Duration limit
 
 Stop automatically after this many minutes, or **No limit**, which is the default. The stop

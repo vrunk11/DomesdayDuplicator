@@ -238,6 +238,36 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
          "encoder-backlog figures in the Statistics panel are what say so."));
   form->addRow(tr("Compression"), compression_spin_);
 
+  // What is kept of the signal, and how far it is shifted up. Both are applied
+  // after the DC offset and are recorded in the file's tags and its metadata,
+  // so a reduced capture can never be taken for a full one.
+  sample_bits_combo_ = new QComboBox(contents);
+  sample_bits_combo_->setObjectName(QLatin1String(kSampleBitsComboName));
+  sample_bits_combo_->addItem(tr("10 bits (all of them)"), 10);
+  sample_bits_combo_->addItem(tr("9 bits"), 9);
+  sample_bits_combo_->addItem(tr("8 bits"), 8);
+  sample_bits_combo_->setToolTip(
+      tr("How much of the converter's resolution the capture keeps. The low "
+         "bits are mostly noise and noise does not compress, so each bit "
+         "dropped makes a FLAC capture noticeably smaller — and costs 6 dB "
+         "of quantisation noise. Rounded, never truncated. Not applied in "
+         "test mode."));
+  form->addRow(tr("Resolution"), sample_bits_combo_);
+
+  bit_shift_combo_ = new QComboBox(contents);
+  bit_shift_combo_->setObjectName(QLatin1String(kBitShiftComboName));
+  bit_shift_combo_->addItem(tr("0 bits (x1)"), 0);
+  bit_shift_combo_->addItem(tr("1 bit (x2)"), 1);
+  bit_shift_combo_->addItem(tr("2 bits (x4)"), 2);
+  bit_shift_combo_->setToolTip(
+      tr("Shift the signal up by this many bits before it is written — a "
+         "digital gain of x2 per bit — so that a weak one fills the range and "
+         "is easier to read in any tool that displays it. It adds no detail "
+         "and costs a FLAC capture nothing, but a signal it takes past full "
+         "scale is clipped: a warning says so while monitoring. Not applied "
+         "in test mode."));
+  form->addRow(tr("Bit shift (digital gain)"), bit_shift_combo_);
+
   // The limit and the button that clears it, side by side. A limit is the one
   // setting here that is set for a single capture and then wants to be gone
   // again, and holding the down arrow from 40 minutes to "No limit" is forty
@@ -312,6 +342,14 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
   offset_warning_label_->hide();
   layout->addWidget(offset_warning_label_);
 
+  // Beside it, and for the same reason: a shift clipping the signal is cutting
+  // the tops off every file written with it.
+  shift_warning_label_ = new QLabel(contents);
+  shift_warning_label_->setObjectName(QLatin1String(kShiftWarningLabelName));
+  shift_warning_label_->setWordWrap(true);
+  shift_warning_label_->hide();
+  layout->addWidget(shift_warning_label_);
+
   status_label_ = new QLabel(tr("No capture device attached"), contents);
   status_label_->setObjectName(QLatin1String(kStatusLabelName));
   status_label_->setWordWrap(true);
@@ -347,6 +385,10 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
           [this](int) { ApplySettingsFromWidgets(); });
   connect(compression_spin_, &QSpinBox::valueChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
+  connect(sample_bits_combo_, &QComboBox::currentIndexChanged, this,
+          [this](int) { ApplySettingsFromWidgets(); });
+  connect(bit_shift_combo_, &QComboBox::currentIndexChanged, this,
+          [this](int) { ApplySettingsFromWidgets(); });
   connect(duration_spin_, &QSpinBox::valueChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
   connect(low_space_spin_, &QSpinBox::valueChanged, this,
@@ -377,6 +419,11 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
                       .arg(message.toHtmlEscaped(),
                            tr("Board setup…").toHtmlEscaped()));
               offset_warning_label_->show();
+            });
+    connect(controller_, &CaptureController::BitShiftClipping, this,
+            [this](const QString& message) {
+              shift_warning_label_->setText(message);
+              shift_warning_label_->show();
             });
   }
 
@@ -430,6 +477,10 @@ void CapturePanel::ShowSettings() {
       range_select_combo_->findData(controller_->effective_range_2vpp()));
   RefreshPllPresetOptions();
   compression_spin_->setValue(settings.compression_level);
+  sample_bits_combo_->setCurrentIndex(
+      sample_bits_combo_->findData(settings.sample_bits));
+  bit_shift_combo_->setCurrentIndex(
+      bit_shift_combo_->findData(settings.bit_shift));
   // Rounded to the nearest whole minute for display. The stored value is in
   // seconds and is honoured as written; only what this box shows is coarser.
   duration_spin_->setValue((settings.duration_limit_seconds + 30) / 60);
@@ -559,6 +610,8 @@ void CapturePanel::ApplySettingsFromWidgets() {
   settings.pll_preset_mhz =
       static_cast<uint8_t>(pll_preset_combo_->currentData().toInt());
   settings.compression_level = compression_spin_->value();
+  settings.sample_bits = sample_bits_combo_->currentData().toInt();
+  settings.bit_shift = bit_shift_combo_->currentData().toInt();
   settings.duration_limit_seconds = duration_spin_->value() * 60;
   settings.low_space_warning_minutes = low_space_spin_->value();
 
@@ -832,6 +885,7 @@ void CapturePanel::OnMonitoringChanged(bool monitoring) {
     // A new run is judged afresh: the warning is about the run that raised
     // it, and a corrected declaration should not go on being accused.
     offset_warning_label_->hide();
+    shift_warning_label_->hide();
     if (!capturing_) {
       status_label_->setText(tr("Monitoring"));
     }
@@ -970,6 +1024,12 @@ void CapturePanel::UpdateEnabledState() {
   compression_spin_->setEnabled(
       !capturing_ && format_combo_->currentData().toInt() ==
                          static_cast<int>(capture::CaptureOutputFormat::kFlac));
+
+  // Fixed for a run when it starts, as the DC offset is: the pipeline counts
+  // what the shift clips and the scope draws what the file holds, and both
+  // have to be judging the conversion the writers are actually applying.
+  sample_bits_combo_->setEnabled(!monitoring_);
+  bit_shift_combo_->setEnabled(!monitoring_);
 
   // These three are read as the capture runs rather than when it starts, so all
   // stay live: noticing halfway through that the disk is filling and wanting a

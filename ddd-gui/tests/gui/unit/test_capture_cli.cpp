@@ -429,6 +429,59 @@ TEST_F(CaptureCliDirectoryTest, AFileWhereAFolderWasNamedIsRefused) {
       << parsed.error.toStdString();
 }
 
+// --- --sample-bits and --bit-shift --------------------------------------
+
+TEST(CaptureCliTest, TheResolutionAndTheBitShiftAreTakenAsGiven) {
+  const Parsed parsed =
+      Parse({QStringLiteral("--sample-bits"), QStringLiteral("8"),
+             QStringLiteral("--bit-shift"), QStringLiteral("2")});
+
+  ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
+  EXPECT_EQ(parsed.options.sample_bits, std::optional<int>(8));
+  EXPECT_EQ(parsed.options.bit_shift, std::optional<int>(2));
+
+  CaptureSettings settings;
+  ApplyCliOverrides(settings, parsed.options);
+  EXPECT_EQ(settings.sample_bits, 8);
+  EXPECT_EQ(settings.bit_shift, 2);
+}
+
+// Seven bits is not refused for being unusual but for being destructive: below
+// eight the sync tips and the chroma are what go.
+TEST(CaptureCliTest, AResolutionBelowEightBitsIsRefused) {
+  for (const char* bits : {"7", "11", "eight", ""}) {
+    const Parsed parsed =
+        Parse({QStringLiteral("--sample-bits"), QLatin1String(bits)});
+    EXPECT_TRUE(parsed.accepted) << bits;
+    EXPECT_TRUE(parsed.error.contains(QStringLiteral("--sample-bits")))
+        << bits << ": " << parsed.error.toStdString();
+  }
+}
+
+// A count of bits, not a factor: 4 is refused rather than taken to mean x4.
+TEST(CaptureCliTest, AShiftOutsideZeroToTwoBitsIsRefused) {
+  for (const char* shift : {"3", "4", "1.5", "x2"}) {
+    const Parsed parsed =
+        Parse({QStringLiteral("--bit-shift"), QLatin1String(shift)});
+    EXPECT_TRUE(parsed.accepted) << shift;
+    EXPECT_TRUE(parsed.error.contains(QStringLiteral("--bit-shift")))
+        << shift << ": " << parsed.error.toStdString();
+  }
+}
+
+// Both change the samples themselves, so both apply to what the pipe carries
+// as much as to a file — unlike the options that name a file.
+TEST(CaptureCliTest, ThePipeAloneTakesTheResolutionAndTheBitShift) {
+  const Parsed parsed =
+      Parse({QStringLiteral("--start-capture"), QStringLiteral("--pipe"),
+             QStringLiteral("--sample-bits"), QStringLiteral("9"),
+             QStringLiteral("--bit-shift"), QStringLiteral("1")});
+
+  ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
+  EXPECT_EQ(parsed.options.sample_bits, std::optional<int>(9));
+  EXPECT_EQ(parsed.options.bit_shift, std::optional<int>(1));
+}
+
 // --- Laying them over the settings -----------------------------------------
 
 TEST(CaptureCliTest, OnlyWhatWasNamedChanges) {

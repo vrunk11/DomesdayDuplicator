@@ -76,6 +76,9 @@ std::vector<FlacWriter::Tag> BuildProvenanceTags(
     tags.push_back({kTagInputRange, provenance.input_range});
   }
 
+  tags.push_back({kTagSampleBits, std::to_string(provenance.sample_bits)});
+  tags.push_back({kTagBitShift, std::to_string(provenance.bit_shift)});
+
   if (!provenance.board_adc.empty()) {
     if (!provenance.board_setup.empty()) {
       tags.push_back({kTagBoardSetup, provenance.board_setup});

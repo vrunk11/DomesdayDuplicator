@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 
+#include <vector>
+
 #include "capture_format.h"
 #include "sample_format.h"
 #include "wire_protocol.h"
@@ -156,8 +158,8 @@ TEST(SampleFormatTest, ACodePushedOutOfRangeSaturatesAndNeverWraps) {
   EXPECT_EQ(ToCorrectedSigned16Bit(3, 3), INT16_MIN);
   EXPECT_EQ(ToCorrectedSigned16Bit(4, 3), INT16_MIN + 64);
 
-  EXPECT_EQ(ToCorrectedSigned16Bit(1023, -3), INT16_MAX);
-  EXPECT_EQ(ToCorrectedSigned16Bit(1021, -3), INT16_MAX);
+  EXPECT_EQ(ToCorrectedSigned16Bit(1023, -3), 511 * 64);
+  EXPECT_EQ(ToCorrectedSigned16Bit(1021, -3), 511 * 64);
   EXPECT_EQ(ToCorrectedSigned16Bit(1020, -3), 511 * 64);
 
   // Monotonic across the whole range, for both signs: nothing folds back.
@@ -245,6 +247,140 @@ TEST(WireProtocolTest, TheIdentifiersAreTheAssignedOnes) {
   EXPECT_EQ(kVendorId, 0x1209);
   EXPECT_EQ(kProductId, 0x2347);
   EXPECT_EQ(kBulkInEndpoint, 0x81);
+}
+
+// --- The capture's conversion: offset, bit shift, then bits ----------------
+
+// The conversions every combination test below walks: each reduction and each
+// shift, with and without an offset either way.
+std::vector<SampleConversion> EveryConversion() {
+  std::vector<SampleConversion> conversions;
+  for (const int32_t offset : {-40, 0, 7}) {
+    for (int bits = kMinimumKeptBits; bits <= kConverterBits; ++bits) {
+      for (int shift = 0; shift <= kMaximumBitShift; ++shift) {
+        conversions.push_back(SampleConversion{offset, bits, shift});
+      }
+    }
+  }
+  return conversions;
+}
+
+TEST(SampleConversionTest, TheDefaultIsTheConverterUntouched) {
+  for (int32_t value = 0; value <= kMaximumSampleValue; ++value) {
+    EXPECT_EQ(ToConvertedSigned16Bit(value, SampleConversion{}),
+              ToSigned16Bit(value))
+        << value;
+  }
+}
+
+// Every sample is a whole multiple of the conversion's output step, the
+// saturated ones included — which is what lets FLAC store the zero bits under
+// it for nothing.
+TEST(SampleConversionTest, EverySampleIsAWholeMultipleOfTheStep) {
+  for (const SampleConversion& conversion : EveryConversion()) {
+    const int32_t step = kSampleScale
+                         << (DroppedBits(conversion) + BitShift(conversion));
+    for (int32_t value = 0; value <= kMaximumSampleValue; ++value) {
+      EXPECT_EQ(ToConvertedSigned16Bit(value, conversion) % step, 0)
+          << "value " << value << " bits " << conversion.kept_bits << " shift "
+          << conversion.bit_shift;
+    }
+  }
+}
+
+// The offset comes out first: converting a code with an offset is converting
+// the code the offset would have made it with no offset at all. Rounding
+// before the offset would round about the wrong zero.
+TEST(SampleConversionTest, TheOffsetComesOutBeforeAnythingElse) {
+  for (const SampleConversion& conversion : EveryConversion()) {
+    SampleConversion without = conversion;
+    without.dc_offset = 0;
+    for (int32_t value = 50; value <= 970; ++value) {
+      EXPECT_EQ(ToConvertedSigned16Bit(value, conversion),
+                ToConvertedSigned16Bit(value - conversion.dc_offset, without))
+          << "value " << value << " offset " << conversion.dc_offset;
+    }
+  }
+}
+
+// Rounded, not truncated, and half to even: over a stretch of whole steps the
+// errors cancel, so dropping bits does not move the signal's DC level.
+TEST(SampleConversionTest, DroppingBitsDoesNotShiftTheSignal) {
+  for (int dropped = 1; dropped <= kConverterBits - kMinimumKeptBits;
+       ++dropped) {
+    int64_t error = 0;
+    for (int32_t centred = -256; centred < 256; ++centred) {
+      error += RoundToStep(centred, dropped) - centred;
+    }
+    EXPECT_EQ(error, 0) << "dropped " << dropped;
+  }
+
+  // The half-way cases, which truncation and rounding half up both get wrong.
+  EXPECT_EQ(RoundToStep(1, 1), 0);
+  EXPECT_EQ(RoundToStep(3, 1), 4);
+  EXPECT_EQ(RoundToStep(-1, 1), 0);
+  EXPECT_EQ(RoundToStep(-3, 1), -4);
+  EXPECT_EQ(RoundToStep(5, 2), 4);
+  EXPECT_EQ(RoundToStep(6, 2), 8);
+}
+
+// The shift multiplies; it does not count towards the bits kept. Two bits of
+// shift at eight bits keeps eight bits of the signal — the same samples as
+// eight bits unshifted, four times larger — rather than ten bits with the
+// shift's zeros dropped.
+TEST(SampleConversionTest, TheBitShiftIsNeverMistakenForResolution) {
+  const SampleConversion eight_bits{0, 8, 0};
+  const SampleConversion eight_bits_shifted_two{0, 8, 2};
+  for (int32_t value = 512 - 120; value <= 512 + 120; ++value) {
+    EXPECT_EQ(ToConvertedSigned16Bit(value, eight_bits_shifted_two),
+              4 * ToConvertedSigned16Bit(value, eight_bits))
+        << value;
+  }
+
+  // And at full resolution a shift is exact.
+  for (int32_t value = 512 - 255; value <= 512 + 254; ++value) {
+    EXPECT_EQ(ToConvertedSigned16Bit(value, SampleConversion{0, 10, 1}),
+              2 * ToSigned16Bit(value))
+        << value;
+  }
+}
+
+TEST(SampleConversionTest, WhatTheBitShiftTakesPastFullScaleSaturates) {
+  const SampleConversion shift_one{0, kConverterBits, 1};
+  EXPECT_EQ(ToConvertedSigned16Bit(767, shift_one), 510 * 64);
+  EXPECT_EQ(ToConvertedSigned16Bit(768, shift_one), 510 * 64);
+  EXPECT_EQ(ToConvertedSigned16Bit(1022, shift_one), 510 * 64);
+  EXPECT_EQ(ToConvertedSigned16Bit(256, shift_one), INT16_MIN);
+  EXPECT_EQ(ToConvertedSigned16Bit(1, shift_one), INT16_MIN);
+
+  EXPECT_FALSE(BitShiftClips(767, shift_one));
+  EXPECT_TRUE(BitShiftClips(768, shift_one));
+  EXPECT_FALSE(BitShiftClips(256, shift_one));
+  EXPECT_TRUE(BitShiftClips(255, shift_one));
+
+  // What the converter clipped is the converter's, and with no shift nothing
+  // is the shift's.
+  EXPECT_FALSE(BitShiftClips(kMaximumSampleValue, shift_one));
+  EXPECT_FALSE(BitShiftClips(kMinimumSampleValue, shift_one));
+  EXPECT_FALSE(BitShiftClips(1022, SampleConversion{}));
+}
+
+// Out-of-range settings are held to what the writers can do rather than
+// passed through.
+TEST(SampleConversionTest, AnUnusableSettingIsHeldInRange) {
+  EXPECT_EQ(DroppedBits(SampleConversion{0, 4, 0}),
+            kConverterBits - kMinimumKeptBits);
+  EXPECT_EQ(DroppedBits(SampleConversion{0, 16, 0}), 0);
+  EXPECT_EQ(BitShift(SampleConversion{0, 10, 9}), kMaximumBitShift);
+  EXPECT_EQ(BitShift(SampleConversion{0, 10, -1}), 0);
+}
+
+TEST(SampleConversionTest, TheScopeSeesWhatTheFileHolds) {
+  EXPECT_EQ(ConvertedTenBitCode(600, SampleConversion{}), 600);
+  EXPECT_EQ(ConvertedTenBitCode(600, SampleConversion{0, 10, 1}), 688);
+  EXPECT_EQ(ConvertedTenBitCode(600, SampleConversion{10, 10, 0}), 590);
+  EXPECT_EQ(ConvertedTenBitCode(1022, SampleConversion{0, 10, 1}), 1022);
+  EXPECT_EQ(ConvertedTenBitCode(1, SampleConversion{0, 10, 1}), 0);
 }
 
 }  // namespace

@@ -18,6 +18,8 @@
 #include <string>
 #include <vector>
 
+#include "sample_format.h"
+
 namespace ddd::capture {
 
 // Writes a capture as mono 16-bit native FLAC, with the sample rate stamped
@@ -81,12 +83,13 @@ class FlacWriter {
     // is what FlacSampleRateLabelFor exists to work out.
     uint32_t sample_rate_label = 40'000;
 
-    // The board's declared DC offset, in whole converter codes, taken out of
-    // every sample written (ToCorrectedSigned16Bit). Zero writes exactly what
-    // the converter produced; a test-mode capture is always written with zero,
-    // because its samples are the gateware's counter rather than the
-    // converter's, and carry no converter offset.
-    int32_t dc_offset = 0;
+    // What is done to every sample written: the board's declared DC offset,
+    // the bit shift and the resolution kept (SampleConversion). The default
+    // writes exactly what the converter produced; a test-mode capture is always
+    // written with it, because its samples are the gateware's counter rather
+    // than the converter's, and the ramp check needs every one of them as it
+    // was counted.
+    SampleConversion conversion;
 
     // Vorbis comments, so a capture separated from its metadata sidecar can
     // still say which build produced it.

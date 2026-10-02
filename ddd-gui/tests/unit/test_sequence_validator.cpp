@@ -372,7 +372,7 @@ TEST(SequenceValidatorTest, TheSamplesTheOffsetPushesOutOfRangeAreCounted) {
   builder.AppendConstant(512, 103);
 
   SequenceValidator validator;
-  validator.SetDcOffset(3);
+  validator.SetConversion(SampleConversion{3});
   const SequenceValidator::Outcome outcome =
       validator.Process(builder.bytes().data(), builder.bytes().size());
 
@@ -387,12 +387,70 @@ TEST(SequenceValidatorTest, TheOffsetSurvivesAReset) {
   builder.AppendConstant(1022, 128);
 
   SequenceValidator validator;
-  validator.SetDcOffset(-3);
+  validator.SetConversion(SampleConversion{-3});
   validator.Reset();
   const SequenceValidator::Outcome outcome =
       validator.Process(builder.bytes().data(), builder.bytes().size());
 
   EXPECT_EQ(outcome.tally.offset_saturated_count, 128U);
+}
+
+// What the bit shift clips is counted apart from what the offset pushed out
+// and from what the converter clipped, so that each says what to change.
+TEST(SequenceValidatorTest, TheSamplesTheBitShiftClipsAreCountedOnTheirOwn) {
+  test::WireStreamBuilder builder(0, 64);
+  builder.AppendConstant(kMaximumSampleValue, 4);  // converter clipped
+  builder.AppendConstant(900, 7);                  // shifted, past the top
+  builder.AppendConstant(767, 13);                 // shifted, exactly on top
+  builder.AppendConstant(100, 6);                  // shifted, past the bottom
+  builder.AppendConstant(512, 98);
+
+  SequenceValidator validator;
+  validator.SetConversion(SampleConversion{0, kConverterBits, 1});
+  const SequenceValidator::Outcome outcome =
+      validator.Process(builder.bytes().data(), builder.bytes().size());
+
+  EXPECT_EQ(outcome.tally.shift_clipped_count, 13U);
+  EXPECT_EQ(outcome.tally.offset_saturated_count, 0U);
+  EXPECT_EQ(outcome.tally.clipped_high_count, 4U);
+}
+
+// A sample the offset already lost is the offset's, and is not counted again
+// against the shift.
+TEST(SequenceValidatorTest, ASampleIsBlamedOnTheFirstCauseThatLostIt) {
+  test::WireStreamBuilder builder(0, 64);
+  builder.AppendConstant(1, 10);  // the offset of +3 pushes these out first
+  builder.AppendConstant(512, 118);
+
+  SequenceValidator validator;
+  validator.SetConversion(SampleConversion{3, kConverterBits, 2});
+  const SequenceValidator::Outcome outcome =
+      validator.Process(builder.bytes().data(), builder.bytes().size());
+
+  EXPECT_EQ(outcome.tally.offset_saturated_count, 10U);
+  EXPECT_EQ(outcome.tally.shift_clipped_count, 0U);
+}
+
+TEST(SampleMetricsTest, TheShiftClippedCountAccumulatesLikeTheOthers) {
+  BufferTally first;
+  first.sample_count = 100;
+  first.shift_clipped_count = 4;
+
+  BufferTally second = first;
+  second.shift_clipped_count = 6;
+
+  SampleMetrics metrics;
+  metrics.Accumulate(first);
+  metrics.BeginCaptureSpan();
+  metrics.Accumulate(second);
+
+  const SampleMetricsSnapshot snapshot = metrics.Snapshot();
+  EXPECT_EQ(snapshot.shift_clipped_count, 10U);
+  EXPECT_EQ(snapshot.recent_shift_clipped_count, 6U);
+  EXPECT_EQ(snapshot.capture_shift_clipped_count, 6U);
+
+  metrics.Reset();
+  EXPECT_EQ(metrics.Snapshot().shift_clipped_count, 0U);
 }
 
 TEST(SampleMetricsTest, TheSumAndTheSaturatedCountAccumulate) {

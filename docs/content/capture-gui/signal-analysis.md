@@ -225,8 +225,14 @@ offset of +20 the top line is at 1003, because a sample at the converter's 1023 
 1003 — so the headroom on screen is the headroom there is, and a trace touching a line is
 clipping whichever view is on.
 
-The offset is the one the running stream is corrected by, taken when monitoring starts. With
-no offset declared, or in test mode, the two views are the same.
+It also applies the [bit shift](capture-control.md#bit-shift-digital-gain) and the
+[resolution](capture-control.md#resolution) the capture panel asks for, in the order the
+writers apply them, so a capture shifted by one bit is drawn twice as large and an 8-bit one
+in steps of four codes. With a shift, the clip lines move out to the ends of the range: that
+is where the shift itself clips.
+
+All of it is what the running stream is converted with, taken when monitoring starts. With no
+offset declared, at 10 bits with no shift, or in test mode, the two views are the same.
 
 ### The cursor
 

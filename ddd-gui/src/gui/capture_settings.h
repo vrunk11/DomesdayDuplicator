@@ -154,6 +154,16 @@ struct CaptureSettings {
   // format, which has no encoder to ask.
   int compression_level = capture::FlacWriter::Options{}.compression_level;
 
+  // How much of the converter's resolution a capture keeps, 8 to 10 bits, and
+  // how many bits the signal is shifted up, 0, 1 or 2 — a digital gain of x1,
+  // x2 or x4. See capture::SampleConversion, which applies them after the DC
+  // offset, the shift before the rounding. Persisted like the compression
+  // level: both are decisions about what is kept, made once for a collection
+  // rather than per capture. Neither applies in test mode, whose ramp has to
+  // reach the file exactly as counted.
+  int sample_bits = capture::kConverterBits;
+  int bit_shift = 0;
+
   // Stop the capture automatically after this long. 0 means run until stopped,
   // which is the default: a limit that fired in the middle of a side would be
   // worse than no limit at all.
@@ -191,6 +201,7 @@ struct CaptureSettings {
            range_select_2vpp == other.range_select_2vpp &&
            pll_preset_mhz == other.pll_preset_mhz &&
            compression_level == other.compression_level &&
+           sample_bits == other.sample_bits && bit_shift == other.bit_shift &&
            duration_limit_seconds == other.duration_limit_seconds &&
            low_space_warning_minutes == other.low_space_warning_minutes;
   }

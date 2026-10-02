@@ -130,10 +130,17 @@ class CaptureController : public QObject {
   // `message` saying why.
   bool WriteBoardSetup(const capture::BoardSetup& setup, QString& message);
 
-  // The DC offset the running stream's writers take out, in converter codes —
-  // fixed when the stream starts, and 0 in test mode or while measuring. What
-  // the scope subtracts when asked to show the signal as it is written.
-  int32_t run_dc_offset() const { return run_dc_offset_; }
+  // What the running stream's writers do to every sample — the DC offset, the
+  // bit shift and the resolution kept — fixed when the stream starts, and
+  // the converter untouched in test mode or while measuring. What the scope
+  // applies when asked to show the signal as it is written, and what every
+  // file opened during the run is written with.
+  const capture::SampleConversion& run_conversion() const {
+    return run_conversion_;
+  }
+
+  // The DC offset part of it, in converter codes.
+  int32_t run_dc_offset() const { return run_conversion_.dc_offset; }
 
   // The ADC rate, in MHz, the capture settings run at — "board default" taken
   // as the 40 MHz every figure assumes for it. The rate whose offset applies.
@@ -315,6 +322,11 @@ class CaptureController : public QObject {
   // on its own, so it says the declaration is wrong. Raised once per run.
   void DcOffsetOutOfRange(const QString& message);
 
+  // The bit shift clipped samples that neither the converter nor the DC
+  // offset had: the shift is too large for this signal. A setting rather than a
+  // fault, so it is said once per run and nothing is stopped.
+  void BitShiftClipping(const QString& message);
+
   void DevicesChanged(const std::vector<ddd::capture::DeviceInfo>& devices);
   void MonitoringChanged(bool monitoring);
   void StatsUpdated(const ddd::capture::CaptureStats& stats);
@@ -401,12 +413,20 @@ class CaptureController : public QObject {
   // declared one for its range, and 0 in test mode or while measuring.
   int32_t RunDcOffset() const;
 
+  // The whole conversion the next run's writers apply: RunDcOffset(), and the
+  // settings' resolution and bit shift — none of it in test mode or while
+  // measuring.
+  capture::SampleConversion RunConversion() const;
+
   // One step of the DC offset measurement, from measure_timer_.
   void MeasurementStep();
   void FinishMeasurement();
 
   // Raise DcOffsetOutOfRange the first time a run's statistics show it.
   void CheckDcOffsetSaturation(const capture::CaptureStats& stats);
+
+  // Raise BitShiftClipping the first time a run's statistics show it.
+  void CheckBitShiftClipping(const capture::CaptureStats& stats);
 
   // What the device this capture is coming off was built from, for the file's
   // own tags and for the sidecar beside it.
@@ -517,11 +537,13 @@ class CaptureController : public QObject {
   // See board_setup(). Read when a device appears, alongside the two above.
   capture::BoardSetupReading board_setup_;
 
-  // Whether DcOffsetOutOfRange has been raised this run.
+  // Whether DcOffsetOutOfRange and BitShiftClipping have been raised this
+  // run.
   bool offset_out_of_range_warned_ = false;
+  bool shift_clipping_warned_ = false;
 
-  // See run_dc_offset().
-  int32_t run_dc_offset_ = 0;
+  // See run_conversion().
+  capture::SampleConversion run_conversion_;
 
   // The DC offset measurement, run as a short sequence of monitoring runs
   // driven from measure_timer_ — see MeasureDcOffset().

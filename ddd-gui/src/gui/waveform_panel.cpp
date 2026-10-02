@@ -773,20 +773,20 @@ void WaveformPanel::SetSampleRate(uint32_t sample_rate_hz) {
 }
 
 void WaveformPanel::OnWaveformReady(const std::vector<uint16_t>& codes) {
-  if (!corrected_->isChecked() || dc_offset_ == 0) {
+  if (!corrected_->isChecked() || conversion_ == capture::SampleConversion{}) {
     plot_->SetCodes(codes);
     return;
   }
 
   // The same thing the writers do, in the 10-bit domain the plot draws in:
-  // each code moved by the offset and held at the end of the range it would
-  // otherwise leave — which is exactly what the file holds.
+  // each code centred by the offset, shifted up, rounded to the
+  // bits kept and held at the end of the range it would otherwise leave —
+  // which is exactly what the file holds. See capture::ConvertedTenBitCode.
   corrected_codes_.resize(codes.size());
   for (size_t index = 0; index < codes.size(); ++index) {
-    corrected_codes_[index] = static_cast<uint16_t>(
-        std::clamp(static_cast<int32_t>(codes[index]) - dc_offset_,
-                   static_cast<int32_t>(capture::kMinimumSampleValue),
-                   static_cast<int32_t>(capture::kMaximumSampleValue)));
+    corrected_codes_[index] =
+        static_cast<uint16_t>(capture::ConvertedTenBitCode(
+            static_cast<int32_t>(codes[index]), conversion_));
   }
   plot_->SetCodes(corrected_codes_);
 }
@@ -798,29 +798,29 @@ void WaveformPanel::OnMonitoringChanged(bool monitoring) {
     plot_->Clear();
     ClearCursor();
 
-    // The offset belongs to the run: taken when it starts, as the writers take
-    // it, so the corrected trace is corrected by what the file is.
-    dc_offset_ = controller_ != nullptr ? controller_->run_dc_offset() : 0;
+    // The conversion belongs to the run: taken when it starts, as the writers
+    // take it, so the corrected trace is what the file is.
+    conversion_ = controller_ != nullptr ? controller_->run_conversion()
+                                         : capture::SampleConversion{};
     ApplyCorrection();
   }
 }
 
 void WaveformPanel::ApplyCorrection() {
-  if (!corrected_->isChecked() || dc_offset_ == 0) {
+  if (!corrected_->isChecked() || conversion_ == capture::SampleConversion{}) {
     plot_->SetClipLimits(capture::kMinimumSampleValue,
                          capture::kMaximumSampleValue);
     return;
   }
 
-  // Where the converter's own 0 and 1023 land once the offset is taken out,
-  // cut to the range the file can hold. With a positive offset the top line
-  // comes down to 1023 - offset and the bottom stays at 0, where the file's
-  // range ends; a negative one does the mirror image.
+  // Where the converter's own 0 and 1023 land once the file's conversion is
+  // applied, cut to the range the file can hold. With a positive offset the
+  // top line comes down to 1023 - offset and the bottom stays at 0, where the
+  // file's range ends; a negative one does the mirror image; a shift pushes
+  // both out to the ends, where the shift itself then clips.
   plot_->SetClipLimits(
-      std::max<int>(capture::kMinimumSampleValue,
-                    capture::kMinimumSampleValue - dc_offset_),
-      std::min<int>(capture::kMaximumSampleValue,
-                    capture::kMaximumSampleValue - dc_offset_));
+      capture::ConvertedTenBitCode(capture::kMinimumSampleValue, conversion_),
+      capture::ConvertedTenBitCode(capture::kMaximumSampleValue, conversion_));
 }
 
 void WaveformPanel::SetFrontEndGain(analysis::FrontEndGain gain) {

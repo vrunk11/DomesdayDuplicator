@@ -33,6 +33,8 @@ constexpr const char* kAdcRateName = "adc-rate";
 constexpr const char* kInputRangeName = "input-range";
 constexpr const char* kDurationLimitName = "duration-limit";
 constexpr const char* kOutputFormatName = "output-format";
+constexpr const char* kSampleBitsName = "sample-bits";
+constexpr const char* kBitShiftName = "bit-shift";
 constexpr const char* kPipeName = "pipe";
 constexpr const char* kSaveName = "save";
 
@@ -129,7 +131,8 @@ bool CaptureCliOptions::HasAttributeOverrides() const {
   return capture_directory.has_value() || capture_name.has_value() ||
          decimation_factor.has_value() || pll_preset_mhz.has_value() ||
          range_select_2vpp.has_value() || duration_limit_seconds.has_value() ||
-         output_format.has_value();
+         output_format.has_value() || sample_bits.has_value() ||
+         bit_shift.has_value();
 }
 
 CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
@@ -193,6 +196,20 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
                                   QLatin1String(kSigned16BitFormatWord)),
                          QStringLiteral("format")),
       QCommandLineOption(
+          QLatin1String(kSampleBitsName),
+          QStringLiteral(
+              "Keep this many of the converter's 10 bits: 10, 9 or 8. Each "
+              "bit dropped makes a FLAC capture noticeably smaller and costs "
+              "6 dB of quantisation noise. Rounded, not truncated."),
+          QStringLiteral("bits")),
+      QCommandLineOption(
+          QLatin1String(kBitShiftName),
+          QStringLiteral(
+              "Shift the signal up by 0, 1 or 2 bits before it is written — a "
+              "digital gain of x1, x2 or x4 — so a weak one is easier to read. "
+              "Adds no detail; clips what it takes past full scale."),
+          QStringLiteral("bits")),
+      QCommandLineOption(
           QLatin1String(kPipeName),
           QStringLiteral(
               "Stream the capture to standard output as signed 16-bit "
@@ -217,6 +234,8 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
   parser.addOption(set.input_range);
   parser.addOption(set.duration_limit);
   parser.addOption(set.output_format);
+  parser.addOption(set.sample_bits);
+  parser.addOption(set.bit_shift);
   parser.addOption(set.pipe);
   parser.addOption(set.save);
 
@@ -356,6 +375,37 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
     }
   }
 
+  if (parser.isSet(set.sample_bits)) {
+    const QString text = parser.value(set.sample_bits).trimmed();
+    bool numeric = false;
+    const int bits = text.toInt(&numeric);
+    if (!numeric || bits < capture::kMinimumKeptBits ||
+        bits > capture::kConverterBits) {
+      result.error =
+          QStringLiteral("Unknown --sample-bits '%1'. Use %2, %3 or %4.")
+              .arg(text)
+              .arg(capture::kConverterBits)
+              .arg(capture::kConverterBits - 1)
+              .arg(capture::kMinimumKeptBits);
+      return result;
+    }
+    options.sample_bits = bits;
+  }
+
+  if (parser.isSet(set.bit_shift)) {
+    const QString text = parser.value(set.bit_shift).trimmed();
+    bool numeric = false;
+    const int shift = text.toInt(&numeric);
+    if (!numeric || shift < 0 || shift > capture::kMaximumBitShift) {
+      result.error =
+          QStringLiteral("Unknown --bit-shift '%1'. Use 0, 1 or %2 bits.")
+              .arg(text)
+              .arg(capture::kMaximumBitShift);
+      return result;
+    }
+    options.bit_shift = shift;
+  }
+
   // --stop-capture is a message to a process that is already running and has
   // already been told what to capture. Anything else on the line is an
   // instruction with nowhere to go, so it is refused rather than dropped.
@@ -435,6 +485,12 @@ void ApplyCliOverrides(CaptureSettings& settings,
   }
   if (options.output_format.has_value()) {
     settings.output_format = *options.output_format;
+  }
+  if (options.sample_bits.has_value()) {
+    settings.sample_bits = *options.sample_bits;
+  }
+  if (options.bit_shift.has_value()) {
+    settings.bit_shift = *options.bit_shift;
   }
 }
 

@@ -50,7 +50,8 @@ QString ToQString(std::string_view text) {
 // and the correction it is reading — said to whoever is watching, and kept by
 // whatever is capturing standard error.
 QString DescribePipedStream(uint32_t sample_rate_hz, bool range_2vpp,
-                            int32_t dc_offset, bool test_mode) {
+                            const capture::SampleConversion& conversion,
+                            bool test_mode) {
   QString text =
       QObject::tr(
           "Standard output carries signed 16-bit samples at %1 Msps, %2 input "
@@ -61,7 +62,10 @@ QString DescribePipedStream(uint32_t sample_rate_hz, bool range_2vpp,
   if (test_mode) {
     text += QObject::tr(", in test mode");
   } else {
-    text += QObject::tr(", DC offset %1 taken out").arg(dc_offset);
+    text += QObject::tr(", DC offset %1 taken out, %2 bits kept, bit shift %3")
+                .arg(conversion.dc_offset)
+                .arg(capture::kConverterBits - capture::DroppedBits(conversion))
+                .arg(capture::BitShift(conversion));
   }
   return text + QStringLiteral(".");
 }
@@ -431,6 +435,20 @@ int32_t CaptureController::RunDcOffset() const {
   return capture::DcOffsetFor(board_setup_.setup, RunRange2Vpp(), RunRateMhz());
 }
 
+capture::SampleConversion CaptureController::RunConversion() const {
+  capture::SampleConversion conversion;
+  conversion.dc_offset = RunDcOffset();
+
+  // Neither in test mode, whose ramp has to reach the file exactly as the
+  // gateware counted it for the ramp check to mean anything, nor while
+  // measuring, where what is wanted is the converter as it is.
+  if (!settings_.test_mode && !measuring_dc_offset()) {
+    conversion.kept_bits = settings_.sample_bits;
+    conversion.bit_shift = settings_.bit_shift;
+  }
+  return conversion;
+}
+
 bool CaptureController::WriteBoardSetup(const capture::BoardSetup& setup,
                                         QString& message) {
   if (monitoring_ || measuring_dc_offset()) {
@@ -725,6 +743,27 @@ void CaptureController::CheckDcOffsetSaturation(
   emit DcOffsetOutOfRange(message);
 }
 
+void CaptureController::CheckBitShiftClipping(
+    const capture::CaptureStats& stats) {
+  if (shift_clipping_warned_ || !monitoring_ ||
+      stats.metrics.shift_clipped_count == 0) {
+    return;
+  }
+  shift_clipping_warned_ = true;
+
+  const QString message =
+      tr("The bit shift is clipping the signal. Lower it in the capture "
+         "panel, or leave it at 0: it makes a weak signal easier to read and "
+         "adds no detail, so nothing is lost without it.");
+  if (logger_ != nullptr) {
+    logger_->Warning(
+        "A bit shift of " + std::to_string(capture::BitShift(run_conversion_)) +
+        " clipped " + std::to_string(stats.metrics.shift_clipped_count) +
+        " samples that neither the converter nor the DC offset had");
+  }
+  emit BitShiftClipping(message);
+}
+
 void CaptureController::StartMonitoring() {
   if (monitoring_ || device_ == nullptr) {
     return;
@@ -857,11 +896,13 @@ void CaptureController::StartMonitoring() {
   options.queue_size_bytes = settings_.queue_size_bytes;
   options.test_mode = test_mode;
 
-  // Counted by the pipeline so that a declaration belonging to another board
-  // shows during monitoring, before anything has been written with it.
-  options.dc_offset = RunDcOffset();
-  run_dc_offset_ = options.dc_offset;
+  // Counted by the pipeline so that a declaration belonging to another board,
+  // or a shift too large for the signal, shows during monitoring, before
+  // anything has been written with it.
+  options.conversion = RunConversion();
+  run_conversion_ = options.conversion;
   offset_out_of_range_warned_ = false;
+  shift_clipping_warned_ = false;
 
   // Only the log uses this, and it is why the log's times are right under
   // decimation: a 2:1 capture delivers half as many samples a second, so a
@@ -968,10 +1009,16 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
   std::unique_ptr<capture::ISampleSink> sink;
   std::string open_error;
 
-  // The range this file is recorded at and the offset taken out of it, fixed
-  // for the file: both come from the run that is already streaming.
+  // The range this file is recorded at and what is done to its samples, fixed
+  // for the file: both come from the run that is already streaming, so the
+  // file is written with exactly what the pipeline has been counting against
+  // and the scope has been showing.
   const bool range_2vpp = RunRange2Vpp();
-  const int32_t dc_offset = RunDcOffset();
+  const capture::SampleConversion conversion = run_conversion_;
+  const int32_t dc_offset = conversion.dc_offset;
+  const int sample_bits =
+      capture::kConverterBits - capture::DroppedBits(conversion);
+  const int bit_shift = capture::BitShift(conversion);
   const capture::BoardSetup& board = board_setup_.setup;
   const bool board_known =
       board_setup_.source != capture::BoardSetupSource::kUnavailable;
@@ -980,7 +1027,7 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
 
   if (settings_.output_format == capture::CaptureOutputFormat::kSigned16Bit) {
     auto raw = std::make_unique<capture::RawSink>();
-    if (raw->Open(path, dc_offset)) {
+    if (raw->Open(path, conversion)) {
       sink = std::move(raw);
     } else {
       open_error = raw->LastError();
@@ -990,7 +1037,7 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
     options.compression_level = settings_.compression_level;
     options.sample_rate_label = capture::FlacSampleRateLabelFor(
         decimation, settings_.BaseSampleRateHz());
-    options.dc_offset = dc_offset;
+    options.conversion = conversion;
 
     const capture::DeviceBuild build = CurrentDeviceBuild();
 
@@ -1010,6 +1057,8 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
       provenance.board_rsel_wiring = capture::RselWiringName(board.rsel_wiring);
       provenance.dc_offset = dc_offset;
     }
+    provenance.sample_bits = sample_bits;
+    provenance.bit_shift = bit_shift;
     provenance.started = now;
     provenance.disc = disc_provenance_;
 
@@ -1045,12 +1094,12 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
   // loses blocks of the copy and never holds up the file. See PipeSink.
   if (pipe_stream_ != nullptr) {
     pipe_writer_ = std::make_shared<capture::PipeWriter>(
-        std::move(pipe_stream_), dc_offset,
+        std::move(pipe_stream_), conversion,
         capture::PipeWriter::WhenFull::kDrop);
     pipe_stream_.reset();
     sink = std::make_unique<capture::PipeSink>(std::move(sink), pipe_writer_);
     emit PipeNotice(DescribePipedStream(settings_.SampleRateHz(), range_2vpp,
-                                        dc_offset, settings_.test_mode));
+                                        conversion, settings_.test_mode));
   }
 
   capture_path_ = QString::fromStdString(path.string());
@@ -1079,6 +1128,8 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
         capture::RselWiringName(board.rsel_wiring);
     pending_metadata_.board.dc_offset = dc_offset;
   }
+  pending_metadata_.sample_bits = sample_bits;
+  pending_metadata_.bit_shift = bit_shift;
   pending_metadata_.started = now;
   pending_metadata_.device = CurrentDeviceBuild();
   pending_metadata_.player = player_identity_;
@@ -1114,7 +1165,9 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
         " Msps, ring " + capture::FormatBytes(settings_.queue_size_bytes) +
         ", test mode " + (settings_.test_mode ? "on" : "off") +
         ", input range " + capture::InputRangeName(range_2vpp) +
-        ", DC offset " + std::to_string(dc_offset) + ", duration limit " +
+        ", DC offset " + std::to_string(dc_offset) + ", " +
+        std::to_string(sample_bits) + " bits kept, bit shift " +
+        std::to_string(bit_shift) + ", duration limit " +
         (settings_.duration_limit_seconds > 0
              ? capture::FormatDuration(
                    static_cast<double>(settings_.duration_limit_seconds))
@@ -1148,12 +1201,13 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
 
 std::unique_ptr<capture::ISampleSink> CaptureController::OpenPipeOnlyCapture() {
   const bool range_2vpp = RunRange2Vpp();
-  const int32_t dc_offset = RunDcOffset();
+  const capture::SampleConversion conversion = run_conversion_;
 
   // The pipe is the capture, so a reader that falls behind fails it rather
   // than thinning it out: the samples it would lose exist nowhere else.
   pipe_writer_ = std::make_shared<capture::PipeWriter>(
-      std::move(pipe_stream_), dc_offset, capture::PipeWriter::WhenFull::kFail);
+      std::move(pipe_stream_), conversion,
+      capture::PipeWriter::WhenFull::kFail);
   pipe_stream_.reset();
   pipe_only_ = true;
 
@@ -1171,7 +1225,7 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenPipeOnlyCapture() {
   device_drops_at_start_ = opening.device_dropped_words;
 
   const QString description = DescribePipedStream(
-      settings_.SampleRateHz(), range_2vpp, dc_offset, settings_.test_mode);
+      settings_.SampleRateHz(), range_2vpp, conversion, settings_.test_mode);
   if (logger_ != nullptr) {
     logger_->Info("Capturing to standard output. " + description.toStdString());
   }
@@ -1497,6 +1551,8 @@ void CaptureController::WriteMetadataSidecar(
       stats.metrics.capture_clipped_high_count;
   metadata.board.offset_saturated_samples =
       stats.metrics.capture_offset_saturated_count;
+  metadata.signal.shift_clipped_samples =
+      stats.metrics.capture_shift_clipped_count;
 
   const std::filesystem::path sidecar =
       capture::CaptureMetadataPath(capture_file);
@@ -1651,6 +1707,7 @@ void CaptureController::Tick() {
   emit StatsUpdated(stats);
 
   CheckDcOffsetSaturation(stats);
+  CheckBitShiftClipping(stats);
   CheckDurationLimit(stats);
   CheckFreeSpace();
   CheckPipe();

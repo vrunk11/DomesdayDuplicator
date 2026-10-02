@@ -214,6 +214,42 @@ TEST_F(CaptureSettingsTest, ANonsensicalCompressionLevelIsClamped) {
   EXPECT_EQ(LoadCaptureSettings().compression_level, 0);
 }
 
+// Nothing is reduced or amplified until somebody asks: a first capture keeps
+// every bit the converter produced, at the level it produced it.
+TEST_F(CaptureSettingsTest, AFirstRunKeepsEveryBitUnshifted) {
+  const CaptureSettings loaded = LoadCaptureSettings();
+  EXPECT_EQ(loaded.sample_bits, capture::kConverterBits);
+  EXPECT_EQ(loaded.bit_shift, 0);
+}
+
+TEST_F(CaptureSettingsTest, TheResolutionAndTheBitShiftSurviveARestart) {
+  CaptureSettings saved;
+  saved.sample_bits = 8;
+  saved.bit_shift = 2;
+  SaveCaptureSettings(saved);
+
+  const CaptureSettings loaded = LoadCaptureSettings();
+  EXPECT_EQ(loaded.sample_bits, 8);
+  EXPECT_EQ(loaded.bit_shift, 2);
+}
+
+// A settings file asking for something no writer does is held to what one
+// does, rather than reaching the conversion and being clamped silently there.
+TEST_F(CaptureSettingsTest, AnImpossibleResolutionOrBitShiftIsClamped) {
+  QSettings store;
+  store.setValue(QStringLiteral("capture/sample_bits"), 4);
+  store.setValue(QStringLiteral("capture/bit_shift"), 7);
+  CaptureSettings loaded = LoadCaptureSettings();
+  EXPECT_EQ(loaded.sample_bits, capture::kMinimumKeptBits);
+  EXPECT_EQ(loaded.bit_shift, capture::kMaximumBitShift);
+
+  store.setValue(QStringLiteral("capture/sample_bits"), 16);
+  store.setValue(QStringLiteral("capture/bit_shift"), -1);
+  loaded = LoadCaptureSettings();
+  EXPECT_EQ(loaded.sample_bits, capture::kConverterBits);
+  EXPECT_EQ(loaded.bit_shift, 0);
+}
+
 TEST_F(CaptureSettingsTest, ANonsensicalDurationLimitIsClamped) {
   QSettings store;
   store.setValue(QStringLiteral("capture/duration_limit_seconds"), -60);

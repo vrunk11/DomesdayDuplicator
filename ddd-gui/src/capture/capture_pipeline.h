@@ -66,14 +66,15 @@ class CapturePipeline {
     // Only meaningful when the device has been put into test mode.
     bool test_mode = false;
 
-    // The board's declared DC offset, in converter codes, that the writers take
-    // out of every sample. The pipeline does not correct anything itself — the
-    // writers do, on their way to the file — but it counts the samples the
-    // correction pushes out of range, which is how a declaration that belongs
-    // to some other board is noticed. Ignored in test mode: the samples then
-    // come from the gateware's counter rather than the converter, so there
-    // is no converter offset in them to correct.
-    int32_t dc_offset = 0;
+    // What the writers do to every sample: the board's declared DC offset, the
+    // bit shift and the resolution kept. The pipeline converts nothing
+    // itself — the writers do, on their way to the file — but it counts the
+    // samples the offset pushes out of range and the samples the shift clips,
+    // which is how a declaration that belongs to some other board, or a shift
+    // too large for the signal, is noticed while monitoring. Ignored in test
+    // mode: the samples then come from the gateware's counter rather than the
+    // converter, and are written as they were counted.
+    SampleConversion conversion;
 
     // Pin the ring into physical memory. Off only for tests that would
     // otherwise need a raised locked-memory limit to run.

@@ -44,7 +44,7 @@ struct PipeWriter::State {
   };
 
   std::shared_ptr<IByteStream> stream;
-  int32_t dc_offset = 0;
+  SampleConversion conversion;
   WhenFull when_full = WhenFull::kFail;
 
   std::vector<Slot> slots;
@@ -74,11 +74,12 @@ struct PipeWriter::State {
   mutable std::condition_variable stopped;
 };
 
-PipeWriter::PipeWriter(std::shared_ptr<IByteStream> stream, int32_t dc_offset,
-                       WhenFull when_full, size_t queue_bytes)
+PipeWriter::PipeWriter(std::shared_ptr<IByteStream> stream,
+                       const SampleConversion& conversion, WhenFull when_full,
+                       size_t queue_bytes)
     : state_(std::make_shared<State>()) {
   state_->stream = std::move(stream);
-  state_->dc_offset = dc_offset;
+  state_->conversion = conversion;
   state_->when_full = when_full;
 
   const size_t slot_bytes = kSlotSamples * kBytesPerSample;
@@ -224,7 +225,7 @@ void PipeWriter::Run(const std::shared_ptr<State>& shared) {
       state.discarded.fetch_add(slot.samples, std::memory_order_relaxed);
     } else {
       WireToSigned16LittleEndian(slot.wire.data(), slot.samples,
-                                 state.dc_offset, converted.data());
+                                 state.conversion, converted.data());
       if (state.stream->Write(converted.data(),
                               slot.samples * kSigned16BytesPerSample)) {
         state.delivered.fetch_add(slot.samples, std::memory_order_relaxed);

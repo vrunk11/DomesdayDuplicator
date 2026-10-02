@@ -48,6 +48,8 @@ outside: see [Running it from a Flatpak](#running-it-from-a-flatpak) and
 | `--input-range <range>` | `2vpp` or `1vpp` | The ADC's input range |
 | `--duration-limit <seconds>` | 1 to 86400 | Stop by itself after this long. Leave it out to capture until stopped |
 | `--output-format <format>` | `flac` or `s16` | Write [FLAC, or uncompressed `.ddd.s16`](capture-files.md) |
+| `--sample-bits <bits>` | `10`, `9` or `8` | Keep this many of the converter's bits. Each dropped makes a FLAC capture smaller and costs 6 dB. Applies to `--pipe` too |
+| `--bit-shift <bits>` | `0`, `1` or `2` | Shift the signal up by this many bits, a digital gain of x1, x2 or x4. Adds no detail; clips what it takes past full scale. Applies to `--pipe` too |
 | `--pipe` | | Stream the capture to standard output for another program. Needs `--start-capture`. See [Streaming to another program](#streaming-to-another-program) |
 | `--save` | | With `--pipe`, write the capture file as well |
 
@@ -221,11 +223,13 @@ ddd-gui --start-capture --pipe --save --capture-name disc-42-side-1 | some-previ
 
 What arrives is **signed 16-bit little-endian samples**, exactly what a
 [`.ddd.s16` file](capture-files.md) holds, with the board's
-[DC offset](board-setup.md) already taken out. There is no header, so the rate, the input
-range and the offset are said once on standard error as the capture starts:
+[DC offset](board-setup.md) already taken out and the
+[resolution](capture-control.md#resolution) and [bit shift](capture-control.md#bit-shift-digital-gain)
+applied. There is no header, so the rate, the input range and all three are said once on
+standard error as the capture starts:
 
 ```text
-Standard output carries signed 16-bit samples at 40.000 Msps, 2Vpp input range, DC offset -3 taken out.
+Standard output carries signed 16-bit samples at 40.000 Msps, 2Vpp input range, DC offset -3 taken out, 10 bits kept, bit shift 0.
 ```
 
 A script that has to keep that should keep standard error. In

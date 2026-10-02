@@ -371,7 +371,7 @@ TEST_F(CapturePipelineTest, TheSamplesAnOffsetPushesOutOfRangeAreCounted) {
   SyntheticSource source(source_options);
 
   CapturePipeline::Options options = BasePipelineOptions();
-  options.dc_offset = 10;
+  options.conversion.dc_offset = 10;
 
   CapturePipeline pipeline(&logger_);
   ASSERT_TRUE(pipeline.Start(&source, std::make_unique<NullSink>(), options));
@@ -394,7 +394,7 @@ TEST_F(CapturePipelineTest, TestModeIgnoresTheOffset) {
 
   CapturePipeline::Options options = BasePipelineOptions();
   options.test_mode = true;
-  options.dc_offset = 10;
+  options.conversion.dc_offset = 10;
 
   CapturePipeline pipeline(&logger_);
   ASSERT_TRUE(pipeline.Start(&source, std::make_unique<NullSink>(), options));

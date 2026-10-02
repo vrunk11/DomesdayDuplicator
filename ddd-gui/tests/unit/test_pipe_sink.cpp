@@ -139,10 +139,10 @@ std::vector<uint8_t> Ramp(size_t samples, uint16_t start) {
 }
 
 std::vector<uint8_t> Converted(const std::vector<uint8_t>& wire,
-                               int32_t dc_offset) {
+                               const SampleConversion& conversion) {
   const size_t samples = wire.size() / kBytesPerSample;
   std::vector<uint8_t> out(samples * kSigned16BytesPerSample);
-  WireToSigned16LittleEndian(wire.data(), samples, dc_offset, out.data());
+  WireToSigned16LittleEndian(wire.data(), samples, conversion, out.data());
   return out;
 }
 
@@ -153,11 +153,15 @@ constexpr size_t kSlot = PipeWriter::kSlotSamples;
 // The smallest queue there is: kMinimumSlots slots.
 constexpr size_t kSmallQueue = 1;
 
+// An offset, a bit shift and a reduction together, so that what the pipe
+// delivers is shown to be every step of the conversion and not just the offset.
+constexpr SampleConversion kEveryStep{3, 9, 1};
+
 TEST(WireToSigned16Test, MatchesTheSingleSampleConversionForEveryCode) {
   constexpr int32_t kOffset = -7;
 
   std::vector<uint8_t> wire = Ramp(kMaximumSampleValue + 1, 0);
-  const std::vector<uint8_t> out = Converted(wire, kOffset);
+  const std::vector<uint8_t> out = Converted(wire, SampleConversion{kOffset});
 
   for (int32_t code = 0; code <= kMaximumSampleValue; ++code) {
     const auto expected =
@@ -172,7 +176,7 @@ TEST(WireToSigned16Test, MatchesTheSingleSampleConversionForEveryCode) {
 
 TEST(PipeWriterTest, DeliversEverythingInOrderAndThenStops) {
   auto reader = std::make_shared<FakeReader>();
-  PipeWriter pipe(reader, 3, PipeWriter::WhenFull::kFail, kSmallQueue);
+  PipeWriter pipe(reader, kEveryStep, PipeWriter::WhenFull::kFail, kSmallQueue);
 
   const std::vector<uint8_t> first = Ramp(1000, 0);
   const std::vector<uint8_t> second = Ramp(kSlot + 17, 500);
@@ -182,8 +186,8 @@ TEST(PipeWriterTest, DeliversEverythingInOrderAndThenStops) {
 
   ASSERT_TRUE(pipe.WaitUntilFinished(kGenerous));
 
-  std::vector<uint8_t> expected = Converted(first, 3);
-  const std::vector<uint8_t> rest = Converted(second, 3);
+  std::vector<uint8_t> expected = Converted(first, kEveryStep);
+  const std::vector<uint8_t> rest = Converted(second, kEveryStep);
   expected.insert(expected.end(), rest.begin(), rest.end());
   EXPECT_EQ(reader->bytes(), expected);
 
@@ -197,7 +201,8 @@ TEST(PipeWriterTest, DeliversEverythingInOrderAndThenStops) {
 TEST(PipeWriterTest, AloneItRefusesWhatAStalledReaderHasNoRoomFor) {
   auto reader = std::make_shared<FakeReader>();
   reader->Stall();
-  PipeWriter pipe(reader, 0, PipeWriter::WhenFull::kFail, kSmallQueue);
+  PipeWriter pipe(reader, SampleConversion{}, PipeWriter::WhenFull::kFail,
+                  kSmallQueue);
 
   const std::vector<uint8_t> wire = Ramp(kSlot, 0);
   for (size_t slot = 0; slot < PipeWriter::kMinimumSlots; ++slot) {
@@ -219,7 +224,8 @@ TEST(PipeWriterTest, AloneItRefusesWhatAStalledReaderHasNoRoomFor) {
 TEST(PipeWriterTest, BesideAFileItDropsRatherThanWaits) {
   auto reader = std::make_shared<FakeReader>();
   reader->Stall();
-  PipeWriter pipe(reader, 0, PipeWriter::WhenFull::kDrop, kSmallQueue);
+  PipeWriter pipe(reader, SampleConversion{}, PipeWriter::WhenFull::kDrop,
+                  kSmallQueue);
 
   const std::vector<uint8_t> wire = Ramp(kSlot, 0);
   constexpr size_t kOffers = PipeWriter::kMinimumSlots + 6;
@@ -248,7 +254,8 @@ TEST(PipeWriterTest, BesideAFileItDropsRatherThanWaits) {
 
 TEST(PipeWriterTest, AReaderThatLeavesClosesThePipeWithoutFailingAnOffer) {
   auto reader = std::make_shared<FakeReader>();
-  PipeWriter pipe(reader, 0, PipeWriter::WhenFull::kFail, kSmallQueue);
+  PipeWriter pipe(reader, SampleConversion{}, PipeWriter::WhenFull::kFail,
+                  kSmallQueue);
 
   reader->Leave();
   const std::vector<uint8_t> wire = Ramp(100, 0);
@@ -277,7 +284,8 @@ TEST(PipeWriterTest, TeardownIsNotHeldUpByAReaderThatNeverReadsAgain) {
 
   const auto started = std::chrono::steady_clock::now();
   {
-    PipeWriter pipe(reader, 0, PipeWriter::WhenFull::kDrop, kSmallQueue);
+    PipeWriter pipe(reader, SampleConversion{}, PipeWriter::WhenFull::kDrop,
+                    kSmallQueue);
     const std::vector<uint8_t> wire = Ramp(100, 0);
     ASSERT_TRUE(pipe.Offer(wire.data(), 100));
     ASSERT_TRUE(reader->WaitForWrite());
@@ -293,7 +301,7 @@ TEST(PipeSinkTest, AFileGetsEveryBufferWhileTheReaderIsStalled) {
   auto reader = std::make_shared<FakeReader>();
   reader->Stall();
   auto pipe = std::make_shared<PipeWriter>(
-      reader, 0, PipeWriter::WhenFull::kDrop, kSmallQueue);
+      reader, SampleConversion{}, PipeWriter::WhenFull::kDrop, kSmallQueue);
 
   auto file = std::make_unique<FakeFile>();
   FakeFile* const file_view = file.get();
@@ -325,7 +333,7 @@ TEST(PipeSinkTest, AFileGetsEveryBufferWhileTheReaderIsStalled) {
 TEST(PipeSinkTest, AFileThatFailsFailsTheCapture) {
   auto reader = std::make_shared<FakeReader>();
   auto pipe = std::make_shared<PipeWriter>(
-      reader, 0, PipeWriter::WhenFull::kDrop, kSmallQueue);
+      reader, SampleConversion{}, PipeWriter::WhenFull::kDrop, kSmallQueue);
   auto file = std::make_unique<FakeFile>();
   file->fail_writes = true;
   PipeSink sink(std::move(file), pipe);
@@ -343,7 +351,7 @@ TEST(PipeSinkTest, AloneAReaderThatFallsBehindFailsTheCapture) {
   auto reader = std::make_shared<FakeReader>();
   reader->Stall();
   auto pipe = std::make_shared<PipeWriter>(
-      reader, 0, PipeWriter::WhenFull::kFail, kSmallQueue);
+      reader, SampleConversion{}, PipeWriter::WhenFull::kFail, kSmallQueue);
   PipeSink sink(pipe);
 
   EXPECT_STREQ(sink.Name(), "pipe");
@@ -372,7 +380,7 @@ TEST(PipeSinkTest, FinishingDoesNotWaitForTheReader) {
   auto reader = std::make_shared<FakeReader>();
   reader->Stall();
   auto pipe = std::make_shared<PipeWriter>(
-      reader, 0, PipeWriter::WhenFull::kFail, kSmallQueue);
+      reader, SampleConversion{}, PipeWriter::WhenFull::kFail, kSmallQueue);
   PipeSink sink(pipe);
 
   const std::vector<uint8_t> wire = Ramp(100, 0);

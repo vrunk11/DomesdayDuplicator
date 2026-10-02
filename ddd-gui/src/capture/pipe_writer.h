@@ -18,6 +18,7 @@
 #include <thread>
 
 #include "byte_stream.h"
+#include "sample_format.h"
 
 namespace ddd::capture {
 
@@ -70,10 +71,11 @@ class PipeWriter {
   // pipeline buffer always fits in an empty queue.
   static constexpr size_t kMinimumSlots = 4;
 
-  // dc_offset is taken out of every sample written, as RawSink takes it out —
-  // the two write the same conversion of the same samples.
-  PipeWriter(std::shared_ptr<IByteStream> stream, int32_t dc_offset,
-             WhenFull when_full, size_t queue_bytes = kDefaultQueueBytes);
+  // `conversion` is applied to every sample written, as the file writers
+  // apply it — they all write the same conversion of the same samples.
+  PipeWriter(std::shared_ptr<IByteStream> stream,
+             const SampleConversion& conversion, WhenFull when_full,
+             size_t queue_bytes = kDefaultQueueBytes);
 
   // Ends the input and gives the writer a moment to empty the queue. A writer
   // still blocked on its reader after that is left to finish on its own rather

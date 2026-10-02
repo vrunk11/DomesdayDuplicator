@@ -34,6 +34,8 @@ constexpr const char* kDecimationFactorKey = "capture/decimation_factor";
 constexpr const char* kRangeSelectKey = "hardware/range_select_2vpp";
 constexpr const char* kPllPresetKey = "capture/pll_preset_mhz";
 constexpr const char* kCompressionLevelKey = "capture/compression_level";
+constexpr const char* kSampleBitsKey = "capture/sample_bits";
+constexpr const char* kBitShiftKey = "capture/bit_shift";
 constexpr const char* kDurationLimitKey = "capture/duration_limit_seconds";
 constexpr const char* kLowSpaceKey = "capture/low_space_warning_minutes";
 
@@ -393,6 +395,13 @@ CaptureSettings LoadCaptureSettings() {
           .toInt(),
       0, 8);
 
+  loaded.sample_bits = std::clamp(
+      settings.value(QLatin1String(kSampleBitsKey), loaded.sample_bits).toInt(),
+      capture::kMinimumKeptBits, capture::kConverterBits);
+  loaded.bit_shift = std::clamp(
+      settings.value(QLatin1String(kBitShiftKey), loaded.bit_shift).toInt(), 0,
+      capture::kMaximumBitShift);
+
   loaded.duration_limit_seconds =
       std::clamp(settings.value(QLatin1String(kDurationLimitKey), 0).toInt(), 0,
                  CaptureSettings::kMaximumDurationLimitSeconds);
@@ -431,6 +440,8 @@ void SaveCaptureSettings(const CaptureSettings& settings) {
                  static_cast<int>(settings.pll_preset_mhz));
   store.setValue(QLatin1String(kCompressionLevelKey),
                  settings.compression_level);
+  store.setValue(QLatin1String(kSampleBitsKey), settings.sample_bits);
+  store.setValue(QLatin1String(kBitShiftKey), settings.bit_shift);
   store.setValue(QLatin1String(kDurationLimitKey),
                  settings.duration_limit_seconds);
   store.setValue(QLatin1String(kLowSpaceKey),

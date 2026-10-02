@@ -31,9 +31,10 @@ RawSink::RawSink() = default;
 
 RawSink::~RawSink() { Finish(); }
 
-bool RawSink::Open(const std::filesystem::path& file_path, int32_t dc_offset) {
+bool RawSink::Open(const std::filesystem::path& file_path,
+                   const SampleConversion& conversion) {
   file_path_ = file_path;
-  dc_offset_ = dc_offset;
+  conversion_ = conversion;
 
   file_.open(file_path, std::ios::out | std::ios::binary | std::ios::trunc);
   if (!file_.is_open()) {
@@ -62,7 +63,7 @@ bool RawSink::Write(const uint8_t* wire_data, size_t sample_count) {
   while (done < sample_count) {
     const size_t count = std::min(kWriteChunkSamples, sample_count - done);
     WireToSigned16LittleEndian(wire_data + (done * kBytesPerSample), count,
-                               dc_offset_, scratch_.data());
+                               conversion_, scratch_.data());
 
     const size_t bytes = count * kSigned16BytesPerSample;
     file_.write(reinterpret_cast<const char*>(scratch_.data()),

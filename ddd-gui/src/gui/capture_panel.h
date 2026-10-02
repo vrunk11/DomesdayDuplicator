@@ -74,6 +74,9 @@ class CapturePanel : public QWidget {
   static constexpr const char* kPllPresetComboName = "capture_pll_preset_combo";
   static constexpr const char* kCompressionSpinName =
       "capture_compression_spin";
+  static constexpr const char* kSampleBitsComboName =
+      "capture_sample_bits_combo";
+  static constexpr const char* kBitShiftComboName = "capture_bit_shift_combo";
   static constexpr const char* kDurationSpinName = "capture_duration_spin";
   static constexpr const char* kDurationResetButtonName =
       "capture_duration_reset_button";
@@ -86,6 +89,8 @@ class CapturePanel : public QWidget {
       "capture_board_summary_label";
   static constexpr const char* kOffsetWarningLabelName =
       "capture_offset_warning_label";
+  static constexpr const char* kShiftWarningLabelName =
+      "capture_shift_warning_label";
 
   // How often the destination volume is interrogated for the free-space
   // readout. The plan asks for it "refreshed continuously", which in practice
@@ -206,6 +211,8 @@ class CapturePanel : public QWidget {
   QComboBox* range_select_combo_ = nullptr;
   QComboBox* pll_preset_combo_ = nullptr;
   QSpinBox* compression_spin_ = nullptr;
+  QComboBox* sample_bits_combo_ = nullptr;
+  QComboBox* bit_shift_combo_ = nullptr;
   QSpinBox* duration_spin_ = nullptr;
   QPushButton* duration_reset_button_ = nullptr;
   QSpinBox* low_space_spin_ = nullptr;
@@ -221,6 +228,9 @@ class CapturePanel : public QWidget {
   // Shown when the DC offset correction pushes samples out of range — the
   // declaration is wrong — until the next run starts.
   QLabel* offset_warning_label_ = nullptr;
+
+  // Shown when the bit shift clips the signal, until the next run starts.
+  QLabel* shift_warning_label_ = nullptr;
 
   QTimer* free_space_timer_ = nullptr;
 

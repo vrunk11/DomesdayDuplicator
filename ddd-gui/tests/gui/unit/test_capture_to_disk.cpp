@@ -1272,5 +1272,87 @@ TEST_F(CaptureToDiskTest, AnUncompressedCaptureGetsTheSameMetadataFile) {
   ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
 }
 
+// --- What is kept of the signal -------------------------------------------
+
+// Eight bits, shifted up one: every sample in the file sits on the step that
+// leaves, and the file says what was done to it.
+TEST_F(CaptureToDiskTest, AReducedCaptureHoldsWhatItSaysItHolds) {
+  Settings([](CaptureSettings& settings) {
+    settings.output_format = capture::CaptureOutputFormat::kSigned16Bit;
+    settings.sample_bits = 8;
+    settings.bit_shift = 1;
+  });
+
+  controller_->StartCapture();
+  ASSERT_TRUE(controller_->capturing());
+  EXPECT_EQ(controller_->run_conversion().kept_bits, 8);
+  EXPECT_EQ(controller_->run_conversion().bit_shift, 1);
+
+  ASSERT_TRUE(PumpUntil([&] {
+    return !WrittenFiles().empty() &&
+           std::filesystem::file_size(WrittenFiles().front()) > 65536;
+  }));
+
+  controller_->StopCapture();
+  ASSERT_TRUE(PumpUntil([&] { return MetadataFiles().size() == 1U; }));
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+
+  // Two bits dropped and one shifted up: a step of 64 << 3. The first megabyte
+  // is plenty, and an unpaced source may have written a great deal more.
+  std::ifstream file(WrittenFiles().front(), std::ios::binary);
+  std::string bytes(size_t{1} << 20, '\0');
+  file.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  bytes.resize(static_cast<size_t>(file.gcount()));
+  ASSERT_GE(bytes.size(), 2U);
+  for (size_t index = 0; index + 1 < bytes.size(); index += 2) {
+    const auto sample = static_cast<int16_t>(
+        static_cast<uint16_t>(static_cast<uint8_t>(bytes[index])) |
+        static_cast<uint16_t>(static_cast<uint8_t>(bytes[index + 1]) << 8));
+    ASSERT_EQ(sample % 512, 0) << "sample " << index / 2 << " is " << sample;
+  }
+
+  const std::string document = ReadWholeFile(MetadataFiles().front());
+  EXPECT_NE(document.find("\"sample_bits\": 8"), std::string::npos) << document;
+  EXPECT_NE(document.find("\"bit_shift\": 1"), std::string::npos) << document;
+  EXPECT_NE(document.find("\"shift_clipped_samples\":"), std::string::npos)
+      << document;
+}
+
+// A test capture is written exactly as counted whatever the reduction and the
+// bit shift are set to, so its ramp still checks — and it says so.
+TEST_F(CaptureToDiskTest, ATestCaptureIsNeverReducedOrAmplified) {
+  Settings([](CaptureSettings& settings) {
+    settings.test_mode = true;
+    settings.output_format = capture::CaptureOutputFormat::kSigned16Bit;
+    settings.sample_bits = 8;
+    settings.bit_shift = 2;
+  });
+
+  controller_->StartCapture();
+  ASSERT_TRUE(controller_->capturing());
+  EXPECT_EQ(controller_->run_conversion(), capture::SampleConversion{});
+
+  ASSERT_TRUE(PumpUntil([&] {
+    return !WrittenFiles().empty() &&
+           std::filesystem::file_size(WrittenFiles().front()) > 65536;
+  }));
+
+  controller_->StopCapture();
+  ASSERT_TRUE(PumpUntil([&] { return MetadataFiles().size() == 1U; }));
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+
+  const capture::TestDataAnalysis analysis =
+      capture::AnalyseTestData(WrittenFiles().front());
+  EXPECT_EQ(analysis.outcome, capture::TestDataAnalysis::Outcome::kPassed)
+      << analysis.message;
+
+  const std::string document = ReadWholeFile(MetadataFiles().front());
+  EXPECT_NE(document.find("\"sample_bits\": 10"), std::string::npos)
+      << document;
+  EXPECT_NE(document.find("\"bit_shift\": 0"), std::string::npos) << document;
+}
+
 }  // namespace
 }  // namespace ddd::gui

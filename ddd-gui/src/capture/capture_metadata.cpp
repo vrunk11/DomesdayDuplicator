@@ -262,6 +262,8 @@ std::string BuildCaptureMetadataYaml(const CaptureMetadata& metadata) {
   yaml.Unsigned("sample_rate_hz", metadata.sample_rate_hz);
   yaml.Integer("decimation_factor", metadata.decimation_factor);
   yaml.StringIfPresent("input_range", metadata.input_range);
+  yaml.Integer("sample_bits", metadata.sample_bits);
+  yaml.Integer("bit_shift", metadata.bit_shift);
   yaml.StringIfPresent("front_end_gain", metadata.front_end_gain);
   yaml.StringIfPresent("started", FormatTimestamp(metadata.started));
   yaml.StringIfPresent("finished", FormatTimestamp(metadata.finished));
@@ -288,6 +290,8 @@ std::string BuildCaptureMetadataYaml(const CaptureMetadata& metadata) {
     yaml.Number("rms", metadata.signal.rms, 2);
     yaml.Unsigned("clipped_low_samples", metadata.signal.clipped_low_samples);
     yaml.Unsigned("clipped_high_samples", metadata.signal.clipped_high_samples);
+    yaml.Unsigned("shift_clipped_samples",
+                  metadata.signal.shift_clipped_samples);
     yaml.EndMapping();
     yaml.BlankLine();
   }

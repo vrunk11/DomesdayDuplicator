@@ -206,6 +206,22 @@ TEST_F(CaptureProvenanceTest, NoBoardToDescribeWritesNoBoardTags) {
   EXPECT_FALSE(Value(tags, kTagDcOffset).has_value());
 }
 
+// What was done to the signal travels with it, the defaults included: a file
+// that was not reduced has to be able to say so, or an untouched capture and
+// one written before these tags existed could not be told apart.
+TEST_F(CaptureProvenanceTest, TheResolutionAndTheBitShiftAreAlwaysRecorded) {
+  const std::vector<FlacWriter::Tag> untouched = BuildProvenanceTags(Facts());
+  EXPECT_EQ(Value(untouched, kTagSampleBits), "10");
+  EXPECT_EQ(Value(untouched, kTagBitShift), "0");
+
+  CaptureProvenance facts = Facts();
+  facts.sample_bits = 8;
+  facts.bit_shift = 2;
+  const std::vector<FlacWriter::Tag> reduced = BuildProvenanceTags(facts);
+  EXPECT_EQ(Value(reduced, kTagSampleBits), "8");
+  EXPECT_EQ(Value(reduced, kTagBitShift), "2");
+}
+
 TEST_F(CaptureProvenanceTest, TheDateIsIso8601) {
   EXPECT_EQ(Value(BuildProvenanceTags(Facts()), kTagDate), "2026-08-13");
 }

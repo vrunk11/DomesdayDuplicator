@@ -51,6 +51,11 @@ struct BufferTally {
   // out of range — see DcOffsetSaturates(). Zero when no offset is declared,
   // and zero on a board whose declared offset is its own.
   uint64_t offset_saturated_count = 0;
+
+  // Samples neither the converter nor the offset clipped that the bit shift
+  // took out of range — see BitShiftClips(). Zero with no shift, and zero
+  // for a signal the shift still fits.
+  uint64_t shift_clipped_count = 0;
 };
 
 // What a monitoring consumer sees. A plain value, so it can be copied out of
@@ -72,6 +77,7 @@ struct SampleMetricsSnapshot {
   int64_t sum = 0;
 
   uint64_t offset_saturated_count = 0;
+  uint64_t shift_clipped_count = 0;
 
   // Over the most recent buffer only. The distinction matters to a user
   // adjusting RF gain: a whole-capture maximum records the worst moment since
@@ -83,6 +89,7 @@ struct SampleMetricsSnapshot {
   uint64_t recent_clipped_high_count = 0;
   double recent_rms = 0.0;
   uint64_t recent_offset_saturated_count = 0;
+  uint64_t recent_shift_clipped_count = 0;
 
   // Over the samples that went into the file, and nothing else.
   //
@@ -109,6 +116,7 @@ struct SampleMetricsSnapshot {
   uint64_t capture_clipped_high_count = 0;
   double capture_rms = 0.0;
   uint64_t capture_offset_saturated_count = 0;
+  uint64_t capture_shift_clipped_count = 0;
 };
 
 // Accumulates per-buffer tallies into the figures the monitor panels show.
@@ -146,6 +154,7 @@ class SampleMetrics {
   uint64_t sum_of_squares_ = 0;
   int64_t sum_ = 0;
   uint64_t offset_saturated_count_ = 0;
+  uint64_t shift_clipped_count_ = 0;
 
   BufferTally recent_;
 

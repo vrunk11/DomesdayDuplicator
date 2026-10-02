@@ -268,12 +268,12 @@ class WaveformPanel : public QWidget {
   QCheckBox* trigger_ = nullptr;
 
   // Show the signal as it is written to the file: the board's declared DC
-  // offset taken out, with the clip lines moved to where the converter's
-  // limits then are.
+  // offset taken out, the bit shift applied and the bits dropped, with the
+  // clip lines moved to where the converter's limits then are.
   QCheckBox* corrected_ = nullptr;
 
-  // The offset the running stream is corrected by, taken when it starts.
-  int32_t dc_offset_ = 0;
+  // What the running stream's writers do to its samples, taken when it starts.
+  capture::SampleConversion conversion_;
 
   // The corrected snapshot, reused rather than reallocated per frame.
   std::vector<uint16_t> corrected_codes_;
