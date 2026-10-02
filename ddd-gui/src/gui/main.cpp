@@ -24,6 +24,7 @@
 #include "analysis_cli.h"
 #include "application_logger.h"
 #include "auto_capture_controller.h"
+#include "byte_stream.h"
 #include "capture_cli.h"
 #include "capture_control_server.h"
 #include "capture_controller.h"
@@ -67,6 +68,11 @@ int RunHeadlessCapture(QCoreApplication& app, ddd::gui::ApplicationLogger& log,
   ddd::gui::ApplyCliOverrides(settings, options);
   capture_controller.ApplySessionSettings(settings);
 
+  if (options.pipe) {
+    capture_controller.SetPipeOutput(
+        std::make_shared<ddd::capture::StandardOutputStream>(), options.save);
+  }
+
   // Before anything is started, and a hard failure rather than a warning. Two
   // processes streaming from one device is not something either can do, and a
   // headless capture that could not be reached over the socket would be a
@@ -80,7 +86,10 @@ int RunHeadlessCapture(QCoreApplication& app, ddd::gui::ApplicationLogger& log,
     return ddd::gui::kExitInstanceRunning;
   }
 
-  ddd::gui::HeadlessCaptureRunner runner(&capture_controller, out, error);
+  ddd::gui::HeadlessCaptureOptions runner_options;
+  runner_options.pipe = options.pipe;
+  ddd::gui::HeadlessCaptureRunner runner(&capture_controller, out, error,
+                                         runner_options);
 
   int exit_code = ddd::gui::kExitSuccess;
   QObject::connect(&runner, &ddd::gui::HeadlessCaptureRunner::Finished, &app,
@@ -285,6 +294,25 @@ int main(int argc, char* argv[]) {
     return ddd::gui::RunStopCapture(out_stream, error_stream);
   }
 
+  // Before a device, a window or a log is opened. A terminal would be sent
+  // megabytes of binary a second, and standard output going nowhere would lose
+  // every sample — neither is a capture anybody meant to start.
+  if (capture_cli.options.pipe) {
+    if (!ddd::capture::StandardOutputIsRedirected()) {
+      error_stream << QStringLiteral(
+          "--pipe writes binary samples to standard output, which is not "
+          "redirected here. Send it to a program with | or to a file with "
+          ">.\n");
+      error_stream.flush();
+      return ddd::gui::kExitBadArguments;
+    }
+
+    // The reader closing its end has to be something this process hears
+    // about rather than something that ends it — with --save, the capture to
+    // the file carries on.
+    ddd::capture::IgnoreBrokenPipeSignal();
+  }
+
   ddd::capture::LogConfig log_config;
 
   const QString level_name = parser.value(log_level_option);
@@ -463,6 +491,43 @@ int main(int argc, char* argv[]) {
                    " This window will not answer --stop-capture.");
   }
 
+  // --pipe with a window. The window is for watching; the run is still one
+  // capture into one stream, so it is driven by the same runner a headless run
+  // is, and the application ends when the capture does — which is what tells
+  // the program reading the stream that it has all of it. No wait for a device:
+  // the window is up, as it is for --start-capture.
+  //
+  // Begun before the controller is started, for the reason RunHeadlessCapture
+  // gives: the controller's first device report is the one that starts it.
+  std::unique_ptr<ddd::gui::HeadlessCaptureRunner> pipe_runner;
+  if (capture_cli.options.pipe) {
+    capture_controller.SetPipeOutput(
+        std::make_shared<ddd::capture::StandardOutputStream>(),
+        capture_cli.options.save);
+
+    ddd::gui::HeadlessCaptureOptions runner_options;
+    runner_options.pipe = true;
+    runner_options.device_wait_milliseconds = 0;
+    pipe_runner = std::make_unique<ddd::gui::HeadlessCaptureRunner>(
+        &capture_controller, out_stream, error_stream, runner_options);
+    QObject::connect(pipe_runner.get(),
+                     &ddd::gui::HeadlessCaptureRunner::Finished, app.get(),
+                     [](int code) { QCoreApplication::exit(code); });
+
+    // Ctrl+C in the terminal the pipeline was started from stops the capture
+    // and finishes it, rather than ending the process with a file half
+    // written.
+    ddd::gui::SignalWatcher* const watcher =
+        ddd::gui::SignalWatcher::Install(app.get());
+    if (watcher != nullptr) {
+      QObject::connect(watcher, &ddd::gui::SignalWatcher::Interrupted,
+                       pipe_runner.get(),
+                       &ddd::gui::HeadlessCaptureRunner::RequestStop);
+    }
+
+    pipe_runner->Begin();
+  }
+
   // Started after the window is up so that the first device report lands on a
   // window that already has panels to receive it.
   capture_controller.Start();
@@ -470,7 +535,7 @@ int main(int argc, char* argv[]) {
 
   // After the controller is started, so that a device already attached is
   // captured from at once rather than at the next poll.
-  if (capture_cli.options.start_capture) {
+  if (capture_cli.options.start_capture && !capture_cli.options.pipe) {
     ddd::gui::StartCaptureWhenDeviceAppears(&capture_controller);
   }
 

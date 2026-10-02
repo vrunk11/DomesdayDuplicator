@@ -259,6 +259,100 @@ TEST(CaptureCliTest, AFormatThisBuildDoesNotWriteIsRefusedRatherThanIgnored) {
       << parsed.error.toStdString();
 }
 
+// --- --pipe and --save -----------------------------------------------------
+
+TEST(CaptureCliTest, PipeStreamsTheCaptureStartCaptureStarts) {
+  const Parsed windowed =
+      Parse({QStringLiteral("--start-capture"), QStringLiteral("--pipe")});
+  ASSERT_TRUE(windowed.ok()) << windowed.error.toStdString();
+  EXPECT_TRUE(windowed.options.pipe);
+  EXPECT_FALSE(windowed.options.save);
+  EXPECT_FALSE(windowed.options.headless);
+
+  const Parsed headless =
+      Parse({QStringLiteral("--headless"), QStringLiteral("--start-capture"),
+             QStringLiteral("--pipe")});
+  ASSERT_TRUE(headless.ok()) << headless.error.toStdString();
+  EXPECT_TRUE(headless.options.pipe);
+  EXPECT_TRUE(headless.options.headless);
+}
+
+TEST(CaptureCliTest, PipeWithoutStartCaptureIsRefused) {
+  const Parsed parsed = Parse({QStringLiteral("--pipe")});
+
+  EXPECT_TRUE(parsed.accepted);
+  EXPECT_TRUE(parsed.error.contains(QStringLiteral("--start-capture")))
+      << parsed.error.toStdString();
+}
+
+TEST(CaptureCliTest, SaveWithoutPipeIsRefused) {
+  const Parsed parsed =
+      Parse({QStringLiteral("--start-capture"), QStringLiteral("--save")});
+
+  EXPECT_TRUE(parsed.accepted);
+  EXPECT_TRUE(parsed.error.contains(QStringLiteral("--pipe")))
+      << parsed.error.toStdString();
+}
+
+// The pipe alone writes no file, so a name or a folder for one is an
+// instruction with nowhere to go.
+TEST(CaptureCliTest, ThePipeAloneRefusesANameForAFileItWillNotWrite) {
+  const Parsed named =
+      Parse({QStringLiteral("--start-capture"), QStringLiteral("--pipe"),
+             QStringLiteral("--capture-name"), QStringLiteral("disc-42")});
+  EXPECT_TRUE(named.accepted);
+  EXPECT_TRUE(named.error.contains(QStringLiteral("--save")))
+      << named.error.toStdString();
+
+  const Parsed foldered = Parse(
+      {QStringLiteral("--start-capture"), QStringLiteral("--pipe"),
+       QStringLiteral("--capture-directory"), QStringLiteral("captures")});
+  EXPECT_TRUE(foldered.accepted);
+  EXPECT_TRUE(foldered.error.contains(QStringLiteral("--save")))
+      << foldered.error.toStdString();
+}
+
+TEST(CaptureCliTest, ThePipeAloneRefusesAFormatForAFileItWillNotWrite) {
+  const Parsed parsed =
+      Parse({QStringLiteral("--start-capture"), QStringLiteral("--pipe"),
+             QStringLiteral("--output-format"), QStringLiteral("flac")});
+
+  EXPECT_TRUE(parsed.accepted);
+  EXPECT_TRUE(parsed.error.contains(QStringLiteral("signed 16-bit")))
+      << parsed.error.toStdString();
+}
+
+TEST(CaptureCliTest, WithSaveThePipeTakesEverythingAFileDoes) {
+  const Parsed parsed =
+      Parse({QStringLiteral("--start-capture"), QStringLiteral("--pipe"),
+             QStringLiteral("--save"), QStringLiteral("--capture-name"),
+             QStringLiteral("disc-42"), QStringLiteral("--output-format"),
+             QStringLiteral("flac")});
+
+  ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
+  EXPECT_TRUE(parsed.options.pipe);
+  EXPECT_TRUE(parsed.options.save);
+  EXPECT_EQ(parsed.options.capture_name,
+            std::optional<QString>(QStringLiteral("disc-42")));
+  EXPECT_EQ(parsed.options.output_format,
+            std::optional<capture::CaptureOutputFormat>(
+                capture::CaptureOutputFormat::kFlac));
+}
+
+TEST(CaptureCliTest, StopCaptureBesidePipeIsRefused) {
+  const Parsed parsed =
+      Parse({QStringLiteral("--stop-capture"), QStringLiteral("--pipe")});
+
+  EXPECT_TRUE(parsed.accepted);
+  EXPECT_FALSE(parsed.error.isEmpty());
+}
+
+// --pipe keeps the window unless --headless is given: watching the signal
+// while another program reads it is the point of the windowed form.
+TEST(CaptureCliTest, PipeOnItsOwnStillWantsTheWindow) {
+  EXPECT_FALSE(WantsCore({"--start-capture", "--pipe"}));
+}
+
 TEST(CaptureCliTest, AnEmptyCaptureNameIsRefused) {
   const Parsed parsed = Parse({QStringLiteral("--capture-name"), QString()});
 

@@ -54,6 +54,11 @@ struct HeadlessCaptureOptions {
   // how long finalising takes — it is the bound that stops a run hanging
   // forever if the pipeline never reports the file at all.
   int finish_wait_milliseconds = 30000;
+
+  // The capture is going to standard output — --pipe. Standard output then
+  // carries samples and nothing else, so the finished file's path, when there
+  // is one, is said on standard error with everything else.
+  bool pipe = false;
 };
 
 // Runs one capture from a command line and reports what happened through an
@@ -72,6 +77,9 @@ struct HeadlessCaptureOptions {
 // finished file's path goes to stdout, alone and unadorned, so that a script
 // can take what it reads without having to take it apart; everything meant for
 // a person watching goes to stderr. That is the same split --stop-capture uses.
+// A piped run is the exception, because its stdout is the capture: the path of
+// a file written beside it goes to stderr, on a line of its own that begins
+// "Saved to ".
 //
 // Nothing here quits the application. It reports an exit code and the caller
 // decides — which is what lets the whole lifecycle be tested against a fake

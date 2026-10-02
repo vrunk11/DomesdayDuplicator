@@ -228,6 +228,13 @@ MainWindow::MainWindow(ThemeController* theme_controller,
     connect(capture_controller_, &CaptureController::CaptureFinished, this,
             &MainWindow::ShowCaptureFinished);
 
+    // --pipe: what the stream carries, and its reader leaving or falling
+    // behind. The controller has logged each already; this is for somebody
+    // watching the window rather than the log.
+    connect(
+        capture_controller_, &CaptureController::PipeNotice, this,
+        [this](const QString& message) { statusBar()->showMessage(message); });
+
     // Said in the status bar and in the log rather than in a box to dismiss.
     // Nothing was overwritten — the engine resolves the path before it opens
     // anything — so this is a fact about the file's name, and a modal in front
@@ -1067,9 +1074,14 @@ void MainWindow::ShowCaptureFinished(const QString& file_path, quint64 bytes) {
   // The status bar rather than a message box. A capture ending is the expected
   // outcome, and a modal to dismiss after every one would be in the way of
   // somebody taking both sides of a disc.
+  //
+  // No path is a capture that went to standard output and nowhere else.
+  const QString destination = file_path.isEmpty()
+                                  ? tr("Capture sent to standard output")
+                                  : tr("Capture written: %1").arg(file_path);
   statusBar()->showMessage(
-      tr("Capture written: %1  (%2 MB)")
-          .arg(file_path)
+      tr("%1  (%2 MB)")
+          .arg(destination)
           .arg(static_cast<double>(bytes) / (1024.0 * 1024.0), 0, 'f', 1));
 }
 

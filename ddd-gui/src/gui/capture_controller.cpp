@@ -15,6 +15,7 @@
 #include <QMetaObject>
 #include <QThread>
 #include <algorithm>
+#include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <system_error>
@@ -29,6 +30,7 @@
 #include "gain_choices.h"
 #include "log_format.h"
 #include "logger.h"
+#include "pipe_sink.h"
 #include "raw_sink.h"
 #include "sample_format.h"
 #include "sample_sink.h"
@@ -41,6 +43,27 @@ namespace {
 
 QString ToQString(std::string_view text) {
   return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
+}
+
+// What a piped stream carries, said when it starts. A raw stream has no header
+// to hold any of it, so this line is the only place a script can learn the rate
+// and the correction it is reading — said to whoever is watching, and kept by
+// whatever is capturing standard error.
+QString DescribePipedStream(uint32_t sample_rate_hz, bool range_2vpp,
+                            int32_t dc_offset, bool test_mode) {
+  QString text =
+      QObject::tr(
+          "Standard output carries signed 16-bit samples at %1 Msps, %2 input "
+          "range")
+          .arg(QString::fromStdString(capture::FormatDecimal(
+              static_cast<double>(sample_rate_hz) / 1.0e6, 3)))
+          .arg(QString::fromUtf8(capture::InputRangeName(range_2vpp)));
+  if (test_mode) {
+    text += QObject::tr(", in test mode");
+  } else {
+    text += QObject::tr(", DC offset %1 taken out").arg(dc_offset);
+  }
+  return text + QStringLiteral(".");
 }
 
 // How much a running total has moved since a capture started.
@@ -134,6 +157,12 @@ void CaptureController::ApplySessionSettings(const CaptureSettings& settings) {
   settings_ = settings;
   emit SettingsChanged(settings_);
   ApplyBoardLimits();
+}
+
+void CaptureController::SetPipeOutput(
+    std::shared_ptr<capture::IByteStream> stream, bool save_file) {
+  pipe_stream_ = std::move(stream);
+  pipe_saves_file_ = save_file;
 }
 
 void CaptureController::SetDiscProvenance(const capture::DiscProvenance& disc) {
@@ -889,6 +918,16 @@ void CaptureController::StopMonitoring() {
 }
 
 std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
+  // Cleared for every capture: only the one --pipe was set up for is piped.
+  pipe_writer_.reset();
+  pipe_only_ = false;
+  pipe_closed_reported_ = false;
+  pipe_drops_reported_ = false;
+
+  if (pipe_stream_ != nullptr && !pipe_saves_file_) {
+    return OpenPipeOnlyCapture();
+  }
+
   const std::time_t now = std::time(nullptr);
 
   const QString directory = settings_.ResolvedCaptureDirectory();
@@ -1001,6 +1040,19 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
     return nullptr;
   }
 
+  // --pipe --save: the file is the capture, exactly as it would have been, and
+  // the pipe is a copy of it that gives way to it — a reader that falls behind
+  // loses blocks of the copy and never holds up the file. See PipeSink.
+  if (pipe_stream_ != nullptr) {
+    pipe_writer_ = std::make_shared<capture::PipeWriter>(
+        std::move(pipe_stream_), dc_offset,
+        capture::PipeWriter::WhenFull::kDrop);
+    pipe_stream_.reset();
+    sink = std::make_unique<capture::PipeSink>(std::move(sink), pipe_writer_);
+    emit PipeNotice(DescribePipedStream(settings_.SampleRateHz(), range_2vpp,
+                                        dc_offset, settings_.test_mode));
+  }
+
   capture_path_ = QString::fromStdString(path.string());
 
   // What the sidecar will say about the setup this capture ran with. Taken now
@@ -1094,6 +1146,40 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
   return sink;
 }
 
+std::unique_ptr<capture::ISampleSink> CaptureController::OpenPipeOnlyCapture() {
+  const bool range_2vpp = RunRange2Vpp();
+  const int32_t dc_offset = RunDcOffset();
+
+  // The pipe is the capture, so a reader that falls behind fails it rather
+  // than thinning it out: the samples it would lose exist nowhere else.
+  pipe_writer_ = std::make_shared<capture::PipeWriter>(
+      std::move(pipe_stream_), dc_offset, capture::PipeWriter::WhenFull::kFail);
+  pipe_stream_.reset();
+  pipe_only_ = true;
+
+  // Nothing is written to disk, so nothing is named, renamed or described in a
+  // sidecar. The path stays empty, which is how everything after this knows.
+  capture_path_.clear();
+
+  // Only what the end of the run reads back: the rate, for the duration.
+  pending_metadata_ = capture::CaptureMetadata{};
+  pending_metadata_.sample_rate_hz = settings_.SampleRateHz();
+  pending_metadata_.started = std::time(nullptr);
+
+  const capture::CaptureStats opening = pipeline_->stats().Read();
+  device_overflows_at_start_ = opening.device_overflow_events;
+  device_drops_at_start_ = opening.device_dropped_words;
+
+  const QString description = DescribePipedStream(
+      settings_.SampleRateHz(), range_2vpp, dc_offset, settings_.test_mode);
+  if (logger_ != nullptr) {
+    logger_->Info("Capturing to standard output. " + description.toStdString());
+  }
+  emit PipeNotice(description);
+
+  return std::make_unique<capture::PipeSink>(pipe_writer_);
+}
+
 void CaptureController::StartCapture() {
   if (capturing_ || measuring_dc_offset()) {
     return;
@@ -1121,7 +1207,11 @@ void CaptureController::StartCapture() {
   pipeline_->AttachSink(std::move(sink));
 
   capturing_ = true;
-  emit CapturingChanged(true, capture_path_);
+
+  // Where the capture is going, for whoever shows it. A pipe-only capture has
+  // no path, and saying where it goes is still the point of the signal.
+  emit CapturingChanged(true,
+                        pipe_only_ ? tr("standard output") : capture_path_);
 }
 
 void CaptureController::StopCapture() {
@@ -1162,8 +1252,67 @@ void CaptureController::CollectFinishedCapture(
   FinishCaptureFile(stats, bytes, samples);
 }
 
+bool CaptureController::FinishPipe() {
+  // Here rather than in the sink's Finish(), which runs on the processing
+  // thread: a reader taking its time would be holding up the stream there.
+  const bool finished = pipe_writer_->WaitUntilFinished(
+      std::chrono::milliseconds(kPipeDrainMilliseconds));
+
+  QString summary = tr("Standard output was sent %1 samples")
+                        .arg(pipe_writer_->samples_delivered());
+  if (pipe_writer_->samples_dropped() > 0) {
+    summary += tr("; %1 were dropped while its reader was behind")
+                   .arg(pipe_writer_->samples_dropped());
+  }
+  if (!finished) {
+    summary += tr("; %1 were still waiting when the reader stopped taking them")
+                   .arg(pipe_writer_->samples_queued());
+  }
+  summary += QStringLiteral(".");
+
+  if (logger_ != nullptr) {
+    logger_->Info(summary.toStdString());
+  }
+  emit PipeNotice(summary);
+
+  // Beside a file, the copy coming up short is regrettable and nothing more.
+  // Alone, it is the capture coming up short.
+  return finished || !pipe_only_;
+}
+
 void CaptureController::FinishCaptureFile(const capture::CaptureStats& stats,
                                           uint64_t bytes, uint64_t samples) {
+  if (pipe_writer_ != nullptr) {
+    const bool delivered = FinishPipe();
+
+    if (pipe_only_) {
+      // Nothing on disk, so no rename and no sidecar: what the reader was sent
+      // is the whole record of this capture, and it has just been said.
+      const uint64_t sent =
+          pipe_writer_->samples_delivered() * capture::kSigned16BytesPerSample;
+      pipe_writer_.reset();
+
+      if (logger_ != nullptr) {
+        logger_->Info("Capture to standard output finished: " +
+                      std::to_string(sent) + " bytes");
+      }
+
+      // Finished first and failed second, the order a file reports in, so
+      // that a headless run's exit code comes out the same way for both.
+      emit CaptureFinished(QString(), static_cast<quint64>(sent));
+      if (!delivered) {
+        emit Failed(
+            tr("The capture did not all reach standard output"),
+            tr("The program reading standard output stopped taking samples "
+               "before the end of the capture, so what it received is "
+               "incomplete."));
+      }
+      return;
+    }
+
+    pipe_writer_.reset();
+  }
+
   // The length of what was recorded, worked out from the file's own contents
   // rather than from a clock. Samples divided by the rate they were written at
   // is exactly the duration of the recording, where an elapsed time would
@@ -1411,8 +1560,55 @@ void CaptureController::CheckDurationLimit(const capture::CaptureStats& stats) {
   StopCapture();
 }
 
+void CaptureController::CheckPipe() {
+  if (!capturing_ || pipe_writer_ == nullptr) {
+    return;
+  }
+
+  if (pipe_writer_->closed() && !pipe_closed_reported_) {
+    pipe_closed_reported_ = true;
+
+    if (pipe_only_) {
+      // Capturing for nobody. Stopped the way any capture is stopped, so that
+      // ending the program at the far end of the pipe is an ordinary way to
+      // end the run rather than a failure of it.
+      const QString message =
+          tr("The program reading standard output has closed it, so the "
+             "capture is stopping.");
+      if (logger_ != nullptr) {
+        logger_->Info(message.toStdString());
+      }
+      emit PipeNotice(message);
+      StopCapture();
+      return;
+    }
+
+    const QString message =
+        tr("The program reading standard output has closed it. The capture to "
+           "%1 carries on.")
+            .arg(capture_path_);
+    if (logger_ != nullptr) {
+      logger_->Warning(message.toStdString());
+    }
+    emit PipeNotice(message);
+  }
+
+  // Said once, when it starts. How much was lost in all is said at the end.
+  if (!pipe_drops_reported_ && pipe_writer_->samples_dropped() > 0) {
+    pipe_drops_reported_ = true;
+    const QString message =
+        tr("The program reading standard output is not keeping up, so its "
+           "copy is losing blocks. The capture file is not affected.");
+    if (logger_ != nullptr) {
+      logger_->Warning(message.toStdString());
+    }
+    emit PipeNotice(message);
+  }
+}
+
 void CaptureController::CheckFreeSpace() {
-  if (!capturing_ || low_space_warned_ ||
+  // A pipe-only capture puts nothing on any volume.
+  if (!capturing_ || low_space_warned_ || pipe_only_ ||
       settings_.low_space_warning_minutes <= 0) {
     return;
   }
@@ -1457,6 +1653,7 @@ void CaptureController::Tick() {
   CheckDcOffsetSaturation(stats);
   CheckDurationLimit(stats);
   CheckFreeSpace();
+  CheckPipe();
   CollectFinishedCapture(stats);
 
   // The pipeline stops on its own schedule: a requested stop still has to drain
@@ -1535,8 +1732,19 @@ void CaptureController::FinishRun() {
     // capture_path_ rather than the path the file was opened under: a capture
     // whose naming asks for the duration has just been renamed, and a message
     // naming the old path would send somebody to a file that is not there.
-    const CaptureFailureView view = PresentCaptureFailure(
+    CaptureFailureView view = PresentCaptureFailure(
         result, ToQString(detail), was_capturing ? capture_path_ : QString());
+
+    // With the pipe alone the only thing written to is the pipe, so a write
+    // failure is its reader falling behind — and the remedy for a full disk
+    // would send somebody to look at the wrong thing.
+    if (was_capturing && pipe_only_ &&
+        result == capture::TransferResult::kFileWriteError) {
+      view.remedy =
+          tr("Read standard output with something that keeps up with the "
+             "device, or add --save so that the capture goes to a file and "
+             "the pipe carries a copy of it that is allowed to fall behind.");
+    }
     emit Failed(view.title, view.ToMessage());
   }
 }

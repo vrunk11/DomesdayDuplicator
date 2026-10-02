@@ -11,6 +11,7 @@
 
 #include "raw_sink.h"
 
+#include <algorithm>
 #include <string>
 
 #include "capture_format.h"
@@ -23,11 +24,6 @@ namespace {
 // same reason: large enough that the per-call overhead disappears, small enough
 // that the scratch buffer stays cache friendly.
 constexpr size_t kWriteChunkSamples = 65'536;
-
-// Bytes per sample in the file. The same as on the wire, which is a coincidence
-// worth naming rather than relying on: the wire word carries a 10-bit value in
-// 16 bits, and the file carries that value scaled into a signed 16-bit sample.
-constexpr size_t kFileBytesPerSample = 2;
 
 }  // namespace
 
@@ -48,7 +44,7 @@ bool RawSink::Open(const std::filesystem::path& file_path, int32_t dc_offset) {
   bytes_written_ = 0;
   samples_written_ = 0;
   finished_ = false;
-  scratch_.resize(kWriteChunkSamples * kFileBytesPerSample);
+  scratch_.resize(kWriteChunkSamples * kSigned16BytesPerSample);
   return true;
 }
 
@@ -58,18 +54,17 @@ bool RawSink::Write(const uint8_t* wire_data, size_t sample_count) {
     return false;
   }
 
-  // Byte by byte in and byte by byte out, so this is correct on a big-endian
-  // host and makes no alignment assumption about the buffer it was handed —
-  // the file is little-endian wherever it was written.
-  size_t index = 0;
-  size_t filled = 0;
+  // A chunk at a time through the scratch buffer, which is sized once and never
+  // grows on the capture path. The conversion is the one the pipe writer uses
+  // too — see WireToSigned16LittleEndian — and the file is little-endian
+  // wherever it was written.
+  size_t done = 0;
+  while (done < sample_count) {
+    const size_t count = std::min(kWriteChunkSamples, sample_count - done);
+    WireToSigned16LittleEndian(wire_data + (done * kBytesPerSample), count,
+                               dc_offset_, scratch_.data());
 
-  const auto flush = [this, &filled]() {
-    if (filled == 0) {
-      return true;
-    }
-
-    const size_t bytes = filled * kFileBytesPerSample;
+    const size_t bytes = count * kSigned16BytesPerSample;
     file_.write(reinterpret_cast<const char*>(scratch_.data()),
                 static_cast<std::streamsize>(bytes));
     if (!file_.good()) {
@@ -78,30 +73,11 @@ bool RawSink::Write(const uint8_t* wire_data, size_t sample_count) {
     }
 
     bytes_written_ += bytes;
-    samples_written_ += filled;
-    filled = 0;
-    return true;
-  };
-
-  for (; index < sample_count; ++index) {
-    const uint8_t* const read_pointer = wire_data + (index * kBytesPerSample);
-    const uint16_t ten_bit_value = static_cast<uint16_t>(
-        static_cast<uint16_t>(read_pointer[0]) |
-        static_cast<uint16_t>(static_cast<uint16_t>(read_pointer[1]) << 8));
-
-    const auto sample = static_cast<uint16_t>(ToCorrectedSigned16Bit(
-        static_cast<int32_t>(ten_bit_value), dc_offset_));
-    scratch_[filled * kFileBytesPerSample] = static_cast<uint8_t>(sample);
-    scratch_[(filled * kFileBytesPerSample) + 1] =
-        static_cast<uint8_t>(sample >> 8);
-    ++filled;
-
-    if (filled == kWriteChunkSamples && !flush()) {
-      return false;
-    }
+    samples_written_ += count;
+    done += count;
   }
 
-  return flush();
+  return true;
 }
 
 bool RawSink::Finish() {

@@ -116,7 +116,7 @@ to the panel and the console and says so.
 
 ### Capture options
 
-Ten options start, stop and set up a capture, so that a script can do what the window
+Twelve options start, stop and set up a capture, so that a script can do what the window
 does. They are listed here for completeness and covered properly — with the exit codes, the
 worked examples and what each platform needs — in
 **[Scripting captures](scripting.md)**.
@@ -133,9 +133,12 @@ worked examples and what each platform needs — in
 | `--input-range <range>` | `2vpp` or `1vpp` — the ADC's input range |
 | `--duration-limit <seconds>` | 1 to 86400. Leave it out to capture until stopped |
 | `--output-format <format>` | `flac` or `s16` |
+| `--pipe` | Stream the capture to standard output as signed 16-bit samples, for another program to read. Needs `--start-capture`; writes no file unless `--save` is given too |
+| `--save` | With `--pipe`, write the capture file as well. The file comes first: a reader that falls behind loses blocks of its copy, never any of the file |
 
-Given without `--start-capture` or `--stop-capture`, the last seven simply fill the window in
-and start nothing. Whatever they set applies to that run only and is never saved.
+Given without `--start-capture` or `--stop-capture`, the seven from `--capture-directory` to
+`--output-format` simply fill the window in and start nothing. Whatever they set applies to
+that run only and is never saved.
 
 `--decimation` and `--adc-rate` are deliberately separate: the first is a divisor applied in
 the FPGA, the second is the converter's own rate before that division, and neither can be
@@ -148,7 +151,9 @@ ddd-gui --headless --start-capture --capture-name disc-42-side-1 --duration-limi
 
 The finished file's path goes to standard output on its own, and everything meant for a
 person goes to standard error — so `file=$(ddd-gui --headless --start-capture …)` is all the
-parsing a script needs.
+parsing a script needs. Under `--pipe` standard output carries the samples instead, and the
+path of a file written with `--save` goes to standard error; see
+[Streaming to another program](scripting.md#streaming-to-another-program).
 
 ### `--analyse-test-data <file>`
 

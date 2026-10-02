@@ -21,6 +21,7 @@
 
 #include "analysis_worker.h"
 #include "board_setup.h"
+#include "byte_stream.h"
 #include "capture_metadata.h"
 #include "capture_metatypes.h"
 #include "capture_pipeline.h"
@@ -31,6 +32,7 @@
 #include "flac_sink.h"
 #include "fpga_version.h"
 #include "monitor_tap.h"
+#include "pipe_writer.h"
 #include "usb_device.h"
 #include "usb_device_info.h"
 
@@ -221,6 +223,27 @@ class CaptureController : public QObject {
   // that point it is their choice rather than the script's.
   void ApplySessionSettings(const CaptureSettings& settings);
 
+  // Stream the next capture to `stream` — --pipe. With `save_file` the capture
+  // is written to its file exactly as it would be otherwise and the stream
+  // carries a copy that gives way to it; without, the stream is the capture
+  // and no file, sidecar or rename happens at all. See PipeSink.
+  //
+  // Used once. The capture after that one is an ordinary capture: a stream is
+  // one recording with a beginning and an end, and the program reading it has
+  // been told it is finished by the time a second could start.
+  void SetPipeOutput(std::shared_ptr<capture::IByteStream> stream,
+                     bool save_file);
+
+  // Whether the running capture, or the last one, went to a stream and to
+  // nothing else.
+  bool pipe_only() const { return pipe_only_; }
+
+  // How long the end of a piped capture waits for the reader to take what is
+  // still queued for it. Waited on this thread rather than on the processing
+  // thread, where a slow reader would hold up the stream. A reader that can
+  // keep up at all empties a full queue in well under a second.
+  static constexpr int kPipeDrainMilliseconds = 5000;
+
   // How often the statistics are republished to the panels. 20 Hz: fast enough
   // that a throughput reading looks live, slow enough that it is nowhere near
   // the cost of anything else the application does.
@@ -331,6 +354,13 @@ class CaptureController : public QObject {
   // rest of a disc side would be ignored, which is worse than not warning.
   void LowSpaceWarning(const QString& message);
 
+  // Something about the stream a piped capture is going to: its reader left,
+  // fell behind, or what it was sent in the end. For whoever is watching the
+  // run — a headless one says it on standard error — and never an error box,
+  // because none of it is a fault in the capture itself. A piped capture that
+  // did fail says so through Failed() as any other does.
+  void PipeNotice(const QString& message);
+
   // The settings changed. Emitted for the panels rather than for the engine:
   // the front-end gain declaration is a display calibration, so a panel that
   // has already drawn a level in converter codes has to be told to draw it
@@ -390,8 +420,21 @@ class CaptureController : public QObject {
   void FinishRun();
 
   // Build and open the file for a new capture, in whichever format the settings
-  // ask for. Returns null with the reason already reported through Failed().
+  // ask for — with a pipe beside it, or a pipe instead of it, when --pipe
+  // asked. Returns null with the reason already reported through Failed().
   std::unique_ptr<capture::ISampleSink> OpenCaptureFile();
+
+  // The pipe-only half of OpenCaptureFile(): nothing on disk at all.
+  std::unique_ptr<capture::ISampleSink> OpenPipeOnlyCapture();
+
+  // Notice the reader of a piped capture leaving or falling behind, and say so
+  // — stopping the capture when the pipe was all it was.
+  void CheckPipe();
+
+  // The end of a piped capture: wait for the reader to take what is queued,
+  // and say what it got. False if a pipe-only capture could not be delivered
+  // in full, which is that capture failing.
+  bool FinishPipe();
 
   // Notice that the writer has been detached and the file closed, and report
   // it. Called from Tick() rather than from StopCapture(), because finalising a
@@ -551,6 +594,21 @@ class CaptureController : public QObject {
   // see SampleMetrics::BeginCaptureSpan.
   uint64_t device_overflows_at_start_ = 0;
   uint64_t device_drops_at_start_ = 0;
+
+  // See SetPipeOutput(). Held until the capture it is for opens, and handed to
+  // that capture's PipeWriter then.
+  std::shared_ptr<capture::IByteStream> pipe_stream_;
+  bool pipe_saves_file_ = false;
+
+  // The running piped capture's writer, kept here as well as in the sink so
+  // that it can be watched while the sink is inside the pipeline, and waited
+  // for once the sink has been finished. Null for an ordinary capture.
+  std::shared_ptr<capture::PipeWriter> pipe_writer_;
+  bool pipe_only_ = false;
+
+  // What CheckPipe() has already said, so that each thing is said once.
+  bool pipe_closed_reported_ = false;
+  bool pipe_drops_reported_ = false;
 };
 
 }  // namespace ddd::gui

@@ -53,6 +53,7 @@ ddd_add_test(ddd_capture_tests "unit"
     unit/test_fill_history.cpp
     unit/test_spdlog_logger.cpp
     unit/test_sample_format.cpp
+    unit/test_pipe_sink.cpp
     unit/test_test_pattern_verifier.cpp
     unit/test_sequence_validator.cpp
     unit/test_sample_metrics.cpp

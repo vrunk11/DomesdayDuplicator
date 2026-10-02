@@ -37,6 +37,7 @@ endif()
 add_library(ddd_capture STATIC
     ${ddd_capture_usb_sources}
     board_setup.cpp
+    byte_stream.cpp
     boot_image.cpp
     capture_format.cpp
     capture_metadata.cpp
@@ -67,6 +68,8 @@ add_library(ddd_capture STATIC
     minisign_verify.cpp
     monitor_tap.cpp
     bringup_orchestrator.cpp
+    pipe_sink.cpp
+    pipe_writer.cpp
     raw_sink.cpp
     sample_metrics.cpp
     sample_sink.cpp

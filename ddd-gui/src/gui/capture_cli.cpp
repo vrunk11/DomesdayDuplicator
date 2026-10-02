@@ -33,6 +33,8 @@ constexpr const char* kAdcRateName = "adc-rate";
 constexpr const char* kInputRangeName = "input-range";
 constexpr const char* kDurationLimitName = "duration-limit";
 constexpr const char* kOutputFormatName = "output-format";
+constexpr const char* kPipeName = "pipe";
+constexpr const char* kSaveName = "save";
 
 // The format words, spelled as the settings file spells them, so that a script
 // and a settings file name the same format the same way. The reading of them
@@ -190,6 +192,19 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
                              .arg(QLatin1String(kFlacFormatWord),
                                   QLatin1String(kSigned16BitFormatWord)),
                          QStringLiteral("format")),
+      QCommandLineOption(
+          QLatin1String(kPipeName),
+          QStringLiteral(
+              "Stream the capture to standard output as signed 16-bit "
+              "samples, for another program to read. Requires "
+              "--start-capture and a redirected standard output. No file is "
+              "written unless --save is given too.")),
+      QCommandLineOption(
+          QLatin1String(kSaveName),
+          QStringLiteral("With --pipe, write the capture file as well, as it "
+                         "would be written without --pipe. The file comes "
+                         "first: a reader that falls behind loses blocks of "
+                         "its copy, never any of the file.")),
   };
 
   parser.addOption(set.start_capture);
@@ -202,6 +217,8 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
   parser.addOption(set.input_range);
   parser.addOption(set.duration_limit);
   parser.addOption(set.output_format);
+  parser.addOption(set.pipe);
+  parser.addOption(set.save);
 
   return set;
 }
@@ -214,6 +231,8 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
   options.start_capture = parser.isSet(set.start_capture);
   options.stop_capture = parser.isSet(set.stop_capture);
   options.headless = parser.isSet(set.headless);
+  options.pipe = parser.isSet(set.pipe);
+  options.save = parser.isSet(set.save);
 
   if (parser.isSet(set.capture_directory)) {
     const QString directory = parser.value(set.capture_directory).trimmed();
@@ -340,8 +359,9 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
   // --stop-capture is a message to a process that is already running and has
   // already been told what to capture. Anything else on the line is an
   // instruction with nowhere to go, so it is refused rather than dropped.
-  if (options.stop_capture && (options.start_capture || options.headless ||
-                               options.HasAttributeOverrides())) {
+  if (options.stop_capture &&
+      (options.start_capture || options.headless || options.pipe ||
+       options.save || options.HasAttributeOverrides())) {
     result.error = QStringLiteral(
         "--stop-capture stops a capture that is already running, so it cannot "
         "be given with the options that set one up.");
@@ -353,6 +373,41 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
         "--headless needs --start-capture. Without a window and without a "
         "capture there would be nothing for the application to do.");
     return result;
+  }
+
+  if (options.pipe && !options.start_capture) {
+    result.error = QStringLiteral(
+        "--pipe needs --start-capture. It streams the capture that option "
+        "starts.");
+    return result;
+  }
+
+  if (options.save && !options.pipe) {
+    result.error = QStringLiteral(
+        "--save only means something beside --pipe. A capture without --pipe "
+        "is always saved.");
+    return result;
+  }
+
+  // With the pipe alone nothing is written to disk, so an option that names a
+  // file names nothing. Refused rather than ignored: a script that asked for a
+  // name and found no file under it would find out much later than this.
+  if (options.pipe && !options.save) {
+    if (options.capture_directory.has_value() ||
+        options.capture_name.has_value()) {
+      result.error = QStringLiteral(
+          "--capture-directory and --capture-name name a file, and --pipe "
+          "without --save writes none. Add --save to keep the capture as a "
+          "file as well.");
+      return result;
+    }
+    if (options.output_format.has_value()) {
+      result.error = QStringLiteral(
+          "--output-format is the format of a file, and --pipe without --save "
+          "writes none. Standard output always carries signed 16-bit samples; "
+          "add --save to keep a file as well.");
+      return result;
+    }
   }
 
   return result;

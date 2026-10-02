@@ -69,6 +69,8 @@ struct CaptureCliOptionSet {
   QCommandLineOption input_range;
   QCommandLineOption duration_limit;
   QCommandLineOption output_format;
+  QCommandLineOption pipe;
+  QCommandLineOption save;
 };
 
 // Add them to a parser, and hand back the set to read the values out of.
@@ -85,6 +87,13 @@ struct CaptureCliOptions {
   bool start_capture = false;
   bool stop_capture = false;
   bool headless = false;
+
+  // Stream the capture to standard output as signed 16-bit samples, for
+  // another program to read. On its own the pipe is the capture and no file is
+  // written; with `save` a file is written as well, as it would be without
+  // --pipe, and the pipe is a copy of it that gives way to it. See PipeSink.
+  bool pipe = false;
+  bool save = false;
 
   std::optional<QString> capture_directory;
   std::optional<QString> capture_name;

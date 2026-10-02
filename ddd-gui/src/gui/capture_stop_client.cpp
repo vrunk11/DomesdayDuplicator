@@ -99,9 +99,17 @@ int RunStopCapture(QTextStream& out, QTextStream& error,
     // The path alone, so that a script can use what it reads without having to
     // take it apart. The size is worth saying to whoever is watching, and it
     // goes to the other stream for exactly that reason.
-    out << reply->file_path << "\n";
-    error << "Stopped. " << QString::number(reply->bytes)
-          << " bytes written.\n";
+    //
+    // No path is a capture that went to standard output and nowhere else:
+    // there is no file to name, and an empty line would read as one.
+    if (reply->file_path.isEmpty()) {
+      error << "Stopped. " << QString::number(reply->bytes)
+            << " bytes sent to standard output.\n";
+    } else {
+      out << reply->file_path << "\n";
+      error << "Stopped. " << QString::number(reply->bytes)
+            << " bytes written.\n";
+    }
     settle(kExitSuccess);
   });
 

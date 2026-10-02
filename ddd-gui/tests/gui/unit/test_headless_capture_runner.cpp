@@ -18,13 +18,16 @@
 #include <QStringList>
 #include <QTextStream>
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "byte_stream.h"
 #include "capture_cli.h"
 #include "capture_control_server.h"
 #include "capture_controller.h"
@@ -505,6 +508,200 @@ TEST_F(HeadlessCaptureRunnerTest, TheWindowedStartOnlyEverStartsOneCapture) {
 
   EXPECT_FALSE(controller_->capturing());
   EXPECT_EQ(WrittenFiles().size(), 1U);
+}
+
+// --- --pipe ---------------------------------------------------------------
+
+// Standard output, as far as a test can have one: it counts what reaches it,
+// and can be closed the way a reader closes its end.
+class MemoryStream : public capture::IByteStream {
+ public:
+  bool Write(const uint8_t* /*data*/, size_t size) override {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (closed_) {
+      return false;
+    }
+    bytes_ += size;
+    return true;
+  }
+
+  void Close() {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    closed_ = true;
+  }
+
+  uint64_t bytes() const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return bytes_;
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  bool closed_ = false;
+  uint64_t bytes_ = 0;
+};
+
+// A reader that has stopped reading: every write blocks until it is released,
+// and then fails, as a write to a pipe whose reader finally exits does.
+class StalledStream : public capture::IByteStream {
+ public:
+  bool Write(const uint8_t* /*data*/, size_t /*size*/) override {
+    std::unique_lock<std::mutex> lock(mutex_);
+    released_changed_.wait(lock, [this] { return released_; });
+    return false;
+  }
+
+  void Release() {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    released_ = true;
+    released_changed_.notify_all();
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable released_changed_;
+  bool released_ = false;
+};
+
+class HeadlessPipeTest : public HeadlessCaptureRunnerTest {
+ protected:
+  static HeadlessCaptureOptions PipeOptions() {
+    HeadlessCaptureOptions options = DefaultOptions();
+    options.pipe = true;
+    return options;
+  }
+
+  // At the device's real rate. Unpaced, the synthetic source can outrun any
+  // reader at all, and a pipe-only capture is right to fail when it is outrun.
+  void PacedAtTheDeviceRate() {
+    capture::SyntheticSource::Options options = TestSourceOptions();
+    options.rate_bytes_per_second = capture::kWireBytesPerSecond;
+    device_->SetSourceOptions(options);
+  }
+
+  // A second of capture, as the first test in this file takes one, so that a
+  // duration limit stops it rather than a race.
+  void OneSecondOfCapture() {
+    PacedAtTheDeviceRate();
+    Change(
+        [](CaptureSettings& settings) { settings.duration_limit_seconds = 1; });
+  }
+
+  bool DirectoryIsEmpty() const {
+    return std::filesystem::is_empty(directory_);
+  }
+
+  std::shared_ptr<MemoryStream> stream_ = std::make_shared<MemoryStream>();
+};
+
+// The pipe alone: the samples go to the stream, and nothing goes anywhere else
+// — no file, no sidecar, and not a byte of text on standard output, where it
+// would be read as a sample.
+TEST_F(HeadlessPipeTest, AloneThePipeIsTheWholeCapture) {
+  OneSecondOfCapture();
+  controller_->SetPipeOutput(stream_, false);
+
+  Begin(PipeOptions());
+  ASSERT_TRUE(WaitForExit());
+  EXPECT_EQ(ExitCode(), kExitSuccess);
+
+  EXPECT_GT(stream_->bytes(), 0U);
+  EXPECT_EQ(stream_->bytes() % capture::kSigned16BytesPerSample, 0U);
+  EXPECT_TRUE(DirectoryIsEmpty());
+  EXPECT_TRUE(Out().isEmpty()) << Out().toStdString();
+
+  const QString said = Said();
+  EXPECT_TRUE(said.contains(QStringLiteral("Capturing to standard output")))
+      << said.toStdString();
+  EXPECT_TRUE(said.contains(QStringLiteral("signed 16-bit samples")))
+      << said.toStdString();
+  EXPECT_TRUE(said.contains(
+      QStringLiteral("%1 bytes sent to standard output").arg(stream_->bytes())))
+      << said.toStdString();
+}
+
+// --save: the file is written exactly as it would be without a pipe, and its
+// path is said on the stream a person reads, because the other one is taken.
+TEST_F(HeadlessPipeTest, WithSaveTheFileIsWrittenAndNamedOnStandardError) {
+  OneSecondOfCapture();
+  Change([](CaptureSettings& settings) {
+    settings.output_format = capture::CaptureOutputFormat::kSigned16Bit;
+  });
+  controller_->SetPipeOutput(stream_, true);
+
+  Begin(PipeOptions());
+  ASSERT_TRUE(WaitForExit());
+  EXPECT_EQ(ExitCode(), kExitSuccess);
+
+  ASSERT_EQ(WrittenFiles().size(), 1U);
+  const std::filesystem::path written = WrittenFiles().front();
+  EXPECT_TRUE(std::filesystem::exists(capture::CaptureMetadataPath(written)));
+  EXPECT_TRUE(Out().isEmpty()) << Out().toStdString();
+  EXPECT_TRUE(
+      Said().contains(QStringLiteral("Saved to %1")
+                          .arg(QString::fromStdString(written.string()))))
+      << Said().toStdString();
+
+  // A reader that kept up got everything the file got, in the same format.
+  EXPECT_EQ(stream_->bytes(), std::filesystem::file_size(written));
+}
+
+// The far end of a pipe-only capture going away ends the run the way a stop
+// does: there is nobody left to capture for, and that is not a failure.
+TEST_F(HeadlessPipeTest, AReaderLeavingEndsAPipeOnlyRunCleanly) {
+  PacedAtTheDeviceRate();
+  controller_->SetPipeOutput(stream_, false);
+
+  Begin(PipeOptions());
+  ASSERT_TRUE(PumpUntil([this] { return stream_->bytes() > 0; }));
+
+  stream_->Close();
+  ASSERT_TRUE(WaitForExit());
+  EXPECT_EQ(ExitCode(), kExitSuccess);
+  EXPECT_TRUE(Said().contains(QStringLiteral("closed it")))
+      << Said().toStdString();
+  EXPECT_TRUE(DirectoryIsEmpty());
+}
+
+// The pipe alone, and a reader that stops reading without going away. The
+// samples it is not taking exist nowhere else, so once its queue is full the
+// capture fails — with a remedy about the reader, not about a disk.
+TEST_F(HeadlessPipeTest, AloneAReaderThatStopsReadingFailsTheRun) {
+  PacedAtTheDeviceRate();
+  auto stalled = std::make_shared<StalledStream>();
+  controller_->SetPipeOutput(stalled, false);
+
+  Begin(PipeOptions());
+  ASSERT_TRUE(PumpUntil([this] { return finished_->count() >= 1; }, 30000ms));
+  EXPECT_EQ(ExitCode(), kExitCaptureFailed);
+  EXPECT_TRUE(Said().contains(QStringLiteral("keeps up with the device")))
+      << Said().toStdString();
+  EXPECT_TRUE(DirectoryIsEmpty());
+
+  // Let the writer the run left behind finish, so the process ends with
+  // nothing blocked.
+  stalled->Release();
+}
+
+// Beside a file, the reader going away is the copy ending, not the capture.
+TEST_F(HeadlessPipeTest, WithSaveAReaderLeavingLeavesTheFileCapturing) {
+  controller_->SetPipeOutput(stream_, true);
+
+  Begin(PipeOptions());
+  ASSERT_TRUE(CapturingForReal());
+
+  stream_->Close();
+  ASSERT_TRUE(PumpUntil([this] {
+    return Said().contains(QStringLiteral("carries on"));
+  })) << Said().toStdString();
+  EXPECT_TRUE(controller_->capturing());
+
+  runner_->RequestStop();
+  ASSERT_TRUE(WaitForExit());
+  EXPECT_EQ(ExitCode(), kExitSuccess);
+  ASSERT_EQ(WrittenFiles().size(), 1U);
+  EXPECT_TRUE(std::filesystem::exists(
+      capture::CaptureMetadataPath(WrittenFiles().front())));
 }
 
 }  // namespace

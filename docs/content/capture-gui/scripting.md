@@ -48,6 +48,8 @@ outside: see [Running it from a Flatpak](#running-it-from-a-flatpak) and
 | `--input-range <range>` | `2vpp` or `1vpp` | The ADC's input range |
 | `--duration-limit <seconds>` | 1 to 86400 | Stop by itself after this long. Leave it out to capture until stopped |
 | `--output-format <format>` | `flac` or `s16` | Write [FLAC, or uncompressed `.ddd.s16`](capture-files.md) |
+| `--pipe` | | Stream the capture to standard output for another program. Needs `--start-capture`. See [Streaming to another program](#streaming-to-another-program) |
+| `--save` | | With `--pipe`, write the capture file as well |
 
 Anything the command line does not mention is left exactly as
 [Settings](settings.md) has it, so a script says what is different about *this* capture and
@@ -118,6 +120,9 @@ file=$(ddd-gui --headless --start-capture --duration-limit 60)
 
 and have the path, with no parsing, no filtering and nothing to go wrong when a capture is
 named after a disc with a comma in its title.
+
+The one exception is [`--pipe`](#streaming-to-another-program), where standard output
+carries the capture itself and every line of text moves to standard error.
 
 The application's own log is separate again, and a headless run is quiet by default. Add
 [`--log-out console`](command-line.md#-log-out-destination) to see it, or
@@ -199,6 +204,75 @@ A script can stop a capture and read the file on the next line with nothing in b
 Interrupting twice does no harm and does not make it quicker. Once the file is being
 finished, a second interrupt is answered with a line saying as much and otherwise ignored —
 abandoning the file at that point is the one thing that would leave it unreadable.
+
+## Streaming to another program
+
+`--pipe` sends the capture to standard output while it is being taken, for another program
+to read as it arrives: a quick decode to check a disc before committing to it, a compressor,
+a copy to another machine.
+
+```bash
+# The stream is the capture. Nothing is written to disk.
+ddd-gui --headless --start-capture --pipe | some-program
+
+# A file is written as usual, and the stream is a copy of it for a preview.
+ddd-gui --start-capture --pipe --save --capture-name disc-42-side-1 | some-preview
+```
+
+What arrives is **signed 16-bit little-endian samples**, exactly what a
+[`.ddd.s16` file](capture-files.md) holds, with the board's
+[DC offset](board-setup.md) already taken out. There is no header, so the rate, the input
+range and the offset are said once on standard error as the capture starts:
+
+```text
+Standard output carries signed 16-bit samples at 40.000 Msps, 2Vpp input range, DC offset -3 taken out.
+```
+
+A script that has to keep that should keep standard error. In
+[test mode](test-mode.md) the line says so instead of naming an offset, because none is taken
+out of the test pattern.
+
+### The stream alone, or beside a file
+
+| | `--pipe` | `--pipe --save` |
+| --- | --- | --- |
+| The capture is | the stream | the file, written exactly as it is without `--pipe` |
+| On disk | nothing: no file and no metadata file | the file and its [metadata file](capture-naming.md#what-the-metadata-file-contains), named as usual |
+| A reader that falls behind | fails the capture once its queue is full, with exit code `4` | loses blocks of its copy. The file loses nothing, and standard error says the copy is losing blocks |
+| A reader that exits | ends the capture cleanly, with exit code `0` | ends the copy. The capture to the file carries on |
+| The finished file's path | — | on standard error, on a line of its own: `Saved to <path>` |
+
+The two are not allowed to compete. The stream has a queue and a thread of its own, about
+128 MiB deep — most of a second at 75 Msps — and the capture never waits for it: each buffer
+goes to the file first, exactly as it would without a pipe, and is copied into the stream's
+queue afterwards. A reader that cannot keep up is noticed by its queue filling, never by
+the capture slowing down. Alone, the stream is the only copy of the samples, so a full queue
+fails the capture rather than thinning it out without a word. Beside a file it is a copy,
+and a full queue costs the copy a block.
+
+What they do share is the machine. A decoder that uses every core competes with the FLAC
+encoder the way any other program would; run it at a lower priority (`nice`), or capture to
+`--output-format s16`, which costs no encoding at all.
+
+### The rules
+
+- `--pipe` needs `--start-capture`, and runs with the window or with `--headless`. With the
+  window, the application closes when the capture ends: that is what tells the program
+  reading the stream that it has all of it.
+- Standard output has to be redirected — to a program with `|` or to a file with `>`. A run
+  whose standard output is a terminal is refused with exit code `1` rather than printing
+  binary into it.
+- Without `--save` there is no file, so `--capture-directory`, `--capture-name` and
+  `--output-format` are refused: each would name something that is never written. The stream
+  is always signed 16-bit.
+- `--save` without `--pipe` is refused. A capture without `--pipe` is always saved.
+- One capture per run. The stream ends with the capture, so the application ends with it.
+
+!!! warning "Windows PowerShell 5.1 corrupts binary pipes"
+
+    Windows PowerShell 5.1 re-encodes what passes between two programs as text, which
+    damages samples. Pipe from `cmd.exe`, or from PowerShell 7.4 or later, which passes the
+    bytes through untouched.
 
 ## Worked examples
 

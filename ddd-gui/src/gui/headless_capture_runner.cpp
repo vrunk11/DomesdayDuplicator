@@ -121,6 +121,9 @@ void HeadlessCaptureRunner::Begin() {
   connect(controller_, &CaptureController::LowSpaceWarning, this,
           [this](const QString& message) { Say(message); });
 
+  connect(controller_, &CaptureController::PipeNotice, this,
+          [this](const QString& message) { Say(message); });
+
   if (options_.device_wait_milliseconds > 0) {
     device_timer_.start(options_.device_wait_milliseconds);
   }
@@ -200,9 +203,21 @@ void HeadlessCaptureRunner::OnCaptureFinished(const QString& file_path,
   state_ = State::kFinishing;
   finish_timer_.stop();
 
-  *out_ << file_path << "\n";
-  out_->flush();
-  Say(QStringLiteral("Finished. %1 bytes written.").arg(bytes));
+  if (options_.pipe) {
+    // Standard output is the capture, and a path written into it would be a
+    // corrupt sample to the program reading it.
+    if (file_path.isEmpty()) {
+      Say(QStringLiteral("Finished. %1 bytes sent to standard output.")
+              .arg(bytes));
+    } else {
+      Say(QStringLiteral("Saved to %1").arg(file_path));
+      Say(QStringLiteral("Finished. %1 bytes written.").arg(bytes));
+    }
+  } else {
+    *out_ << file_path << "\n";
+    out_->flush();
+    Say(QStringLiteral("Finished. %1 bytes written.").arg(bytes));
+  }
 
   ScheduleFinish();
 }

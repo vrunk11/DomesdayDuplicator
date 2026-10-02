@@ -158,6 +158,36 @@ inline constexpr int16_t ToCorrectedSigned16Bit(int32_t ten_bit_value,
   return static_cast<int16_t>(scaled);
 }
 
+// Bytes per sample once converted to signed 16-bit. The same as on the wire,
+// which is a coincidence worth naming rather than relying on: the wire word
+// carries a 10-bit value in 16 bits, and the converted sample carries that
+// value scaled into a signed 16-bit one.
+inline constexpr size_t kSigned16BytesPerSample = 2;
+
+// Convert wire words, sequence markers already stripped, to the signed 16-bit
+// little-endian samples a raw capture holds, with a board's declared DC offset
+// taken out. What RawSink writes to a file and PipeWriter writes to standard
+// output, so that the two cannot disagree about a single sample.
+//
+// Byte by byte in and byte by byte out, so this is correct on a big-endian host
+// and makes no alignment assumption about either buffer. `out` must hold
+// kSigned16BytesPerSample * sample_count bytes.
+inline void WireToSigned16LittleEndian(const uint8_t* wire_data,
+                                       size_t sample_count, int32_t dc_offset,
+                                       uint8_t* out) {
+  for (size_t index = 0; index < sample_count; ++index) {
+    const uint8_t* const in = wire_data + (index * kBytesPerSample);
+    const auto ten_bit_value = static_cast<uint16_t>(
+        static_cast<uint16_t>(in[0]) |
+        static_cast<uint16_t>(static_cast<uint16_t>(in[1]) << 8));
+    const auto sample = static_cast<uint16_t>(
+        ToCorrectedSigned16Bit(static_cast<int32_t>(ten_bit_value), dc_offset));
+    uint8_t* const written = out + (index * kSigned16BytesPerSample);
+    written[0] = static_cast<uint8_t>(sample);
+    written[1] = static_cast<uint8_t>(sample >> 8);
+  }
+}
+
 // Whether a sample the converter did *not* clip is pushed out of range by the
 // DC offset correction — the correction clipping it rather than the ADC.
 //
