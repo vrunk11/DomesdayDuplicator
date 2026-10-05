@@ -231,9 +231,14 @@ It also applies the [bit shift](capture-control.md#bit-shift-digital-gain) the c
 asks for, so a capture shifted by one bit is drawn twice as large. With a shift, the clip
 lines move out to the ends of the range: that is where the shift itself clips.
 
-[Requantisation](capture-control.md#requantisation) is not drawn: it is decided segment by
-segment on a thread of its own, after these views take their samples. What it is doing, and
-what it costs the protected band, is the line under the setting in the capture panel.
+With [requantisation](capture-control.md#requantisation) on, each snapshot is also rounded
+as the requantiser's latest decision rounds it, with the same quantiser the file gets — a
+preview while monitoring, what is being written while capturing. The scope then moves in
+steps of 2^bits dropped codes, and the spectrum's noise floor rises: evenly for plain
+rounding, and much more above the LaserDisc's band than in it when the noise is shaped. The
+decision changes as the noise does, several times a second at the aggressive margin, and the
+spectrum's average carries across those changes. The amplitude history is not affected: its
+extremes and RMS move by less than a step.
 
 The offset is the one the running stream started with. The bit shift follows the capture
 panel as it is changed, while monitoring. In the spectrum a shift shows as every level moving

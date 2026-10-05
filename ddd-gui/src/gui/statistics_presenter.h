@@ -12,11 +12,13 @@
 #pragma once
 
 #include <QString>
+#include <optional>
 
 #include "capture_metatypes.h"
 #include "free_space.h"
 #include "front_end_gain.h"
 #include "monitor_tap.h"
+#include "requantizing_sink.h"
 #include "sample_format.h"
 #include "usb_device_info.h"
 
@@ -213,5 +215,25 @@ QString FormatAmplitude(const capture::SampleMetricsSnapshot& metrics,
 // past it — because a capture runs for a side of a disc, and "5,412.3 s" is not
 // a length of time anybody can picture.
 QString FormatElapsed(double seconds);
+
+// What the requantiser in front of the stream is doing, in one line: "Off"
+// with none; while it waits for its first segment, that; then the bits its
+// last decision dropped with the range the converter's codes are left
+// spanning, "2 dropped (8 bit range)", whether the noise is shaped, what that
+// costs the worst slice of the protected band, and the noise floor it was
+// decided against. `writing` says whether it is a capture's or a preview, so
+// that a preview is never read as something being done to a file.
+QString FormatRequantization(
+    const std::optional<capture::RequantizationStatus::Live>& live,
+    bool writing);
+
+// What the requantiser has done so far — since the preview or the capture
+// began — as the bits dropped on average, the share of samples each number
+// of bits went to, the share shaped, and the worst the band was made to pay:
+// "2.31 dropped on average (1: 12%, 2: 88%), shaped 4%, worst +0.98 dB".
+// The average is very nearly the bits a sample a FLAC file saves. A dash
+// before anything has been decided.
+QString FormatRequantizationTotals(
+    const std::optional<capture::RequantizationStatus::Live>& live);
 
 }  // namespace ddd::gui

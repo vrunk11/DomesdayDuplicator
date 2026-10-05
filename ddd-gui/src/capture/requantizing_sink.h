@@ -59,13 +59,18 @@ class RequantizationStatus {
 
   Summary Read() const;
 
-  // What is in force now, for a display that updates several times a second
-  // and has no use for the record.
+  // What is in force now and the totals so far, for a display that updates
+  // several times a second and has no use for the list of changes.
   struct Live {
     RequantizerDecision current;
     double noise_floor_lsb = 0.0;
     double carrier_to_noise_db = 0.0;
     uint64_t segments = 0;
+
+    uint64_t samples = 0;
+    std::vector<uint64_t> samples_by_drop;
+    uint64_t shaped_samples = 0;
+    double worst_degradation_db = 0.0;
   };
 
   Live ReadLive() const;

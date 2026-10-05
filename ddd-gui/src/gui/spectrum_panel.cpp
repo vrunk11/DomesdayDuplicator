@@ -1159,17 +1159,19 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
   controls->addWidget(reset_);
 
   // The same switch as the scope's, held by the controller: on, the spectrum
-  // is of the signal with the DC offset taken out and the bit shift applied,
-  // where a shift shows as every level moving up together. The requantiser
-  // is not shown: it decides per segment on its own thread, and what it costs
-  // the band is what the capture panel's requantisation line says.
+  // is of the signal as it is written — a shift shows as every level moving
+  // up together, and the requantiser's latest decision as the noise floor
+  // rising, flat for plain rounding and tilted up out of the band where the
+  // noise is shaped.
   corrected_ = new QCheckBox(tr("Corrected"), this);
   corrected_->setObjectName(QLatin1String(kCorrectedBoxName));
   corrected_->setToolTip(
-      tr("Analyse the signal with the DC offset taken out and the bit shift "
-         "the capture panel asks for applied. Requantisation is not shown "
-         "here; the capture panel says what it is doing. The scope and the "
-         "amplitude history follow the same switch."));
+      tr("Analyse the signal as it is written to the file: the DC offset "
+         "taken out, the bit shift applied, and rounded as the requantiser's "
+         "latest decision rounds it, previewed while monitoring. "
+         "Requantisation shows here as the noise floor rising — above the "
+         "LaserDisc's band more than in it when the noise is shaped. The "
+         "scope and the amplitude history follow the same switch."));
   connect(corrected_, &QCheckBox::toggled, this, [this](bool on) {
     if (controller_ != nullptr) {
       controller_->SetShowCorrected(on);

@@ -25,8 +25,14 @@ RequantizationStatus::Summary RequantizationStatus::Read() const {
 
 RequantizationStatus::Live RequantizationStatus::ReadLive() const {
   const std::lock_guard<std::mutex> lock(mutex_);
-  return {summary_.current, summary_.noise_floor_lsb,
-          summary_.carrier_to_noise_db, summary_.segments};
+  return {summary_.current,
+          summary_.noise_floor_lsb,
+          summary_.carrier_to_noise_db,
+          summary_.segments,
+          summary_.samples,
+          summary_.samples_by_drop,
+          summary_.shaped_samples,
+          summary_.worst_degradation_db};
 }
 
 void RequantizationStatus::Record(const RequantizerDecision& decision,

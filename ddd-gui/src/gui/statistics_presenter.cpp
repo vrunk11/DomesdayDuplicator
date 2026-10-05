@@ -12,6 +12,7 @@
 #include "statistics_presenter.h"
 
 #include <QCoreApplication>
+#include <QStringList>
 #include <algorithm>
 
 #include "gain_choices.h"
@@ -219,6 +220,63 @@ QString FormatElapsed(double seconds) {
       .arg(hours)
       .arg(minutes, 2, 10, QLatin1Char('0'))
       .arg(remainder, 2, 10, QLatin1Char('0'));
+}
+
+QString FormatRequantization(
+    const std::optional<capture::RequantizationStatus::Live>& live,
+    bool writing) {
+  if (!live.has_value()) {
+    return Translate("Off");
+  }
+  if (live->segments == 0) {
+    return writing ? Translate("Requantising: deciding")
+                   : Translate("Preview: deciding");
+  }
+
+  const capture::RequantizerDecision& decision = live->current;
+  QString text = (writing ? Translate("Requantising: %1 dropped (%2 bit range)")
+                          : Translate("Preview: %1 dropped (%2 bit range)"))
+                     .arg(decision.lsb_drop)
+                     .arg(capture::kConverterBits - decision.lsb_drop);
+  if (decision.shaped) {
+    text += Translate(", noise shaped");
+  }
+  return text + Translate(", +%1 dB in band, noise floor %2 LSB")
+                    .arg(decision.degradation_db, 0, 'f', 2)
+                    .arg(live->noise_floor_lsb, 0, 'f', 2);
+}
+
+QString FormatRequantizationTotals(
+    const std::optional<capture::RequantizationStatus::Live>& live) {
+  if (!live.has_value() || live->samples == 0) {
+    return None();
+  }
+
+  const auto total = static_cast<double>(live->samples);
+  const auto share = [total](uint64_t samples) {
+    const double percent = 100.0 * static_cast<double>(samples) / total;
+    // Something that happened is never shown as nothing.
+    return samples > 0 && percent < 0.5
+               ? Translate("<1%")
+               : Translate("%1%").arg(percent, 0, 'f', 0);
+  };
+
+  double dropped = 0.0;
+  QStringList parts;
+  for (size_t drop = 0; drop < live->samples_by_drop.size(); ++drop) {
+    const uint64_t samples = live->samples_by_drop[drop];
+    if (samples == 0) {
+      continue;
+    }
+    dropped += static_cast<double>(drop) * static_cast<double>(samples);
+    parts << Translate("%1: %2").arg(drop).arg(share(samples));
+  }
+
+  return Translate("%1 dropped on average (%2), shaped %3, worst +%4 dB")
+      .arg(dropped / total, 0, 'f', 2)
+      .arg(parts.join(QStringLiteral(", ")))
+      .arg(share(live->shaped_samples))
+      .arg(live->worst_degradation_db, 0, 'f', 2);
 }
 
 QString FormatByteSize(uint64_t bytes) {

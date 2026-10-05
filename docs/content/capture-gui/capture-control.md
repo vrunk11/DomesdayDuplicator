@@ -329,7 +329,10 @@ whatever this is set to, so the saving is FLAC's.
 under the setting says what a capture would do — the bits dropped with the range left, `2
 dropped (8 bit range)`, whether the noise is shaped, how much the worst slice of the band
 rises, and the noise floor in converter steps — without changing a sample. While capturing
-the same line says what is being done. It can be changed while monitoring and is locked while
+the same line says what is being done. The [Statistics](statistics.md#requantisation) panel
+shows the same line, and with **Corrected** ticked the scope and the spectrum show the
+decision's effect on the signal (see [Corrected](signal-analysis.md#corrected)). It can be
+changed while monitoring and is locked while
 a capture is being written. It is not applied in test mode, whose ramp has to reach the file
 exactly as the gateware counted it. What it was asked to do is in every file's
 [tags](capture-files.md#what-the-file-says-about-itself); what it did, segment by segment, is in its

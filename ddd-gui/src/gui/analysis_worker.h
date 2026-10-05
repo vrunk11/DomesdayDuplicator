@@ -18,10 +18,13 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 #include "capture_metatypes.h"
 #include "monitor_tap.h"
+#include "requantizing_sink.h"
+#include "rf_requantizer.h"
 #include "sample_format.h"
 #include "spectrum_analyser.h"
 
@@ -78,6 +81,14 @@ class SnapshotAnalyser : public QObject {
   // two different signals.
   void SetConversion(const capture::SampleConversion& conversion);
 
+  // Show the requantiser's effect on top of the conversion: every snapshot
+  // rounded as the decision in force in `status` would round it, with the
+  // quantiser the file gets (capture::DecisionQuantizer). A null status shows
+  // none. Decisions change several times a second and the spectrum's averages
+  // carry across them; turning this on or off starts them again.
+  void SetRequantization(std::shared_ptr<capture::RequantizationStatus> status,
+                         const capture::RequantizerSettings& settings);
+
  public slots:
   // Builds the poll timer. Connected to the thread's started() signal so that
   // the timer is created on the thread it will fire on.
@@ -127,9 +138,24 @@ class SnapshotAnalyser : public QObject {
   uint64_t applied_conversion_ =
       capture::PackSampleConversion(capture::SampleConversion{});
 
+  // What SetRequantization() asked for, under its own lock, with a count of
+  // the requests so the worker copies it only when it changes; and the
+  // worker's copy, with the quantiser built for the decision last seen.
+  std::mutex requantization_mutex_;
+  std::shared_ptr<capture::RequantizationStatus> requested_requantization_;
+  capture::RequantizerSettings requested_requantizer_settings_;
+  uint64_t requantization_requests_ = 0;
+
+  uint64_t requantization_applied_ = 0;
+  std::shared_ptr<capture::RequantizationStatus> requantization_;
+  capture::RequantizerSettings requantizer_settings_;
+  std::optional<capture::RequantizationChange> quantizer_decision_;
+  capture::ShapingQuantizer quantizer_;
+
   // Worker-thread scratch. Reused rather than reallocated per frame.
   std::vector<uint8_t> wire_;
   std::vector<uint16_t> codes_;
+  std::vector<int16_t> samples_;
 };
 
 // The GUI-side handle. Owns the thread and the object on it, and re-emits what
@@ -159,6 +185,8 @@ class AnalysisWorker : public QObject {
   void SetSpectrumTransformSize(size_t transform_size);
   void ResetPeakHold();
   void SetConversion(const capture::SampleConversion& conversion);
+  void SetRequantization(std::shared_ptr<capture::RequantizationStatus> status,
+                         const capture::RequantizerSettings& settings);
 
  signals:
   void WaveformReady(const std::vector<uint16_t>& codes);

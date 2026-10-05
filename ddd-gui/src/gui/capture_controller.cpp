@@ -236,6 +236,12 @@ void CaptureController::UpdateRunConversion() {
 void CaptureController::ApplyDisplayConversion() {
   analysis_->SetConversion(show_corrected_ ? run_conversion_
                                            : capture::SampleConversion{});
+
+  // And the requantiser attached now, previewing or writing, whose decisions
+  // the panels then show as they are made.
+  analysis_->SetRequantization(
+      show_corrected_ ? requantization_status_ : nullptr,
+      RunRequantizerSettings());
 }
 
 void CaptureController::SetPipeOutput(
@@ -599,6 +605,7 @@ void CaptureController::UpdateIdleSink() {
     return;
   }
   pipeline_->AttachSink(MakeIdleSink());
+  ApplyDisplayConversion();
   emit RequantizationUpdated();
 }
 
@@ -1437,6 +1444,7 @@ void CaptureController::StartCapture() {
   pipeline_->AttachSink(std::move(sink));
 
   capturing_ = true;
+  ApplyDisplayConversion();
   emit RequantizationUpdated();
 
   // Where the capture is going, for whoever shows it. A pipe-only capture has
@@ -1459,6 +1467,7 @@ void CaptureController::StopCapture() {
 
   capturing_ = false;
   emit CapturingChanged(false, QString());
+  ApplyDisplayConversion();
   emit RequantizationUpdated();
 }
 

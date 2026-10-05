@@ -481,7 +481,9 @@ class CaptureController : public QObject {
   void UpdateRunConversion();
 
   // Tell the analysis worker what the panels are to be shown: the run's
-  // conversion when show_corrected(), and the converter's own codes otherwise.
+  // conversion and the decisions of the requantiser attached now when
+  // show_corrected(), and the converter's own codes otherwise. Called again
+  // whenever either changes.
   void ApplyDisplayConversion();
 
   // One step of the DC offset measurement, from measure_timer_.

@@ -161,6 +161,15 @@ TEST(RequantizingSinkTest, ANoisyCaptureArrivesRequantisedAndRecorded) {
                             summary.samples_by_drop.end(), uint64_t{0}),
             kSegments * RfRequantizer::kSegmentSamples);
 
+  // The display's reading carries the same totals as the record.
+  const RequantizationStatus::Live live = status->ReadLive();
+  EXPECT_EQ(live.current, summary.current);
+  EXPECT_EQ(live.segments, summary.segments);
+  EXPECT_EQ(live.samples, summary.samples);
+  EXPECT_EQ(live.samples_by_drop, summary.samples_by_drop);
+  EXPECT_EQ(live.shaped_samples, summary.shaped_samples);
+  EXPECT_DOUBLE_EQ(live.worst_degradation_db, summary.worst_degradation_db);
+
   // The last segment's samples sit on the step its decision leaves.
   const int step = 64 << summary.current.lsb_drop;
   const size_t last = (kSegments - 1) * RfRequantizer::kSegmentSamples;

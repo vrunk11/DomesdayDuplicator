@@ -17,6 +17,7 @@
 #include <QScrollArea>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <optional>
 
 #include "capture_controller.h"
 #include "free_space.h"
@@ -111,6 +112,26 @@ StatisticsPanel::StatisticsPanel(CaptureController* controller, QWidget* parent)
   elapsed_ = add_row(tr("Elapsed"), kElapsedLabelName);
   written_ = add_row(tr("Written"), kWrittenLabelName);
 
+  requantization_ =
+      add_row(tr("Requantisation"), kRequantizationLabelName, true);
+  requantization_->setText(FormatRequantization(std::nullopt, false));
+  requantization_->setToolTip(
+      tr("What the requantiser is doing to the stream: the bits its latest "
+         "decision drops, whether the noise is shaped, how far that raises the "
+         "noise floor of the worst 1 MHz of the LaserDisc's RF band, and the "
+         "noise floor it decided against. A preview while monitoring; what is "
+         "done to the file while capturing."));
+
+  requantization_totals_ =
+      add_row(tr("Requantised so far"), kRequantizationTotalsLabelName, true);
+  requantization_totals_->setText(FormatRequantizationTotals(std::nullopt));
+  requantization_totals_->setToolTip(
+      tr("Since the preview or the capture began: the bits dropped on "
+         "average, which is very nearly the bits a sample the FLAC file "
+         "saves; the share of samples that had each number of bits dropped; "
+         "the share whose noise was shaped; and the most the noise floor of "
+         "the band rose. A capture starts its own count."));
+
   backlog_ = add_row(tr("Encoder backlog"), kBacklogLabelName);
   backlog_->setToolTip(
       tr("Samples the FLAC encoder has taken but not yet written out. A steady "
@@ -138,6 +159,13 @@ StatisticsPanel::StatisticsPanel(CaptureController* controller, QWidget* parent)
             &StatisticsPanel::OnMonitoringChanged);
     connect(controller_, &CaptureController::DevicesChanged, this,
             &StatisticsPanel::OnDevicesChanged);
+    connect(controller_, &CaptureController::RequantizationUpdated, this,
+            [this] {
+              const auto live = controller_->requantization();
+              requantization_->setText(FormatRequantization(
+                  live, controller_->requantization_applies()));
+              requantization_totals_->setText(FormatRequantizationTotals(live));
+            });
     connect(controller_, &CaptureController::SettingsChanged, this,
             [this](const CaptureSettings& settings) {
               declared_gain_ = settings.DeclaredGain();

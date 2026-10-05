@@ -253,6 +253,25 @@ void ShapingQuantizer::Reset() {
 
 // --- RfRequantizer -------------------------------------------------------
 
+ShapingQuantizer DecisionQuantizer(const RequantizerSettings& settings,
+                                   int lsb_drop, bool shaped) {
+  const int input_bits =
+      std::clamp(settings.input_bits, kMinimumAdaptiveBits + 1, kSampleBits);
+  const int bits = std::clamp(input_bits - std::max(lsb_drop, 0),
+                              kMinimumAdaptiveBits, input_bits);
+  if (!shaped) {
+    return ShapingQuantizer(bits, {1.0});
+  }
+  const std::vector<FrequencyBand> bands =
+      settings.protected_bands.empty()
+          ? DefaultProtectedBands(settings.sample_rate_mhz)
+          : settings.protected_bands;
+  return ShapingQuantizer(
+      bits, DesignNoiseTransferFunction(bands, settings.sample_rate_mhz,
+                                        settings.shaping_depth_db,
+                                        settings.shaping_order));
+}
+
 RfRequantizer::RfRequantizer(const RequantizerSettings& settings)
     : settings_(settings),
       bands_(settings.protected_bands.empty()

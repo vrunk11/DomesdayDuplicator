@@ -145,6 +145,33 @@ which is why it is measured rather than calculated.
 thousand are given exactly, where every digit is still information. The units are powers of a
 thousand, so a sample count lines up with a device specified at 40 million a second.
 
+## Requantisation
+
+```
+Preview: 2 dropped (8 bit range), +0.12 dB in band, noise floor 1.80 LSB
+```
+
+What the [requantiser](capture-control.md#requantisation) is doing, updated with the other
+figures: **Off** when it is off, in test mode, or with no stream. While monitoring it is a
+preview, `Preview: …`, and changes nothing; while capturing it is what is being done to the
+file, `Requantising: …`. The line gives the bits the latest decision drops and the range the
+converter's codes are left spanning, `noise shaped` when the added noise is pushed out of the
+band, how far that raises the noise floor of the worst 1 MHz of the protected band, and the
+noise floor the decision was made against, in converter steps. The same line is under the
+setting in the capture panel.
+
+## Requantised so far
+
+```
+1.88 dropped on average (0: <1%, 1: 12%, 2: 88%), shaped 4%, worst +0.98 dB
+```
+
+The requantiser's totals since the preview or the capture began — a capture starts its own
+count, and so does a preview rebuilt by a change of setting. The average number of bits
+dropped is very nearly the bits a sample the FLAC file saves. Then the share of samples each
+number of bits was dropped from, the share whose noise was shaped, and the most the noise floor
+of any 1 MHz of the protected band rose. A dash until the first decision.
+
 ## Encoder backlog
 
 ```

@@ -267,6 +267,37 @@ TEST(RfRequantizerTest, APreviewDecidesAsACaptureWouldAndChangesNothing) {
   }
 }
 
+// What the signal panels show of a decision is what the file got: the first
+// segment, requantised from a fresh start, matches a quantiser built for the
+// decision alone, sample for sample. And nothing dropped is nothing changed.
+TEST(RfRequantizerTest, ADecisionsQuantiserIsTheOneTheFileGot) {
+  // 2.77 and 10.8 are shaped here, the others plain; equality is what is
+  // checked, whatever a library's random numbers make of them.
+  for (const double sigma : {2.77, 6.0, 10.8, 30.0}) {
+    RfRequantizer requantizer(Settings(0));
+    std::mt19937 generator = Seeded(8);
+    std::vector<int16_t> written = NoiseSegment(generator, sigma);
+    std::vector<int16_t> shown = written;
+
+    const RequantizerDecision decision =
+        requantizer.Process(written.data(), written.size(), true);
+    ShapingQuantizer quantizer =
+        DecisionQuantizer(Settings(0), decision.lsb_drop, decision.shaped);
+    quantizer.QuantizeInPlace(shown.data(), shown.size());
+    EXPECT_EQ(shown, written) << "sigma " << sigma << ", " << decision.lsb_drop
+                              << (decision.shaped ? " shaped" : "");
+  }
+
+  std::mt19937 generator = Seeded(9);
+  const std::vector<int16_t> original = NoiseSegment(generator, 12.0, 4096);
+  for (const bool shaped : {false, true}) {
+    std::vector<int16_t> untouched = original;
+    ShapingQuantizer quantizer = DecisionQuantizer(Settings(), 0, shaped);
+    quantizer.QuantizeInPlace(untouched.data(), untouched.size());
+    EXPECT_EQ(untouched, original) << shaped;
+  }
+}
+
 // The end of a stream is shorter than a segment, and too short to analyse: the
 // decision stands on the floor already known.
 TEST(RfRequantizerTest, AShortLastSegmentIsDecidedOnTheFloorAlreadyKnown) {

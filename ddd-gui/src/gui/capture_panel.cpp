@@ -753,26 +753,9 @@ void CapturePanel::RefreshRequantizationStatus() {
     return;
   }
 
-  // Said as the setting is: bits dropped, and the range the converter's codes
-  // are left spanning.
-  const bool writing = controller_->requantization_applies();
-  QString text;
-  if (live->segments == 0) {
-    text = writing ? tr("Requantising: deciding") : tr("Preview: deciding");
-  } else {
-    const capture::RequantizerDecision& decision = live->current;
-    text = (writing ? tr("Requantising: %1 dropped (%2 bit range)")
-                    : tr("Preview: %1 dropped (%2 bit range)"))
-               .arg(decision.lsb_drop)
-               .arg(capture::kConverterBits - decision.lsb_drop);
-    if (decision.shaped) {
-      text += tr(", noise shaped");
-    }
-    text += tr(", +%1 dB in band, noise floor %2 LSB")
-                .arg(decision.degradation_db, 0, 'f', 2)
-                .arg(live->noise_floor_lsb, 0, 'f', 2);
-  }
-  requantize_status_label_->setText(text);
+  // The same line the Statistics panel shows.
+  requantize_status_label_->setText(
+      FormatRequantization(live, controller_->requantization_applies()));
   requantize_status_label_->setVisible(true);
 }
 

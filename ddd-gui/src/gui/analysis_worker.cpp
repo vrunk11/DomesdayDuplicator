@@ -12,7 +12,11 @@
 #include "analysis_worker.h"
 
 #include <QTimer>
+#include <mutex>
+#include <utility>
 
+#include "requantizing_sink.h"
+#include "rf_requantizer.h"
 #include "sample_format.h"
 
 namespace ddd::gui {
@@ -44,6 +48,15 @@ void SnapshotAnalyser::RequestPeakHoldReset() {
 void SnapshotAnalyser::SetConversion(
     const capture::SampleConversion& conversion) {
   requested_conversion_.store(capture::PackSampleConversion(conversion));
+}
+
+void SnapshotAnalyser::SetRequantization(
+    std::shared_ptr<capture::RequantizationStatus> status,
+    const capture::RequantizerSettings& settings) {
+  const std::lock_guard<std::mutex> lock(requantization_mutex_);
+  requested_requantization_ = std::move(status);
+  requested_requantizer_settings_ = settings;
+  ++requantization_requests_;
 }
 
 void SnapshotAnalyser::Begin() {
@@ -82,6 +95,38 @@ void SnapshotAnalyser::Poll() {
   const bool converting = conversion != capture::SampleConversion{};
 
   {
+    const std::lock_guard<std::mutex> lock(requantization_mutex_);
+    if (requantization_requests_ != requantization_applied_) {
+      requantization_applied_ = requantization_requests_;
+      if ((requantization_ != nullptr) !=
+          (requested_requantization_ != nullptr)) {
+        spectrum_.Reset();
+      }
+      requantization_ = requested_requantization_;
+      requantizer_settings_ = requested_requantizer_settings_;
+      quantizer_decision_.reset();
+    }
+  }
+
+  // The decision in force, with its quantiser built once per change of
+  // decision rather than per snapshot: a shaped one designs its filter.
+  bool requantizing = false;
+  if (requantization_ != nullptr) {
+    const capture::RequantizationStatus::Live live =
+        requantization_->ReadLive();
+    const capture::RequantizationChange decision{0, live.current.lsb_drop,
+                                                 live.current.shaped};
+    if (decision.lsb_drop > 0) {
+      if (quantizer_decision_ != decision) {
+        quantizer_ = capture::DecisionQuantizer(
+            requantizer_settings_, decision.lsb_drop, decision.shaped);
+        quantizer_decision_ = decision;
+      }
+      requantizing = true;
+    }
+  }
+
+  {
     const std::lock_guard<std::mutex> lock(source_mutex_);
     if (source_ == nullptr) {
       return;
@@ -98,6 +143,10 @@ void SnapshotAnalyser::Poll() {
 
   const size_t sample_count = wire_.size() / capture::kBytesPerSample;
   codes_.resize(sample_count);
+  if (requantizing) {
+    samples_.resize(sample_count);
+  }
+
   for (size_t index = 0; index < sample_count; ++index) {
     // Assembled from bytes rather than reinterpreted as uint16_t: the wire
     // format is little-endian regardless of what this machine is, and a cast
@@ -109,12 +158,29 @@ void SnapshotAnalyser::Poll() {
             << 8);
     const uint16_t code = capture::SampleValueFromWord(word);
 
+    // Requantised below, in the signed 16-bit the requantiser takes.
+    if (requantizing) {
+      samples_[index] = capture::ToConvertedSigned16Bit(code, conversion);
+      continue;
+    }
+
     // What the capture would write, in the codes every display is drawn in:
     // the scope, the spectrum and its spectrogram all see the same thing.
     codes_[index] = converting
                         ? static_cast<uint16_t>(
                               capture::ConvertedTenBitCode(code, conversion))
                         : code;
+  }
+
+  // Rounded as the file is, by the decision's own quantiser, from a fresh
+  // start — a snapshot is not continuous with the one before it — and drawn in
+  // codes again. Every requantised sample is a whole number of codes.
+  if (requantizing) {
+    quantizer_.Reset();
+    quantizer_.QuantizeInPlace(samples_.data(), sample_count);
+    for (size_t index = 0; index < sample_count; ++index) {
+      codes_[index] = static_cast<uint16_t>(capture::ToTenBit(samples_[index]));
+    }
   }
 
   emit WaveformReady(codes_);
@@ -210,6 +276,14 @@ void AnalysisWorker::SetConversion(
     const capture::SampleConversion& conversion) {
   if (analyser_ != nullptr) {
     analyser_->SetConversion(conversion);
+  }
+}
+
+void AnalysisWorker::SetRequantization(
+    std::shared_ptr<capture::RequantizationStatus> status,
+    const capture::RequantizerSettings& settings) {
+  if (analyser_ != nullptr) {
+    analyser_->SetRequantization(std::move(status), settings);
   }
 }
 

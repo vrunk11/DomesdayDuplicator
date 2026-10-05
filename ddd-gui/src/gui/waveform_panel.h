@@ -268,8 +268,9 @@ class WaveformPanel : public QWidget {
   QCheckBox* trigger_ = nullptr;
 
   // Show the signal as it is written to the file: the board's declared DC
-  // offset taken out and the bit shift applied, with the clip lines moved to
-  // where the converter's limits then are. The requantiser is not shown.
+  // offset taken out, the bit shift applied and rounded as the requantiser's
+  // latest decision rounds it, with the clip lines moved to where the
+  // converter's limits then are.
   QCheckBox* corrected_ = nullptr;
 
   // What the running stream's writers do to its samples, taken when it starts.

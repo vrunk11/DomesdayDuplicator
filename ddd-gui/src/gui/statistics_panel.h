@@ -65,6 +65,10 @@ class StatisticsPanel : public QWidget {
   static constexpr const char* kSpaceLabelName = "statistics_space_remaining";
   static constexpr const char* kLinkSpeedLabelName = "statistics_link_speed";
   static constexpr const char* kGainLabelName = "statistics_front_end_gain";
+  static constexpr const char* kRequantizationLabelName =
+      "statistics_requantization";
+  static constexpr const char* kRequantizationTotalsLabelName =
+      "statistics_requantization_totals";
 
   // See CapturePanel::kFreeSpaceIntervalMilliseconds — the same reasoning, and
   // deliberately the same figure, so the two panels never disagree about how
@@ -108,6 +112,8 @@ class StatisticsPanel : public QWidget {
   QLabel* space_ = nullptr;
   QLabel* link_speed_ = nullptr;
   QLabel* gain_ = nullptr;
+  QLabel* requantization_ = nullptr;
+  QLabel* requantization_totals_ = nullptr;
 
   CaptureController* controller_ = nullptr;
 

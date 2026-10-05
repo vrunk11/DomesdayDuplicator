@@ -15,12 +15,14 @@
 #include <QString>
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <thread>
 
 #include "capture_format.h"
 #include "capture_pipeline.h"
 #include "front_end_gain.h"
 #include "logger.h"
+#include "requantizing_sink.h"
 #include "sample_format.h"
 #include "sample_sink.h"
 #include "statistics_presenter.h"
@@ -296,6 +298,57 @@ TEST(StatisticsPresenterTest, ShortElapsedTimesAreSecondsAndLongOnesAreClocks) {
   // for a side of a disc.
   EXPECT_EQ(FormatElapsed(12.5), QStringLiteral("12.5 s"));
   EXPECT_EQ(FormatElapsed(3661.0), QStringLiteral("1:01:01"));
+}
+
+// --- The requantiser ------------------------------------------------------
+
+TEST(StatisticsPresenterTest, NoRequantiserReadsOff) {
+  EXPECT_EQ(FormatRequantization(std::nullopt, false), QStringLiteral("Off"));
+}
+
+TEST(StatisticsPresenterTest, ARequantiserWithNoSegmentYetSaysSo) {
+  const capture::RequantizationStatus::Live waiting;
+  EXPECT_EQ(FormatRequantization(waiting, false),
+            QStringLiteral("Preview: deciding"));
+  EXPECT_EQ(FormatRequantization(waiting, true),
+            QStringLiteral("Requantising: deciding"));
+}
+
+// The count dropped and the range it leaves, as the setting reads, and a
+// preview never worded as something done to a file.
+TEST(StatisticsPresenterTest, ADecisionReadsAsWhatItDropsAndWhatItCosts) {
+  capture::RequantizationStatus::Live live;
+  live.segments = 12;
+  live.current = {2, false, 0.123};
+  live.noise_floor_lsb = 1.804;
+  EXPECT_EQ(FormatRequantization(live, false),
+            QStringLiteral("Preview: 2 dropped (8 bit range), +0.12 dB in "
+                           "band, noise floor 1.80 LSB"));
+
+  live.current = {3, true, 0.5};
+  EXPECT_EQ(FormatRequantization(live, true),
+            QStringLiteral("Requantising: 3 dropped (7 bit range), noise "
+                           "shaped, +0.50 dB in band, noise floor 1.80 LSB"));
+}
+
+TEST(StatisticsPresenterTest, NoTotalsBeforeAnythingIsDecided) {
+  EXPECT_EQ(FormatRequantizationTotals(std::nullopt), None());
+  EXPECT_EQ(FormatRequantizationTotals(capture::RequantizationStatus::Live{}),
+            None());
+}
+
+// The average bits dropped, then every number of bits that was dropped at all
+// with its share — a sliver shown as such rather than as nothing — then the
+// shaped share and the worst rise.
+TEST(StatisticsPresenterTest, TheTotalsAreTheAverageAndTheShares) {
+  capture::RequantizationStatus::Live live;
+  live.samples = 1000;
+  live.samples_by_drop = {2, 118, 880};
+  live.shaped_samples = 40;
+  live.worst_degradation_db = 0.976;
+  EXPECT_EQ(FormatRequantizationTotals(live),
+            QStringLiteral("1.88 dropped on average (0: <1%, 1: 12%, 2: 88%), "
+                           "shaped 4%, worst +0.98 dB"));
 }
 
 // --- The gain declaration ------------------------------------------------

@@ -181,6 +181,13 @@ class ShapingQuantizer {
   uint64_t clipped_ = 0;
 };
 
+// The quantiser a decision applies, built as the requantiser builds it:
+// `lsb_drop` of the input's bits, with the noise shaped or not. For showing a
+// decision's effect somewhere other than the file — the signal panels — exactly
+// as the file gets it.
+ShapingQuantizer DecisionQuantizer(const RequantizerSettings& settings,
+                                   int lsb_drop, bool shaped);
+
 class RfRequantizer {
  public:
   // The analysis transform, and how it is spent: frames of 1,024 samples,
