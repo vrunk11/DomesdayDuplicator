@@ -189,6 +189,7 @@ a field that was never encoded — are written as `\x00` escapes rather than dro
 | `application_version` | The commit of the *application* that produced the capture. The device's own two are in `device` below. The key name is fixed by the file format |
 | `capture` | The capture itself |
 | `signal` | What the signal looked like — only when there was any |
+| `requantization` | What the requantiser was asked to do and what it did, or `mode: off` |
 | `naming` | What you said the disc was |
 | `device` | What the Duplicator was running |
 | `player` | What the player said about itself |
@@ -205,7 +206,6 @@ a field that was never encoded — are written as `\x00` escapes rather than dro
 | `decimation_factor` | `1`, `2` or `4` |
 | `input_range` | `2Vpp` or `1Vpp` — the ADC's input range, without which a sample value cannot be turned into a voltage |
 | `bit_shift` | How many bits every sample was shifted up: `0` to `4`, a digital gain of x1 to x16. Always written. See [Bit shift](capture-control.md#bit-shift-digital-gain) |
-| `lsb_drop` | How many of the converter's low bits were dropped from every sample: `0` to `4`. Always written. See [LSB drop](capture-control.md#lsb-drop) |
 | `front_end_gain` | The declared SW401 position — **only when one was actually declared** |
 | `started`, `finished` | ISO 8601, local time with the offset, so the timestamps agree with the file name and are still unambiguous |
 | `duration_seconds` | Worked out from the file's own sample count, not from a clock |
@@ -237,6 +237,31 @@ capture starts: doing that would blank the display at the moment you press the b
 metadata file therefore does not use them. The engine measures a second span that opens when
 the file opens and closes when it closes, so a loud minute of setting up before the capture
 cannot raise the maximum recorded against the recording.
+
+### `requantization`
+
+Always written. `mode` is `off` when the capture was not
+[requantised](capture-control.md#requantisation), and then it is all there is. A requantised
+capture has `mode: dynamic` and:
+
+| Key | What it holds |
+| --- | --- |
+| `margin_level`, `margin` | `0` to `4`, and its name: `aggressive` to `ultra safe` |
+| `limit_db` | The most any 1 MHz slice of the protected band's noise floor was allowed to rise |
+| `hold_seconds` | How long dropping more had to stay justified before it was done |
+| `protected_bands` | `0-14 MHz`, or short of the Nyquist limit at a lower rate: `0-13.5 MHz` at 30 Msps |
+| `input_bits` | The bits the requantiser was given: the converter's ten, less the bit shift |
+| `shaping_order`, `shaping_depth_db` | The noise-shaping filter it could use |
+| `segment_samples` | `1048576` — one decision per this many samples |
+| `shaped_samples` | How many samples were noise shaped |
+| `worst_degradation_db` | The most the floor of any slice rose, over the whole file |
+| `clipped_samples` | Samples the requantisation held at full scale |
+| `samples_by_bits_dropped` | Samples by the number of the converter's bits dropped — `"0"` for none — listing only the counts that occurred |
+| `changes` | Every change of decision, keyed by the sample it applies from to the next change: `"0": "1"` is one bit dropped from the first sample, `"2097152": "3 shaped"` three bits dropped with noise shaping from sample 2,097,152 |
+
+`changes` has one line for each time the decision changed, not one for each segment, so a
+capture that settled has a short list however long it ran. Margin 0 changes its mind most
+often, since it waits for nothing.
 
 ### `naming`
 
@@ -371,7 +396,6 @@ examination at all.
   "decimation_factor": 1
   "input_range": "2Vpp"
   "bit_shift": 0
-  "lsb_drop": 0
   "front_end_gain": "SW401 4 — 20 dB"
   "started": "2026-08-17T14:30:00+01:00"
   "finished": "2026-08-17T15:11:12+01:00"
@@ -391,6 +415,30 @@ examination at all.
   "clipped_low_samples": 0
   "clipped_high_samples": 0
   "shift_clipped_samples": 0
+
+# Bits dropped are the converter's, counted after the bit
+# shift. Each change applies from the sample it is keyed by
+# to the next change, or to the end of the file.
+"requantization":
+  "mode": "dynamic"
+  "margin_level": 2
+  "margin": "safe"
+  "limit_db": 0.20
+  "hold_seconds": 0.25
+  "protected_bands": "0-14 MHz"
+  "input_bits": 10
+  "shaping_order": 16
+  "shaping_depth_db": 10.0
+  "segment_samples": 1048576
+  "shaped_samples": 0
+  "worst_degradation_db": 0.163
+  "clipped_samples": 0
+  "samples_by_bits_dropped":
+    "1": 3145728
+    "2": 98876854272
+  "changes":
+    "0": "1"
+    "3145728": "2"
 
 "naming":
   "title": "Casper"

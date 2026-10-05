@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <ctime>
 #include <filesystem>
+#include <optional>
 
 #include "board_setup_page.h"
 #include "capture_controller.h"
@@ -35,6 +36,8 @@
 #include "capture_format.h"
 #include "capture_naming.h"
 #include "free_space.h"
+#include "requantizing_sink.h"
+#include "rf_requantizer.h"
 #include "statistics_presenter.h"
 #include "theme_color_tokens.h"
 #include "update_text.h"
@@ -239,9 +242,9 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
   form->addRow(tr("Compression"), compression_spin_);
 
   // What is done to the signal after the DC offset, in the order it is done:
-  // shifted up, then its low bits dropped. Both are recorded in the file's
-  // tags and its metadata as the actions they are, so a reduced capture can
-  // never be taken for a full one.
+  // shifted up, then requantised. Both are recorded in the file's tags and its
+  // metadata as the actions they are, so a reduced capture can never be taken
+  // for a full one.
   bit_shift_combo_ = new QComboBox(contents);
   bit_shift_combo_->setObjectName(QLatin1String(kBitShiftComboName));
   for (int shift = 0; shift <= capture::kMaximumBitShift; ++shift) {
@@ -257,22 +260,30 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
          "in test mode."));
   form->addRow(tr("Bit shift (digital gain)"), bit_shift_combo_);
 
-  lsb_drop_combo_ = new QComboBox(contents);
-  lsb_drop_combo_->setObjectName(QLatin1String(kLsbDropComboName));
-  for (int drop = 0; drop <= capture::kMaximumLsbDrop; ++drop) {
-    // The count, which is what is recorded, and the range the converter's
-    // codes are left spanning.
-    lsb_drop_combo_->addItem(
-        tr("%1 (%2 bit range)").arg(drop).arg(capture::kConverterBits - drop),
-        drop);
+  requantize_combo_ = new QComboBox(contents);
+  requantize_combo_->setObjectName(QLatin1String(kRequantizeComboName));
+  requantize_combo_->addItem(tr("Off"), kRequantizeOff);
+  for (int level = capture::kMinimumMarginLevel;
+       level <= capture::kMaximumMarginLevel; ++level) {
+    requantize_combo_->addItem(DescribeRequantizationMargin(level), level);
   }
-  lsb_drop_combo_->setToolTip(
-      tr("Drop this many of the converter's low bits before the capture is "
-         "written. They are mostly noise and noise does not compress, so "
-         "each bit dropped makes a FLAC capture noticeably smaller — and "
-         "costs 6 dB of quantisation noise. Rounded, never truncated. Not "
-         "applied in test mode."));
-  form->addRow(tr("LSB drop"), lsb_drop_combo_);
+  requantize_combo_->setToolTip(
+      tr("Drop as many of the converter's low bits as this capture's own "
+         "noise hides, decided again every 35 ms or so from the noise floor "
+         "of the last half second, with noise shaping where it lets more go. "
+         "The margin is how far the noise floor anywhere in the LaserDisc's "
+         "RF band may rise: the lower the number, the smaller the file. "
+         "While monitoring it previews what a capture would do and changes "
+         "nothing. Not applied in test mode."));
+  form->addRow(tr("Requantisation"), requantize_combo_);
+
+  // What it is doing, as it does it.
+  requantize_status_label_ = new QLabel(contents);
+  requantize_status_label_->setObjectName(
+      QLatin1String(kRequantizeStatusLabelName));
+  requantize_status_label_->setWordWrap(true);
+  requantize_status_label_->setVisible(false);
+  form->addRow(QString(), requantize_status_label_);
 
   // The limit and the button that clears it, side by side. A limit is the one
   // setting here that is set for a single capture and then wants to be gone
@@ -391,7 +402,7 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
           [this](int) { ApplySettingsFromWidgets(); });
   connect(compression_spin_, &QSpinBox::valueChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
-  connect(lsb_drop_combo_, &QComboBox::currentIndexChanged, this,
+  connect(requantize_combo_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
   connect(bit_shift_combo_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
@@ -418,6 +429,8 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
       RefreshBoardSummary();
       ShowSettings();
     });
+    connect(controller_, &CaptureController::RequantizationUpdated, this,
+            &CapturePanel::RefreshRequantizationStatus);
     connect(controller_, &CaptureController::DcOffsetOutOfRange, this,
             [this](const QString& message) {
               offset_warning_label_->setText(
@@ -483,8 +496,8 @@ void CapturePanel::ShowSettings() {
       range_select_combo_->findData(controller_->effective_range_2vpp()));
   RefreshPllPresetOptions();
   compression_spin_->setValue(settings.compression_level);
-  lsb_drop_combo_->setCurrentIndex(
-      lsb_drop_combo_->findData(settings.lsb_drop));
+  requantize_combo_->setCurrentIndex(requantize_combo_->findData(
+      settings.requantize ? settings.requantize_margin : kRequantizeOff));
   bit_shift_combo_->setCurrentIndex(
       bit_shift_combo_->findData(settings.bit_shift));
   // Rounded to the nearest whole minute for display. The stored value is in
@@ -616,7 +629,12 @@ void CapturePanel::ApplySettingsFromWidgets() {
   settings.pll_preset_mhz =
       static_cast<uint8_t>(pll_preset_combo_->currentData().toInt());
   settings.compression_level = compression_spin_->value();
-  settings.lsb_drop = lsb_drop_combo_->currentData().toInt();
+  // Off keeps the margin last chosen, for the next time it is turned on.
+  const int requantize = requantize_combo_->currentData().toInt();
+  settings.requantize = requantize != kRequantizeOff;
+  if (settings.requantize) {
+    settings.requantize_margin = requantize;
+  }
   settings.bit_shift = bit_shift_combo_->currentData().toInt();
   settings.duration_limit_seconds = duration_spin_->value() * 60;
   settings.low_space_warning_minutes = low_space_spin_->value();
@@ -725,6 +743,37 @@ void CapturePanel::RefreshFreeSpace() {
       space, controller_ != nullptr
                  ? controller_->settings().EstimatedBytesPerSecond()
                  : capture::kEstimatedCaptureBytesPerSecond));
+}
+
+void CapturePanel::RefreshRequantizationStatus() {
+  const std::optional<capture::RequantizationStatus::Live> live =
+      controller_ != nullptr ? controller_->requantization() : std::nullopt;
+  if (!live.has_value()) {
+    requantize_status_label_->setVisible(false);
+    return;
+  }
+
+  // Said as the setting is: bits dropped, and the range the converter's codes
+  // are left spanning.
+  const bool writing = controller_->requantization_applies();
+  QString text;
+  if (live->segments == 0) {
+    text = writing ? tr("Requantising: deciding") : tr("Preview: deciding");
+  } else {
+    const capture::RequantizerDecision& decision = live->current;
+    text = (writing ? tr("Requantising: %1 dropped (%2 bit range)")
+                    : tr("Preview: %1 dropped (%2 bit range)"))
+               .arg(decision.lsb_drop)
+               .arg(capture::kConverterBits - decision.lsb_drop);
+    if (decision.shaped) {
+      text += tr(", noise shaped");
+    }
+    text += tr(", +%1 dB in band, noise floor %2 LSB")
+                .arg(decision.degradation_db, 0, 'f', 2)
+                .arg(live->noise_floor_lsb, 0, 'f', 2);
+  }
+  requantize_status_label_->setText(text);
+  requantize_status_label_->setVisible(true);
 }
 
 void CapturePanel::OnDevicesChanged(
@@ -1035,7 +1084,7 @@ void CapturePanel::UpdateEnabledState() {
   // the pipeline counts against the change from the next buffer and the
   // Corrected views redraw with it. Locked only while a file is being
   // written, which keeps the conversion it was opened with from start to end.
-  lsb_drop_combo_->setEnabled(!capturing_);
+  requantize_combo_->setEnabled(!capturing_);
   bit_shift_combo_->setEnabled(!capturing_);
 
   // These three are read as the capture runs rather than when it starts, so all

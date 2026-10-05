@@ -287,43 +287,76 @@ the samples it clipped. The real remedy for a weak signal is still analogue: mor
 gain, or the 1Vpp range, which give the converter's own resolution to the signal rather than
 spreading it out afterwards.
 
-### LSB drop
+### Requantisation
 
-**0 bits** (the default) up to **4 bits**: drop that many of the converter's low bits, so
-that 10 down to 6 of its ten are kept. It is the one setting that makes a capture
+**Off** (the default), or a margin from **0** to **4**: drop as many of the converter's low
+bits as this capture's own noise hides. It is the one setting that makes a capture
 meaningfully smaller. The low bits are mostly noise, noise does not compress, and so each bit
-dropped saves nearly a bit a sample in a FLAC file. Each also costs 6 dB of quantisation
-noise. Four is the most, and beyond two the trade changes: what goes is no longer fine detail
-but the sync tips, the dropout detection and the chroma. Nothing stops you making it, and
-every file records it.
+dropped saves nearly a bit a sample in a FLAC file. How many can go depends on how noisy the
+capture is, which changes with the disc, the player and the moment, so it is decided again
+for every segment of 2^20 samples (35 ms at 30 Msps, 26 ms at 40), from the noise floor of
+the last half second.
 
-Samples are rounded, not truncated, and rounded about the signal's real zero. A file with
-bits dropped is still the same signed 16-bit format, with fewer distinct values in it, so
-nothing that reads a capture has to change. The uncompressed format is still two bytes a
-sample whatever this is set to, so the saving is FLAC's.
+A setting is allowed when the noise it adds raises the noise floor of every 1 MHz slice of
+the protected band — DC to 14 MHz, the LaserDisc's RF, or to 1.5 MHz short of the Nyquist
+limit at a rate that cannot hold all of it — by no more than the margin:
+
+| Margin | Name | Floor may rise by | Waits before dropping more |
+| --- | --- | --- | --- |
+| 0 | aggressive | 1.0 dB | no wait |
+| 1 | moderate | 0.5 dB | 0.1 s |
+| 2 | safe | 0.2 dB | 0.25 s |
+| 3 | extra safe | 0.1 dB | 0.5 s |
+| 4 | ultra safe | 0.05 dB | 1 s |
+
+Dropping fewer bits takes effect at once, whatever the margin: it is the safe direction.
+Where plain rounding would cost too much, **noise shaping** is tried as well: the rounding
+error is fed back through a filter that pushes the added noise above the protected band,
+where the decoder's filters remove it, so a shaped setting can keep a bit or two fewer. Up to
+six bits can go and four are always kept; in practice the margin decides.
+
+The analysis runs on a thread of its own and costs a fraction of one core at 30 Msps, so it
+is meant for a capture written at a reduced rate — 60 MHz decimated by 2 is the case it was
+made for — as much as for the full one.
+
+Samples are rounded, not truncated, and rounded about the signal's real zero. A requantised
+file is still the same signed 16-bit format, with zero bits at the bottom of every sample, so
+nothing that reads a capture has to change. Each segment is a whole number of FLAC blocks,
+so a block never straddles two settings. The uncompressed format is still two bytes a sample
+whatever this is set to, so the saving is FLAC's.
+
+**While monitoring** it previews: the requantiser decides for every segment and the line
+under the setting says what a capture would do — the bits dropped with the range left, `2
+dropped (8 bit range)`, whether the noise is shaped, how much the worst slice of the band
+rises, and the noise floor in converter steps — without changing a sample. While capturing
+the same line says what is being done. It can be changed while monitoring and is locked while
+a capture is being written. It is not applied in test mode, whose ramp has to reach the file
+exactly as the gateware counted it. What it was asked to do is in every file's
+[tags](capture-files.md#what-the-file-says-about-itself); what it did, segment by segment, is in its
+[metadata file](capture-naming.md#requantization).
 
 ### The order they are applied in
 
 **The order is fixed.** Every writer applies the same steps in the same order: the DC offset
 first, so that everything after it is centred on the signal's real zero; then the bit shift;
-then the LSB drop, last, rounding at the step that drops the chosen number of the
-converter's bits. The shift never counts as resolution: a two-bit shift with two LSBs
-dropped keeps 8 bits of the signal, not 10 with the shift's two zeros removed. The 16-bit
-limit is applied once, to the finished value, so nothing clips half way through.
+then the requantisation, last. The shift never counts as resolution: the bits dropped are
+the converter's, counted after the shift, so a two-bit shift with two bits dropped keeps 8
+bits of the signal, not 10 with the shift's two zeros removed. The 16-bit limit is applied
+once, to the finished value, so nothing clips half way through.
 
 Both settings, and the files, describe the action taken rather than what it leaves: a bit
-shift of 1 and an LSB drop of 2, not "x2" and "8 bits".
+shift of 1 and two bits dropped, not "x2" and "8 bits".
 
-Both can be changed **while monitoring**, and take effect at once: the clipping count is kept
-against the new values from the next buffer, and the [Corrected](signal-analysis.md#corrected)
-view of the scope, the spectrum and the amplitude history redraws with them, so the effect
-can be watched as it is chosen. They are locked only while a capture is being written, which
-keeps the values a file was opened with from its start to its end. Neither is applied in test
-mode, whose ramp has to reach the file exactly as the gateware counted it. Both are recorded
-in every file's tags and its metadata.
+The bit shift can be changed **while monitoring**, and takes effect at once: the clipping
+count is kept against the new value from the next buffer, and the
+[Corrected](signal-analysis.md#corrected) view of the scope, the spectrum and the amplitude
+history redraws with it, so the effect can be watched as it is chosen. It is locked only
+while a capture is being written, which keeps the value a file was opened with from its start
+to its end. It is not applied in test mode either, and it is recorded in every file's tags and
+its metadata.
 
-Each list shows the count, which is what is recorded, beside what it amounts to: `1 (x2)` for
-a one-bit shift, `2 (8 bit range)` for two LSBs dropped.
+The bit-shift list shows the count, which is what is recorded, beside what it amounts to:
+`1 (x2)` for a one-bit shift.
 
 ### Duration limit
 

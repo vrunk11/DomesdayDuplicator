@@ -49,6 +49,22 @@ bool PipeSink::Write(const uint8_t* wire_data, size_t sample_count) {
   return true;
 }
 
+bool PipeSink::WriteConverted(const int16_t* samples, size_t sample_count) {
+  // As Write(), the file first and the copy second.
+  if (file_ != nullptr && !file_->WriteConverted(samples, sample_count)) {
+    last_error_ = file_->LastError();
+    return false;
+  }
+  if (pipe_ != nullptr && !pipe_->OfferConverted(samples, sample_count)) {
+    last_error_ =
+        "The program reading standard output did not keep up, and samples "
+        "that existed nowhere else would have been lost";
+    return false;
+  }
+  samples_written_ += sample_count;
+  return true;
+}
+
 bool PipeSink::Finish() {
   if (finished_) {
     return true;
@@ -76,7 +92,7 @@ uint64_t PipeSink::BytesWritten() const {
 }
 
 uint64_t PipeSink::SamplesWritten() const {
-  return file_ != nullptr ? file_->SamplesWritten() : samples_written_;
+  return file_ != nullptr ? file_->SamplesWritten() : samples_written_.load();
 }
 
 uint64_t PipeSink::SamplesPending() const {

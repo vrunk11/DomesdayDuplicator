@@ -16,6 +16,7 @@
 #include <QLatin1String>
 #include <QStringList>
 
+#include "rf_requantizer.h"
 #include "wire_protocol.h"
 
 namespace ddd::gui {
@@ -33,7 +34,8 @@ constexpr const char* kAdcRateName = "adc-rate";
 constexpr const char* kInputRangeName = "input-range";
 constexpr const char* kDurationLimitName = "duration-limit";
 constexpr const char* kOutputFormatName = "output-format";
-constexpr const char* kLsbDropName = "lsb-drop";
+constexpr const char* kRequantizeName = "requantize";
+constexpr const char* kRequantizeOffWord = "off";
 constexpr const char* kBitShiftName = "bit-shift";
 constexpr const char* kPipeName = "pipe";
 constexpr const char* kSaveName = "save";
@@ -131,7 +133,7 @@ bool CaptureCliOptions::HasAttributeOverrides() const {
   return capture_directory.has_value() || capture_name.has_value() ||
          decimation_factor.has_value() || pll_preset_mhz.has_value() ||
          range_select_2vpp.has_value() || duration_limit_seconds.has_value() ||
-         output_format.has_value() || lsb_drop.has_value() ||
+         output_format.has_value() || requantize.has_value() ||
          bit_shift.has_value();
 }
 
@@ -196,13 +198,17 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
                                   QLatin1String(kSigned16BitFormatWord)),
                          QStringLiteral("format")),
       QCommandLineOption(
-          QLatin1String(kLsbDropName),
+          QLatin1String(kRequantizeName),
           QStringLiteral(
-              "Drop this many of the converter's low bits, 0 to 4, after the "
-              "bit shift. Each bit dropped makes a FLAC capture noticeably "
-              "smaller and costs 6 dB of quantisation noise. Rounded, not "
-              "truncated."),
-          QStringLiteral("bits")),
+              "Requantise the capture to as few bits as its own noise "
+              "allows, decided every 35 ms or so, after the bit shift: %1, or "
+              "a margin from %2 (aggressive, 1 dB) to %3 (ultra safe, "
+              "0.05 dB). A FLAC capture gets much smaller; the noise added "
+              "in the LaserDisc's RF band stays under the margin.")
+              .arg(QLatin1String(kRequantizeOffWord))
+              .arg(capture::kMinimumMarginLevel)
+              .arg(capture::kMaximumMarginLevel),
+          QStringLiteral("margin")),
       QCommandLineOption(
           QLatin1String(kBitShiftName),
           QStringLiteral(
@@ -235,7 +241,7 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
   parser.addOption(set.input_range);
   parser.addOption(set.duration_limit);
   parser.addOption(set.output_format);
-  parser.addOption(set.lsb_drop);
+  parser.addOption(set.requantize);
   parser.addOption(set.bit_shift);
   parser.addOption(set.pipe);
   parser.addOption(set.save);
@@ -376,18 +382,26 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
     }
   }
 
-  if (parser.isSet(set.lsb_drop)) {
-    const QString text = parser.value(set.lsb_drop).trimmed();
+  if (parser.isSet(set.requantize)) {
+    const QString text = parser.value(set.requantize).trimmed().toLower();
     bool numeric = false;
-    const int drop = text.toInt(&numeric);
-    if (!numeric || drop < 0 || drop > capture::kMaximumLsbDrop) {
-      result.error =
-          QStringLiteral("Unknown --lsb-drop '%1'. Use 0 to %2 bits.")
-              .arg(text)
-              .arg(capture::kMaximumLsbDrop);
+    const int margin = text.toInt(&numeric);
+    if (text == QLatin1String(kRequantizeOffWord)) {
+      options.requantize = false;
+    } else if (numeric && margin >= capture::kMinimumMarginLevel &&
+               margin <= capture::kMaximumMarginLevel) {
+      options.requantize = true;
+      options.requantize_margin = margin;
+    } else {
+      result.error = QStringLiteral(
+                         "Unknown --requantize '%1'. Use %2, or a margin "
+                         "from %3 to %4.")
+                         .arg(parser.value(set.requantize),
+                              QLatin1String(kRequantizeOffWord))
+                         .arg(capture::kMinimumMarginLevel)
+                         .arg(capture::kMaximumMarginLevel);
       return result;
     }
-    options.lsb_drop = drop;
   }
 
   if (parser.isSet(set.bit_shift)) {
@@ -484,8 +498,11 @@ void ApplyCliOverrides(CaptureSettings& settings,
   if (options.output_format.has_value()) {
     settings.output_format = *options.output_format;
   }
-  if (options.lsb_drop.has_value()) {
-    settings.lsb_drop = *options.lsb_drop;
+  if (options.requantize.has_value()) {
+    settings.requantize = *options.requantize;
+  }
+  if (options.requantize_margin.has_value()) {
+    settings.requantize_margin = *options.requantize_margin;
   }
   if (options.bit_shift.has_value()) {
     settings.bit_shift = *options.bit_shift;

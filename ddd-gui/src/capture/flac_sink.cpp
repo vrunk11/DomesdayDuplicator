@@ -31,6 +31,14 @@ bool FlacSink::Write(const uint8_t* wire_data, size_t sample_count) {
   return true;
 }
 
+bool FlacSink::WriteConverted(const int16_t* samples, size_t sample_count) {
+  if (!writer_->WriteSigned16Samples(samples, sample_count)) {
+    last_error_ = writer_->LastError();
+    return false;
+  }
+  return true;
+}
+
 bool FlacSink::Finish() {
   if (!writer_->Finish()) {
     last_error_ = writer_->LastError();

@@ -90,7 +90,10 @@ later travel with it rather than in somebody's notes:
 | `DDD_BOARD_RSEL_WIRING` | `auto`, `low` or `high` |
 | `DDD_DC_OFFSET` | The DC offset taken out of every sample, in converter codes. `0` when nothing was |
 | `DDD_BIT_SHIFT` | How many bits the signal was shifted up: `0` to `4`, a digital gain of x1 to x16. Always written — see [Bit shift](capture-control.md#bit-shift-digital-gain) |
-| `DDD_LSB_DROP` | How many of the converter's low bits were dropped: `0` to `4`. Always written — see [LSB drop](capture-control.md#lsb-drop) |
+| `DDD_REQUANTIZATION` | `off`, or `dynamic` for a requantised capture. Always written — see [Requantisation](capture-control.md#requantisation) |
+| `DDD_REQUANTIZATION_MARGIN` | The margin, with its name and the most the protected band's floor was allowed to rise: `2 (safe, 0.20 dB)`. Requantised captures only |
+| `DDD_REQUANTIZATION_BANDS` | The protected band: `0-14 MHz`, or `0-13.5 MHz` at 30 Msps. Requantised captures only |
+| `DDD_REQUANTIZATION_SHAPING` | The noise shaping it could use: `order 16, 10.0 dB`. Requantised captures only |
 
 **The DC offset is the one board tag that changes the samples.** Every sample in the file is
 the converter's code less `DDD_DC_OFFSET`, still scaled by 64, so the samples the converter
@@ -99,13 +102,18 @@ is a whole number of codes, so the six low bits of every sample stay zero and FL
 for nothing, exactly as before. A test-mode capture is never corrected — its samples come from
 the gateware's counter, not the converter — and records `0`.
 
-**The bit shift and the LSB drop change the samples too, and say so the same way.** After the
-offset, every sample is shifted up by `DDD_BIT_SHIFT` bits and rounded to the step that drops
-`DDD_LSB_DROP` of the converter's low bits, so a value divided by 64 × 2^`DDD_BIT_SHIFT` is
-the converter's code less the offset, to within the rounding. Both tags are written on every
-capture, at `0` too: a file nothing was done to says so, rather than leaving a
-reader to tell it apart from a file made before the tags existed. A test-mode capture is
-never shifted or reduced and records `0` for both.
+**The bit shift and the requantisation change the samples too, and say so the same way.**
+After the offset, every sample is shifted up by `DDD_BIT_SHIFT` bits, so a value divided by
+64 × 2^`DDD_BIT_SHIFT` is the converter's code less the offset. A requantised capture is then
+rounded, segment by segment, to a step that drops however many of the converter's low bits
+that segment's noise allowed, so the same division gives the code to within that rounding.
+The tags can only say what the requantiser was asked to do — the file is tagged before its
+first sample is written — so what it did is in the [metadata file](capture-naming.md#requantization),
+and in the file itself: FLAC records the zero bits at the bottom of every block. Both
+`DDD_BIT_SHIFT` and `DDD_REQUANTIZATION` are written on every capture, at `0` and `off` too:
+a file nothing was done to says so, rather than leaving a reader to tell it apart from a file
+made before the tags existed. A test-mode capture is never shifted or requantised and
+records `0` and `off`.
 
 The board tags are written only when a device was attached to read the board setup from.
 

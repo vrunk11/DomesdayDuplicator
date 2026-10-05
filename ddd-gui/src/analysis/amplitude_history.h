@@ -153,9 +153,8 @@ class AmplitudeSampler {
 //
 // The extremes are exact — the conversion is monotonic, so the extremes of what
 // is written are the converted extremes. The RMS is scaled by the bit shift
-// and held to full scale; what the offset and the dropped bits do to it is
-// left out, because an RMS about mid-scale cannot be re-centred without the
-// mean it was taken with, and the rounding moves it by a fraction of a step.
+// and held to full scale; what the offset does to it is left out, because an
+// RMS about mid-scale cannot be re-centred without the mean it was taken with.
 // The clip count is the converter's, which no conversion changes.
 AmplitudePoint ConvertAmplitudePoint(
     const AmplitudePoint& point, const capture::SampleConversion& conversion);

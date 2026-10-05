@@ -21,6 +21,7 @@
 #include "flac_writer.h"
 #include "free_space.h"
 #include "front_end_gain.h"
+#include "rf_requantizer.h"
 #include "usb_device.h"
 
 namespace ddd::gui {
@@ -155,14 +156,19 @@ struct CaptureSettings {
   int compression_level = capture::FlacWriter::Options{}.compression_level;
 
   // How many bits the signal is shifted up, 0 to 4 — a digital gain of x1 to
-  // x16 — and how many of the converter's low bits are dropped, 0 to 4. See
-  // capture::SampleConversion, which applies them after the DC offset, the
-  // shift before the drop. Persisted like the compression level: both are
-  // decisions about what is kept, made once for a collection rather than per
-  // capture. Neither applies in test mode, whose ramp has to reach the file
-  // exactly as counted.
+  // x16. See capture::SampleConversion, which applies it after the DC offset.
+  //
+  // Whether the capture is requantised to as few bits as its own noise allows,
+  // and at which margin, 0 aggressive to 4 ultra safe — see
+  // capture::RfRequantizer, which takes the signal after the shift. While
+  // monitoring, the same settings preview what a capture would do.
+  //
+  // Persisted like the compression level: decisions about what is kept, made
+  // once for a collection rather than per capture. None of it applies in test
+  // mode, whose ramp has to reach the file exactly as counted.
   int bit_shift = 0;
-  int lsb_drop = 0;
+  bool requantize = false;
+  int requantize_margin = capture::kDefaultMarginLevel;
 
   // Stop the capture automatically after this long. 0 means run until stopped,
   // which is the default: a limit that fired in the middle of a side would be
@@ -201,7 +207,8 @@ struct CaptureSettings {
            range_select_2vpp == other.range_select_2vpp &&
            pll_preset_mhz == other.pll_preset_mhz &&
            compression_level == other.compression_level &&
-           bit_shift == other.bit_shift && lsb_drop == other.lsb_drop &&
+           bit_shift == other.bit_shift && requantize == other.requantize &&
+           requantize_margin == other.requantize_margin &&
            duration_limit_seconds == other.duration_limit_seconds &&
            low_space_warning_minutes == other.low_space_warning_minutes;
   }
@@ -281,5 +288,10 @@ QString DefaultCaptureDirectory();
 CaptureSettings LoadCaptureSettings();
 
 void SaveCaptureSettings(const CaptureSettings& settings);
+
+// A requantisation margin as the interface names it everywhere: its number,
+// its name and the limit it holds the protected band to — "2 (safe,
+// 0.20 dB)". See capture::MarginLevelName.
+QString DescribeRequantizationMargin(int level);
 
 }  // namespace ddd::gui

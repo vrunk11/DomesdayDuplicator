@@ -13,6 +13,8 @@
 
 #include "capture_format.h"
 #include "capture_naming.h"
+#include "log_format.h"
+#include "rf_requantizer.h"
 #include "sample_format.h"
 
 namespace ddd::capture {
@@ -77,7 +79,26 @@ std::vector<FlacWriter::Tag> BuildProvenanceTags(
   }
 
   tags.push_back({kTagBitShift, std::to_string(provenance.bit_shift)});
-  tags.push_back({kTagLsbDrop, std::to_string(provenance.lsb_drop)});
+
+  const RequantizationRecord& requantization = provenance.requantization;
+  if (requantization.enabled) {
+    const int level = requantization.margin_level;
+    tags.push_back({kTagRequantization, "dynamic"});
+    tags.push_back({kTagRequantizationMargin,
+                    std::to_string(level) + " (" + MarginLevelName(level) +
+                        ", " + FormatDecimal(MarginLimitDb(level), 2) +
+                        " dB)"});
+    if (!requantization.protected_bands.empty()) {
+      tags.push_back({kTagRequantizationBands,
+                      DescribeBands(requantization.protected_bands)});
+    }
+    tags.push_back(
+        {kTagRequantizationShaping,
+         "order " + std::to_string(requantization.shaping_order) + ", " +
+             FormatDecimal(requantization.shaping_depth_db, 1) + " dB"});
+  } else {
+    tags.push_back({kTagRequantization, "off"});
+  }
 
   if (!provenance.board_adc.empty()) {
     if (!provenance.board_setup.empty()) {

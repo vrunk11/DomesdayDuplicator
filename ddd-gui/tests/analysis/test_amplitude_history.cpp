@@ -295,7 +295,7 @@ TEST(AmplitudeConversionTest, APointIsShownAsTheCaptureWouldWriteIt) {
   EXPECT_DOUBLE_EQ(same.rms_codes, 100.0);
 
   const AmplitudePoint shifted =
-      ConvertAmplitudePoint(point, capture::SampleConversion{10, 1, 0});
+      ConvertAmplitudePoint(point, capture::SampleConversion{10, 1});
   EXPECT_EQ(shifted.minimum_code, 512 + ((400 - 512 - 10) * 2));
   EXPECT_EQ(shifted.maximum_code, 512 + ((600 - 512 - 10) * 2));
   EXPECT_DOUBLE_EQ(shifted.rms_codes, 200.0);
@@ -304,7 +304,7 @@ TEST(AmplitudeConversionTest, APointIsShownAsTheCaptureWouldWriteIt) {
 
   // Taken past full scale, and held there.
   const AmplitudePoint clipped = ConvertAmplitudePoint(
-      MakePoint(0.0, 300.0, 100, 900), capture::SampleConversion{0, 2, 0});
+      MakePoint(0.0, 300.0, 100, 900), capture::SampleConversion{0, 2});
   EXPECT_EQ(clipped.minimum_code, 0);
   EXPECT_EQ(clipped.maximum_code, 1023 - 3);
   EXPECT_DOUBLE_EQ(clipped.rms_codes, 512.0);

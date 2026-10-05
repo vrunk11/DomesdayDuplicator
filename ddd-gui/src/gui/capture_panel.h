@@ -74,7 +74,12 @@ class CapturePanel : public QWidget {
   static constexpr const char* kPllPresetComboName = "capture_pll_preset_combo";
   static constexpr const char* kCompressionSpinName =
       "capture_compression_spin";
-  static constexpr const char* kLsbDropComboName = "capture_lsb_drop_combo";
+  static constexpr const char* kRequantizeComboName =
+      "capture_requantize_combo";
+  // The requantisation combo's item for off; the others carry their margin.
+  static constexpr int kRequantizeOff = -1;
+  static constexpr const char* kRequantizeStatusLabelName =
+      "capture_requantize_status_label";
   static constexpr const char* kBitShiftComboName = "capture_bit_shift_combo";
   static constexpr const char* kDurationSpinName = "capture_duration_spin";
   static constexpr const char* kDurationResetButtonName =
@@ -148,6 +153,9 @@ class CapturePanel : public QWidget {
   void OnDurationResetPressed();
   void RefreshFreeSpace();
 
+  // Say what the requantiser is doing, or hide the line when none is running.
+  void RefreshRequantizationStatus();
+
  private:
   void UpdateEnabledState();
 
@@ -210,7 +218,8 @@ class CapturePanel : public QWidget {
   QComboBox* range_select_combo_ = nullptr;
   QComboBox* pll_preset_combo_ = nullptr;
   QSpinBox* compression_spin_ = nullptr;
-  QComboBox* lsb_drop_combo_ = nullptr;
+  QComboBox* requantize_combo_ = nullptr;
+  QLabel* requantize_status_label_ = nullptr;
   QComboBox* bit_shift_combo_ = nullptr;
   QSpinBox* duration_spin_ = nullptr;
   QPushButton* duration_reset_button_ = nullptr;

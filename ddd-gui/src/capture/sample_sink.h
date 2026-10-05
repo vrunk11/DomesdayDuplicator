@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -60,6 +61,18 @@ class ISampleSink {
   // anything this does for longer than the ring is deep loses samples.
   virtual bool Write(const uint8_t* wire_data, size_t sample_count) = 0;
 
+  // Write samples already converted to signed 16-bit — what the requantiser
+  // hands on once it has decided what a segment keeps (rf_requantizer.h). The
+  // file's own conversion is not applied again: these are what is written.
+  //
+  // False for a sink that does not take converted samples, which is the
+  // default; the requantiser is only ever put in front of one that does.
+  virtual bool WriteConverted(const int16_t* samples, size_t sample_count) {
+    static_cast<void>(samples);
+    static_cast<void>(sample_count);
+    return false;
+  }
+
   // Flush and close. Called once, when the sink is detached or the capture
   // ends. Returns false on failure — for a FLAC file this is where the stream
   // header is patched, so a failure here means a file that is short and lies
@@ -100,15 +113,18 @@ class NullSink : public ISampleSink {
   bool StoresData() const override { return false; }
 
   bool Write(const uint8_t* wire_data, size_t sample_count) override;
+  bool WriteConverted(const int16_t* samples, size_t sample_count) override;
   bool Finish() override { return true; }
 
   uint64_t BytesWritten() const override { return 0; }
-  uint64_t SamplesWritten() const override { return samples_written_; }
+  uint64_t SamplesWritten() const override { return samples_written_.load(); }
 
   const std::string& LastError() const override { return no_error_; }
 
  private:
-  uint64_t samples_written_ = 0;
+  // Atomic because behind the requantiser it is counted on another thread
+  // than the one reading it.
+  std::atomic<uint64_t> samples_written_{0};
   std::string no_error_;
 };
 

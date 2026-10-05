@@ -153,9 +153,9 @@ constexpr size_t kSlot = PipeWriter::kSlotSamples;
 // The smallest queue there is: kMinimumSlots slots.
 constexpr size_t kSmallQueue = 1;
 
-// An offset, a bit shift and a reduction together, so that what the pipe
-// delivers is shown to be every step of the conversion and not just the offset.
-constexpr SampleConversion kEveryStep{3, 1, 1};
+// An offset and a bit shift together, so that what the pipe delivers is shown
+// to be every step of the conversion and not just the offset.
+constexpr SampleConversion kEveryStep{3, 1};
 
 TEST(WireToSigned16Test, MatchesTheSingleSampleConversionForEveryCode) {
   constexpr int32_t kOffset = -7;

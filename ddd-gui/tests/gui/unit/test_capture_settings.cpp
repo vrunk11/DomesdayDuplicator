@@ -219,34 +219,37 @@ TEST_F(CaptureSettingsTest, ANonsensicalCompressionLevelIsClamped) {
 TEST_F(CaptureSettingsTest, AFirstRunKeepsEveryBitUnshifted) {
   const CaptureSettings loaded = LoadCaptureSettings();
   EXPECT_EQ(loaded.bit_shift, 0);
-  EXPECT_EQ(loaded.lsb_drop, 0);
+  EXPECT_FALSE(loaded.requantize);
+  EXPECT_EQ(loaded.requantize_margin, capture::kDefaultMarginLevel);
 }
 
-TEST_F(CaptureSettingsTest, TheBitShiftAndTheLsbDropSurviveARestart) {
+TEST_F(CaptureSettingsTest, TheBitShiftAndTheRequantisationSurviveARestart) {
   CaptureSettings saved;
   saved.bit_shift = 2;
-  saved.lsb_drop = 3;
+  saved.requantize = true;
+  saved.requantize_margin = 4;
   SaveCaptureSettings(saved);
 
   const CaptureSettings loaded = LoadCaptureSettings();
   EXPECT_EQ(loaded.bit_shift, 2);
-  EXPECT_EQ(loaded.lsb_drop, 3);
+  EXPECT_TRUE(loaded.requantize);
+  EXPECT_EQ(loaded.requantize_margin, 4);
 }
 
 // A settings file asking for something no writer does is held to what one
 // does, rather than reaching the conversion and being clamped silently there.
-TEST_F(CaptureSettingsTest, AnImpossibleBitShiftOrLsbDropIsClamped) {
+TEST_F(CaptureSettingsTest, AnImpossibleBitShiftOrMarginIsClamped) {
   QSettings store;
-  store.setValue(QStringLiteral("capture/lsb_drop"), 9);
+  store.setValue(QStringLiteral("capture/requantize_margin"), 9);
   store.setValue(QStringLiteral("capture/bit_shift"), 7);
   CaptureSettings loaded = LoadCaptureSettings();
-  EXPECT_EQ(loaded.lsb_drop, capture::kMaximumLsbDrop);
+  EXPECT_EQ(loaded.requantize_margin, capture::kMaximumMarginLevel);
   EXPECT_EQ(loaded.bit_shift, capture::kMaximumBitShift);
 
-  store.setValue(QStringLiteral("capture/lsb_drop"), -2);
+  store.setValue(QStringLiteral("capture/requantize_margin"), -2);
   store.setValue(QStringLiteral("capture/bit_shift"), -1);
   loaded = LoadCaptureSettings();
-  EXPECT_EQ(loaded.lsb_drop, 0);
+  EXPECT_EQ(loaded.requantize_margin, capture::kMinimumMarginLevel);
   EXPECT_EQ(loaded.bit_shift, 0);
 }
 

@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "flac_writer.h"
+#include "rf_requantizer.h"
 #include "sample_format.h"
 
 namespace ddd::capture {
@@ -34,14 +35,26 @@ inline constexpr const char* kTagTestMode = "DDD_TEST_MODE";
 inline constexpr const char* kTagFrontEndGain = "DDD_FRONT_END_GAIN";
 inline constexpr const char* kTagInputRange = "DDD_INPUT_RANGE";
 
-// What was done to the signal beyond the DC offset, as the actions taken: how
-// many bits it was shifted up, and how many of the converter's low bits were
-// dropped (SampleConversion). Always written, at zero too: a file travelling
-// without its sidecar has to be able to say nothing was done, and a reader that
-// found neither tag could not tell an untouched capture from one made before
-// these existed.
+// What was done to the signal beyond the DC offset, as the action taken: how
+// many bits it was shifted up (SampleConversion). Always written, at zero too:
+// a file travelling without its sidecar has to be able to say nothing was
+// done, and a reader that found no tag could not tell an untouched capture
+// from one made before it existed.
 inline constexpr const char* kTagBitShift = "DDD_BIT_SHIFT";
-inline constexpr const char* kTagLsbDrop = "DDD_LSB_DROP";
+
+// Whether the capture was requantised (RfRequantizer): "off" or "dynamic",
+// always written for the same reason. A dynamic one adds what it was asked
+// for — the margin level with its name and limit, the bands it protected and
+// the noise shaping it could use. What it then did, segment by segment, is
+// known only at the end and is in the sidecar; the file's own blocks show it
+// too, as the zero bits FLAC finds at the bottom of every sample.
+inline constexpr const char* kTagRequantization = "DDD_REQUANTIZATION";
+inline constexpr const char* kTagRequantizationMargin =
+    "DDD_REQUANTIZATION_MARGIN";
+inline constexpr const char* kTagRequantizationBands =
+    "DDD_REQUANTIZATION_BANDS";
+inline constexpr const char* kTagRequantizationShaping =
+    "DDD_REQUANTIZATION_SHAPING";
 
 // What the device was running: the FX3's commit and the FPGA's. Written only
 // where the device said, on the same terms as everything else here.
@@ -175,9 +188,11 @@ struct CaptureProvenance {
   // The DC offset taken out of every sample, in converter codes.
   int dc_offset = 0;
 
-  // The bit shift applied and the low bits dropped. See kTagBitShift.
+  // The bit shift applied. See kTagBitShift.
   int bit_shift = 0;
-  int lsb_drop = 0;
+
+  // The requantiser's settings; only those are read. See kTagRequantization.
+  RequantizationRecord requantization;
 
   // The front-end gain the user declared, as a sentence — or empty for a gain
   // that was never declared.

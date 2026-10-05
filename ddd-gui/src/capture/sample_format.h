@@ -139,15 +139,6 @@ inline constexpr int kConverterBits = 10;
 // The largest bit shift: four bits, a digital gain of x16.
 inline constexpr int kMaximumBitShift = 4;
 
-// The most low bits a capture may drop: four, leaving six of the ten.
-//
-// Each bit dropped costs 6 dB of quantisation noise, and beyond two the sync
-// tips, the dropout detection and the chroma in the FM sidebands start to be
-// what is lost rather than fine detail — allowed, because it is the user's
-// trade to make, and recorded in every file so that it can never be mistaken
-// for a full capture.
-inline constexpr int kMaximumLsbDrop = 4;
-
 // Everything done to a converter code on its way into a capture — every
 // writer applies exactly this, and every capture records exactly this. Each is
 // the action taken, not what it leaves, which is also how the files record it.
@@ -159,94 +150,56 @@ inline constexpr int kMaximumLsbDrop = 4;
 //    bits it opens at the bottom are zero in every sample, which FLAC stores
 //    for free — but a weak signal at full scale is easier to read in every
 //    tool that displays one.
-//  - lsb_drop: how many of the converter's low bits are dropped, 0 to 4.
-//    Dropping bits is the one way to make a capture meaningfully smaller: the
-//    low bits are mostly noise and noise does not compress, so each one
-//    dropped saves nearly a bit a sample. Counted in the converter's bits
-//    whatever the shift, so that a shift and a drop cannot cancel: a shift of
-//    two with two bits dropped keeps eight bits of the signal, not ten with
-//    two zeros removed.
 //
 // Declared, and applied, in that order, and the order is the point — see
-// UnsaturatedConverted(). Values outside those ranges are clamped wherever
-// they are used, so a settings file from elsewhere cannot ask for something no
-// writer does.
+// UnsaturatedConverted(). A shift outside its range is clamped wherever it is
+// used, so a settings file from elsewhere cannot ask for something no writer
+// does. Dropping low bits to make a capture smaller is not part of this: it
+// is decided per segment, after this, by the requantiser (rf_requantizer.h).
 struct SampleConversion {
   int32_t dc_offset = 0;
   int bit_shift = 0;
-  int lsb_drop = 0;
 
   bool operator==(const SampleConversion& other) const = default;
 };
 
-// The bits a conversion shifts up by and the low bits it drops, as used.
+// The bits a conversion shifts up by, as used.
 inline constexpr int BitShift(const SampleConversion& conversion) {
   return std::clamp(conversion.bit_shift, 0, kMaximumBitShift);
-}
-
-inline constexpr int LsbDrop(const SampleConversion& conversion) {
-  return std::clamp(conversion.lsb_drop, 0, kMaximumLsbDrop);
 }
 
 // A conversion in one word, for handing it to another thread with a single
 // atomic store that can never be read half written — the pipeline's and the
 // analysis worker's way of taking a change while they run. The top bit marks a
 // word as set, so that the default conversion is not mistaken for "nothing
-// asked for". The shift and the drop are packed as used, already clamped.
+// asked for". The shift is packed as used, already clamped.
 inline constexpr uint64_t kSampleConversionSet = uint64_t{1} << 63;
 
 inline constexpr uint64_t PackSampleConversion(
     const SampleConversion& conversion) {
   return kSampleConversionSet |
          static_cast<uint64_t>(static_cast<uint32_t>(conversion.dc_offset)) |
-         (static_cast<uint64_t>(BitShift(conversion)) << 32) |
-         (static_cast<uint64_t>(LsbDrop(conversion)) << 40);
+         (static_cast<uint64_t>(BitShift(conversion)) << 32);
 }
 
 inline constexpr SampleConversion UnpackSampleConversion(uint64_t packed) {
   SampleConversion conversion;
   conversion.dc_offset = static_cast<int32_t>(static_cast<uint32_t>(packed));
   conversion.bit_shift = static_cast<int>((packed >> 32) & 0xFF);
-  conversion.lsb_drop = static_cast<int>((packed >> 40) & 0xFF);
   return conversion;
-}
-
-// A centred value rounded to a step of 2^step_bits, half to even.
-//
-// Rounded rather than truncated, because truncation moves every sample the same
-// way and shifts the whole signal by half a step. And half to even rather than
-// half up, for the same reason in miniature: with one bit dropped every odd
-// code is exactly half way, and rounding all of them up would shift the signal
-// by half a code. Both only hold for a value that is already centred, which is
-// why the DC offset comes out first.
-inline constexpr int32_t RoundToStep(int32_t centred, int step_bits) {
-  if (step_bits <= 0) {
-    return centred;
-  }
-  const int32_t step = int32_t{1} << step_bits;
-  const int32_t half = step / 2;
-
-  // Floor division: the shift is arithmetic on a negative value, which C++20
-  // guarantees.
-  int32_t steps = centred >> step_bits;
-  const int32_t remainder = centred - (steps * step);
-  if (remainder > half || (remainder == half && (steps % 2) != 0)) {
-    ++steps;
-  }
-  return steps * step;
 }
 
 // The highest sample a conversion writes: one output step below 32768.
 //
 // Not INT16_MAX. Every sample a conversion produces is a whole multiple of its
-// step — 64 for the converter's ten bits, more once bits are dropped or the
-// signal shifted — and FLAC stores the zero bits under that step for nothing. A
-// saturated sample of 32767 would have none, and every block of the file that
-// held one would pay for the full sixteen.
+// step — 64 for the converter's ten bits, more once the signal is shifted —
+// and FLAC stores the zero bits under that step for nothing. A saturated
+// sample of 32767 would have none, and every block of the file that held one
+// would pay for the full sixteen.
 inline constexpr int32_t ConvertedTopSample(
     const SampleConversion& conversion) {
   return (kSampleZeroOffset * kSampleScale) -
-         (kSampleScale << (LsbDrop(conversion) + BitShift(conversion)));
+         (kSampleScale << BitShift(conversion));
 }
 
 // The converted sample before it is saturated, in 32 bits.
@@ -255,13 +208,11 @@ inline constexpr int32_t ConvertedTopSample(
 //
 //  1. Centring. The DC offset comes out of the converter's own code, before
 //     anything else has touched it, so that what follows is centred on the
-//     signal's real zero — the rounding below is only unbiased about zero.
+//     signal's real zero — which is also what the requantiser's rounding,
+//     after this, is unbiased about.
 //  2. Bit shift. Shifted up in 32 bits, where nothing can overflow, so a sample
 //     the shift takes past full scale is still known exactly at the end rather
 //     than having been clipped half way through.
-//  3. Dropping LSBs, last. Rounded to the step that drops lsb_drop of the
-//     converter's bits at this shift — 2^(lsb_drop + bit_shift) in the
-//     shifted units — so the shift is never mistaken for resolution.
 //
 // Saturating to sixteen bits is not a step of its own but the end of the
 // line: ToConvertedSigned16Bit() does it once, to the finished value.
@@ -270,9 +221,7 @@ inline constexpr int32_t UnsaturatedConverted(
   const int32_t centred =
       ten_bit_value - kSampleZeroOffset - conversion.dc_offset;
   const int32_t shifted = centred * (int32_t{1} << BitShift(conversion));
-  const int32_t rounded =
-      RoundToStep(shifted, LsbDrop(conversion) + BitShift(conversion));
-  return rounded * kSampleScale;
+  return shifted * kSampleScale;
 }
 
 // A converter code as a capture holds it, after `conversion`.

@@ -51,6 +51,7 @@ QString ToQString(std::string_view text) {
 // whatever is capturing standard error.
 QString DescribePipedStream(uint32_t sample_rate_hz, bool range_2vpp,
                             const capture::SampleConversion& conversion,
+                            const capture::RequantizationRecord& requantization,
                             bool test_mode) {
   QString text =
       QObject::tr(
@@ -62,12 +63,45 @@ QString DescribePipedStream(uint32_t sample_rate_hz, bool range_2vpp,
   if (test_mode) {
     text += QObject::tr(", in test mode");
   } else {
-    text += QObject::tr(", DC offset %1 taken out, bit shift %2, LSB drop %3")
+    text += QObject::tr(", DC offset %1 taken out, bit shift %2")
                 .arg(conversion.dc_offset)
-                .arg(capture::BitShift(conversion))
-                .arg(capture::LsbDrop(conversion));
+                .arg(capture::BitShift(conversion));
+    text += requantization.enabled ? QObject::tr(", requantised at margin %1")
+                                         .arg(DescribeRequantizationMargin(
+                                             requantization.margin_level))
+                                   : QObject::tr(", not requantised");
   }
   return text + QStringLiteral(".");
+}
+
+// What a requantised capture did, in one line for the log: the share of its
+// samples each number of bits dropped went to, the share shaped, and the worst
+// the protected band was made to pay.
+std::string DescribeRequantization(
+    const capture::RequantizationStatus::Summary& summary) {
+  if (summary.samples == 0) {
+    return "Requantised: nothing";
+  }
+  const auto share = [&summary](uint64_t samples) {
+    return capture::FormatDecimal(100.0 * static_cast<double>(samples) /
+                                      static_cast<double>(summary.samples),
+                                  1) +
+           "%";
+  };
+
+  std::string text = "Requantised:";
+  bool first = true;
+  for (size_t drop = 0; drop < summary.samples_by_drop.size(); ++drop) {
+    if (summary.samples_by_drop[drop] == 0) {
+      continue;
+    }
+    text += (first ? " " : ", ") + std::to_string(drop) + " dropped " +
+            share(summary.samples_by_drop[drop]);
+    first = false;
+  }
+  return text + "; shaped " + share(summary.shaped_samples) + "; worst " +
+         capture::FormatDecimal(summary.worst_degradation_db, 3) + " dB; " +
+         std::to_string(summary.changes.size()) + " changes";
 }
 
 // How much a running total has moved since a capture started.
@@ -156,6 +190,7 @@ void CaptureController::SetSettings(const CaptureSettings& settings) {
   // setup changed hands back the rate it was opened with.
   ApplyBoardLimits();
   UpdateRunConversion();
+  UpdateIdleSink();
 }
 
 void CaptureController::ApplySessionSettings(const CaptureSettings& settings) {
@@ -163,6 +198,7 @@ void CaptureController::ApplySessionSettings(const CaptureSettings& settings) {
   emit SettingsChanged(settings_);
   ApplyBoardLimits();
   UpdateRunConversion();
+  UpdateIdleSink();
 }
 
 void CaptureController::SetShowCorrected(bool show) {
@@ -183,7 +219,6 @@ void CaptureController::UpdateRunConversion() {
   }
   capture::SampleConversion conversion = run_conversion_;
   conversion.bit_shift = settings_.bit_shift;
-  conversion.lsb_drop = settings_.lsb_drop;
   if (conversion == run_conversion_) {
     return;
   }
@@ -484,9 +519,95 @@ capture::SampleConversion CaptureController::RunConversion() const {
   // measuring, where what is wanted is the converter as it is.
   if (!settings_.test_mode && !measuring_dc_offset()) {
     conversion.bit_shift = settings_.bit_shift;
-    conversion.lsb_drop = settings_.lsb_drop;
   }
   return conversion;
+}
+
+bool CaptureController::RunRequantizes() const {
+  return settings_.requantize && run_converts_;
+}
+
+capture::RequantizerSettings CaptureController::RunRequantizerSettings() const {
+  capture::RequantizerSettings requantizer;
+
+  // The rate of the samples it is given, which under decimation is the file's
+  // and not the converter's: the bands and the hold are in hertz and seconds.
+  requantizer.sample_rate_mhz =
+      static_cast<double>(settings_.SampleRateHz()) / 1.0e6;
+  requantizer.margin_level = settings_.requantize_margin;
+  requantizer.protected_bands =
+      capture::DefaultProtectedBands(requantizer.sample_rate_mhz);
+  requantizer.input_bits =
+      capture::kConverterBits - capture::BitShift(run_conversion_);
+  return requantizer;
+}
+
+capture::RequantizationRecord CaptureController::RequantizationSettingsRecord()
+    const {
+  capture::RequantizationRecord record;
+  if (!RunRequantizes()) {
+    return record;
+  }
+  const capture::RequantizerSettings requantizer = RunRequantizerSettings();
+  record.enabled = true;
+  record.margin_level = requantizer.margin_level;
+  record.protected_bands = requantizer.protected_bands;
+  record.input_bits = requantizer.input_bits;
+  record.shaping_order = requantizer.shaping_order;
+  record.shaping_depth_db = requantizer.shaping_depth_db;
+  return record;
+}
+
+std::unique_ptr<capture::ISampleSink> CaptureController::MakeIdleSink() {
+  idle_key_ = std::make_tuple(RunRequantizes(), settings_.requantize_margin,
+                              capture::BitShift(run_conversion_));
+  if (!RunRequantizes()) {
+    requantization_status_.reset();
+    return std::make_unique<capture::NullSink>();
+  }
+
+  // In front of nothing, which stores nothing, so the requantiser decides and
+  // publishes and changes no sample: what a capture would do, at the cost of
+  // the analysis alone.
+  requantization_status_ = std::make_shared<capture::RequantizationStatus>();
+  return std::make_unique<capture::RequantizingSink>(
+      std::make_unique<capture::NullSink>(), run_conversion_,
+      RunRequantizerSettings(), requantization_status_);
+}
+
+std::unique_ptr<capture::ISampleSink> CaptureController::RequantizeCapture(
+    std::unique_ptr<capture::ISampleSink> sink) {
+  if (!RunRequantizes()) {
+    requantization_status_.reset();
+    capture_requantization_.reset();
+    return sink;
+  }
+  capture_requantization_ = std::make_shared<capture::RequantizationStatus>();
+  requantization_status_ = capture_requantization_;
+  return std::make_unique<capture::RequantizingSink>(
+      std::move(sink), run_conversion_, RunRequantizerSettings(),
+      capture_requantization_);
+}
+
+void CaptureController::UpdateIdleSink() {
+  if (!monitoring_ || capturing_ || pending_sink_change_ != 0) {
+    return;
+  }
+  if (idle_key_ == std::make_tuple(RunRequantizes(),
+                                   settings_.requantize_margin,
+                                   capture::BitShift(run_conversion_))) {
+    return;
+  }
+  pipeline_->AttachSink(MakeIdleSink());
+  emit RequantizationUpdated();
+}
+
+std::optional<capture::RequantizationStatus::Live>
+CaptureController::requantization() const {
+  if (requantization_status_ == nullptr) {
+    return std::nullopt;
+  }
+  return requantization_status_->ReadLive();
 }
 
 bool CaptureController::WriteBoardSetup(const capture::BoardSetup& setup,
@@ -962,8 +1083,9 @@ void CaptureController::StartMonitoring() {
     monitor_->SetSuspended(true);
   }
 
-  if (!pipeline_->Start(source_.get(), std::make_unique<capture::NullSink>(),
-                        options)) {
+  if (!pipeline_->Start(source_.get(), MakeIdleSink(), options)) {
+    requantization_status_.reset();
+    idle_key_.reset();
     if (monitor_ != nullptr) {
       monitor_->SetSuspended(false);
     }
@@ -985,6 +1107,7 @@ void CaptureController::StartMonitoring() {
   monitoring_ = true;
   stats_timer_.start();
   emit MonitoringChanged(true);
+  emit RequantizationUpdated();
 }
 
 void CaptureController::StopMonitoring() {
@@ -1059,7 +1182,8 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
   const capture::SampleConversion conversion = run_conversion_;
   const int32_t dc_offset = conversion.dc_offset;
   const int bit_shift = capture::BitShift(conversion);
-  const int lsb_drop = capture::LsbDrop(conversion);
+  const capture::RequantizationRecord requantization =
+      RequantizationSettingsRecord();
   const capture::BoardSetup& board = board_setup_.setup;
   const bool board_known =
       board_setup_.source != capture::BoardSetupSource::kUnavailable;
@@ -1099,7 +1223,7 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
       provenance.dc_offset = dc_offset;
     }
     provenance.bit_shift = bit_shift;
-    provenance.lsb_drop = lsb_drop;
+    provenance.requantization = requantization;
     provenance.started = now;
     provenance.disc = disc_provenance_;
 
@@ -1140,8 +1264,13 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
     pipe_stream_.reset();
     sink = std::make_unique<capture::PipeSink>(std::move(sink), pipe_writer_);
     emit PipeNotice(DescribePipedStream(settings_.SampleRateHz(), range_2vpp,
-                                        conversion, settings_.test_mode));
+                                        conversion, requantization,
+                                        settings_.test_mode));
   }
+
+  // In front of everything, the pipe included, so that the file and its copy
+  // carry the same samples.
+  sink = RequantizeCapture(std::move(sink));
 
   capture_path_ = QString::fromStdString(path.string());
 
@@ -1170,7 +1299,7 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
     pending_metadata_.board.dc_offset = dc_offset;
   }
   pending_metadata_.bit_shift = bit_shift;
-  pending_metadata_.lsb_drop = lsb_drop;
+  pending_metadata_.requantization = requantization;
   pending_metadata_.started = now;
   pending_metadata_.device = CurrentDeviceBuild();
   pending_metadata_.player = player_identity_;
@@ -1207,7 +1336,12 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
         ", test mode " + (settings_.test_mode ? "on" : "off") +
         ", input range " + capture::InputRangeName(range_2vpp) +
         ", DC offset " + std::to_string(dc_offset) + ", " + "bit shift " +
-        std::to_string(bit_shift) + ", LSB drop " + std::to_string(lsb_drop) +
+        std::to_string(bit_shift) + ", requantisation " +
+        (requantization.enabled
+             ? "margin " + std::to_string(requantization.margin_level) +
+                   " over " +
+                   capture::DescribeBands(requantization.protected_bands)
+             : std::string("off")) +
         ", duration limit " +
         (settings_.duration_limit_seconds > 0
              ? capture::FormatDuration(
@@ -1265,14 +1399,15 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenPipeOnlyCapture() {
   device_overflows_at_start_ = opening.device_overflow_events;
   device_drops_at_start_ = opening.device_dropped_words;
 
-  const QString description = DescribePipedStream(
-      settings_.SampleRateHz(), range_2vpp, conversion, settings_.test_mode);
+  const QString description =
+      DescribePipedStream(settings_.SampleRateHz(), range_2vpp, conversion,
+                          RequantizationSettingsRecord(), settings_.test_mode);
   if (logger_ != nullptr) {
     logger_->Info("Capturing to standard output. " + description.toStdString());
   }
   emit PipeNotice(description);
 
-  return std::make_unique<capture::PipeSink>(pipe_writer_);
+  return RequantizeCapture(std::make_unique<capture::PipeSink>(pipe_writer_));
 }
 
 void CaptureController::StartCapture() {
@@ -1302,6 +1437,7 @@ void CaptureController::StartCapture() {
   pipeline_->AttachSink(std::move(sink));
 
   capturing_ = true;
+  emit RequantizationUpdated();
 
   // Where the capture is going, for whoever shows it. A pipe-only capture has
   // no path, and saying where it goes is still the point of the signal.
@@ -1317,11 +1453,13 @@ void CaptureController::StopCapture() {
   // Detach rather than stop. The stream keeps running and the display keeps
   // moving while the encoder writes out its last frames and patches the header,
   // which is what makes taking several captures from one setup session possible
-  // without reopening the device between them.
-  pending_sink_change_ = pipeline_->DetachSink();
+  // without reopening the device between them. What takes the file's place is
+  // the idle sink, so a requantiser that was writing goes back to previewing.
+  pending_sink_change_ = pipeline_->AttachSink(MakeIdleSink());
 
   capturing_ = false;
   emit CapturingChanged(false, QString());
+  emit RequantizationUpdated();
 }
 
 void CaptureController::CollectFinishedCapture(
@@ -1337,7 +1475,7 @@ void CaptureController::CollectFinishedCapture(
 
   // Read off the retired sink rather than off the statistics, and this is the
   // only place either figure survives: the published statistics report whatever
-  // sink is attached now, which by this point is the null one, so both would
+  // sink is attached now, which by this point is the idle one, so both would
   // read zero.
   const std::unique_ptr<capture::ISampleSink> retired =
       pipeline_->TakeRetiredSink();
@@ -1345,6 +1483,10 @@ void CaptureController::CollectFinishedCapture(
   const uint64_t samples = retired != nullptr ? retired->SamplesWritten() : 0;
 
   FinishCaptureFile(stats, bytes, samples);
+
+  // A settings change made while the file was being finished, held back until
+  // now so as not to retire another sink over this one.
+  UpdateIdleSink();
 }
 
 bool CaptureController::FinishPipe() {
@@ -1377,6 +1519,24 @@ bool CaptureController::FinishPipe() {
 
 void CaptureController::FinishCaptureFile(const capture::CaptureStats& stats,
                                           uint64_t bytes, uint64_t samples) {
+  // What the requantiser did, complete: its sink has been finished, which
+  // waits for every segment to be written.
+  if (capture_requantization_ != nullptr) {
+    const capture::RequantizationStatus::Summary summary =
+        capture_requantization_->Read();
+    capture::RequantizationRecord& record = pending_metadata_.requantization;
+    record.samples_by_drop = summary.samples_by_drop;
+    record.shaped_samples = summary.shaped_samples;
+    record.worst_degradation_db = summary.worst_degradation_db;
+    record.clipped_samples = summary.clipped;
+    record.changes = summary.changes;
+    capture_requantization_.reset();
+
+    if (logger_ != nullptr) {
+      logger_->Info(DescribeRequantization(summary));
+    }
+  }
+
   if (pipe_writer_ != nullptr) {
     const bool delivered = FinishPipe();
 
@@ -1746,6 +1906,9 @@ void CaptureController::CheckFreeSpace() {
 void CaptureController::Tick() {
   const capture::CaptureStats stats = pipeline_->stats().Read();
   emit StatsUpdated(stats);
+  if (requantization_status_ != nullptr) {
+    emit RequantizationUpdated();
+  }
 
   CheckDcOffsetSaturation(stats);
   CheckBitShiftClipping(stats);
@@ -1808,8 +1971,14 @@ void CaptureController::FinishRun() {
     monitor_->SetSuspended(false);
   }
 
+  // Nothing is previewed without a stream. A capture's own status is kept
+  // until its sidecar has been written, below.
+  requantization_status_.reset();
+  idle_key_.reset();
+
   emit StatsUpdated(pipeline_->stats().Read());
   emit MonitoringChanged(false);
+  emit RequantizationUpdated();
 
   if (was_capturing) {
     // The figures come from the statistics rather than from a retired sink,

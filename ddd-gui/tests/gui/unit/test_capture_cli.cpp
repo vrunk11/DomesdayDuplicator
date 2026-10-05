@@ -429,32 +429,50 @@ TEST_F(CaptureCliDirectoryTest, AFileWhereAFolderWasNamedIsRefused) {
       << parsed.error.toStdString();
 }
 
-// --- --bit-shift and --lsb-drop ----------------------------------------
+// --- --bit-shift and --requantize ---------------------------------------
 
-TEST(CaptureCliTest, TheBitShiftAndTheLsbDropAreTakenAsGiven) {
+TEST(CaptureCliTest, TheBitShiftAndTheRequantisationAreTakenAsGiven) {
   const Parsed parsed =
       Parse({QStringLiteral("--bit-shift"), QStringLiteral("4"),
-             QStringLiteral("--lsb-drop"), QStringLiteral("3")});
+             QStringLiteral("--requantize"), QStringLiteral("3")});
 
   ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
   EXPECT_EQ(parsed.options.bit_shift, std::optional<int>(4));
-  EXPECT_EQ(parsed.options.lsb_drop, std::optional<int>(3));
+  EXPECT_EQ(parsed.options.requantize, std::optional<bool>(true));
+  EXPECT_EQ(parsed.options.requantize_margin, std::optional<int>(3));
 
   CaptureSettings settings;
   ApplyCliOverrides(settings, parsed.options);
   EXPECT_EQ(settings.bit_shift, 4);
-  EXPECT_EQ(settings.lsb_drop, 3);
+  EXPECT_TRUE(settings.requantize);
+  EXPECT_EQ(settings.requantize_margin, 3);
 }
 
-// A count of the bits dropped, not of the bits kept: 8 is refused rather than
-// taken to mean "keep eight", and four is as many as may go.
-TEST(CaptureCliTest, AnLsbDropOutsideZeroToFourBitsIsRefused) {
-  for (const char* drop : {"5", "8", "two", ""}) {
+// Off turns it off and leaves the saved margin alone, for the next time it is
+// turned on.
+TEST(CaptureCliTest, RequantizeOffKeepsTheSavedMargin) {
+  const Parsed parsed =
+      Parse({QStringLiteral("--requantize"), QStringLiteral("OFF")});
+
+  ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
+  EXPECT_EQ(parsed.options.requantize, std::optional<bool>(false));
+  EXPECT_FALSE(parsed.options.requantize_margin.has_value());
+
+  CaptureSettings settings;
+  settings.requantize = true;
+  settings.requantize_margin = 4;
+  ApplyCliOverrides(settings, parsed.options);
+  EXPECT_FALSE(settings.requantize);
+  EXPECT_EQ(settings.requantize_margin, 4);
+}
+
+TEST(CaptureCliTest, AMarginOutsideZeroToFourIsRefused) {
+  for (const char* margin : {"5", "-1", "on", "safe", ""}) {
     const Parsed parsed =
-        Parse({QStringLiteral("--lsb-drop"), QLatin1String(drop)});
-    EXPECT_TRUE(parsed.accepted) << drop;
-    EXPECT_TRUE(parsed.error.contains(QStringLiteral("--lsb-drop")))
-        << drop << ": " << parsed.error.toStdString();
+        Parse({QStringLiteral("--requantize"), QLatin1String(margin)});
+    EXPECT_TRUE(parsed.accepted) << margin;
+    EXPECT_TRUE(parsed.error.contains(QStringLiteral("--requantize")))
+        << margin << ": " << parsed.error.toStdString();
   }
 }
 
@@ -471,15 +489,15 @@ TEST(CaptureCliTest, AShiftOutsideZeroToFourBitsIsRefused) {
 
 // Both change the samples themselves, so both apply to what the pipe carries
 // as much as to a file — unlike the options that name a file.
-TEST(CaptureCliTest, ThePipeAloneTakesTheBitShiftAndTheLsbDrop) {
+TEST(CaptureCliTest, ThePipeAloneTakesTheBitShiftAndTheRequantisation) {
   const Parsed parsed =
       Parse({QStringLiteral("--start-capture"), QStringLiteral("--pipe"),
              QStringLiteral("--bit-shift"), QStringLiteral("1"),
-             QStringLiteral("--lsb-drop"), QStringLiteral("1")});
+             QStringLiteral("--requantize"), QStringLiteral("1")});
 
   ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
   EXPECT_EQ(parsed.options.bit_shift, std::optional<int>(1));
-  EXPECT_EQ(parsed.options.lsb_drop, std::optional<int>(1));
+  EXPECT_EQ(parsed.options.requantize_margin, std::optional<int>(1));
 }
 
 // --- Laying them over the settings -----------------------------------------

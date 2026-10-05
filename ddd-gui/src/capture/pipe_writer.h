@@ -92,6 +92,10 @@ class PipeWriter {
   // blocks. False only under kFail, when the whole buffer does not fit.
   bool Offer(const uint8_t* wire_data, size_t sample_count);
 
+  // The same, for samples already converted to signed 16-bit — what the
+  // requantiser hands on. The writer's conversion is not applied to these.
+  bool OfferConverted(const int16_t* samples, size_t sample_count);
+
   // Nothing more is coming. The writer empties the queue and then stops.
   void EndOfInput();
 
@@ -125,6 +129,11 @@ class PipeWriter {
   struct State;
 
   static void Run(const std::shared_ptr<State>& state);
+
+  // What both offers share: room, refusal or dropping, and publication.
+  // `copy` fills one slot's bytes from samples [first, first + count).
+  template <typename Copy>
+  bool Enqueue(size_t sample_count, bool converted, Copy copy);
 
   // Shared with the writer thread, which may outlive this object — see the
   // destructor.

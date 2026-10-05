@@ -17,6 +17,7 @@
 #include <QTimer>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <vector>
 
 #include "analysis_worker.h"
@@ -33,6 +34,8 @@
 #include "fpga_version.h"
 #include "monitor_tap.h"
 #include "pipe_writer.h"
+#include "requantizing_sink.h"
+#include "rf_requantizer.h"
 #include "usb_device.h"
 #include "usb_device_info.h"
 
@@ -130,9 +133,10 @@ class CaptureController : public QObject {
   // `message` saying why.
   bool WriteBoardSetup(const capture::BoardSetup& setup, QString& message);
 
-  // What the running stream's writers do to every sample — the DC offset, the
-  // bit shift and the LSB drop — fixed when the stream starts, and
-  // the converter untouched in test mode or while measuring. What the scope
+  // What the running stream's writers do to every sample — the DC offset and
+  // the bit shift — fixed when the stream starts, and the converter
+  // untouched in test mode or while measuring. The requantiser, when there is
+  // one, comes after this and is not part of it. What the scope
   // applies when asked to show the signal as it is written, and what every
   // file opened during the run is written with.
   const capture::SampleConversion& run_conversion() const {
@@ -141,6 +145,17 @@ class CaptureController : public QObject {
 
   // The DC offset part of it, in converter codes.
   int32_t run_dc_offset() const { return run_conversion_.dc_offset; }
+
+  // What the requantiser in front of the stream's writer has in force: the
+  // capture's own while one is written, a preview of what a capture would do
+  // while monitoring. Empty when none is running — requantisation off, test
+  // mode, a measurement, or no stream. See RequantizationUpdated.
+  std::optional<capture::RequantizationStatus::Live> requantization() const;
+
+  // Whether that is a capture's rather than a preview.
+  bool requantization_applies() const {
+    return requantization_status_ != nullptr && capturing_;
+  }
 
   // Whether the signal panels show the signal as it is written — converted by
   // run_conversion() — or as the converter produced it. One answer for every
@@ -333,10 +348,14 @@ class CaptureController : public QObject {
   // Every panel's Corrected switch follows this.
   void ShowCorrectedChanged(bool show);
 
-  // run_conversion() changed while the stream ran: the bit shift or the LSB
-  // drop was changed while monitoring, which takes effect at once rather than
-  // at the next start. Never while a file is being written.
+  // run_conversion() changed while the stream ran: the bit shift was changed
+  // while monitoring, which takes effect at once rather than at the next
+  // start. Never while a file is being written.
   void ConversionChanged();
+
+  // requantization() may read differently: raised with the statistics while
+  // one runs, and once when one starts or stops.
+  void RequantizationUpdated();
 
   // The bit shift clipped samples that neither the converter nor the DC
   // offset had: the shift is too large for this signal. A setting rather than a
@@ -430,9 +449,30 @@ class CaptureController : public QObject {
   int32_t RunDcOffset() const;
 
   // The whole conversion the next run's writers apply: RunDcOffset(), and the
-  // settings' bit shift and LSB drop — none of it in test mode or while
-  // measuring.
+  // settings' bit shift — not in test mode or while measuring.
   capture::SampleConversion RunConversion() const;
+
+  // Whether the running stream is requantised, and with what: the settings'
+  // margin, at the rate the file is written at and from the bits the bit
+  // shift leaves. Never in test mode or while measuring, as the conversion.
+  bool RunRequantizes() const;
+  capture::RequantizerSettings RunRequantizerSettings() const;
+
+  // The sink a stream has while nothing is being written: a preview of the
+  // requantiser in front of nothing when it is on, nothing otherwise.
+  std::unique_ptr<capture::ISampleSink> MakeIdleSink();
+
+  // A capture's sink with the requantiser in front of it, when it is on — and
+  // what it was asked to do, in the record the file and its sidecar carry.
+  std::unique_ptr<capture::ISampleSink> RequantizeCapture(
+      std::unique_ptr<capture::ISampleSink> sink);
+  capture::RequantizationRecord RequantizationSettingsRecord() const;
+
+  // Replace the idle sink with one built from the settings as they now are,
+  // when they changed what it would be. Not while a finished capture is still
+  // waiting to be collected: the pipeline keeps one retired sink, and that
+  // one is the capture's.
+  void UpdateIdleSink();
 
   // Bring run_conversion() up to the settings while monitoring and not
   // capturing: the pipeline counts against it from the next buffer and the
@@ -570,6 +610,14 @@ class CaptureController : public QObject {
 
   // See run_conversion().
   capture::SampleConversion run_conversion_;
+
+  // See requantization(): the status of the requantiser attached now, and of
+  // the capture's, kept until its sidecar has been written. idle_key_ is what
+  // the idle sink was built from — on or off, margin, bit shift — so that a
+  // settings change that does not touch it does not rebuild it.
+  std::shared_ptr<capture::RequantizationStatus> requantization_status_;
+  std::shared_ptr<capture::RequantizationStatus> capture_requantization_;
+  std::optional<std::tuple<bool, int, int>> idle_key_;
 
   // See show_corrected().
   bool show_corrected_ = false;

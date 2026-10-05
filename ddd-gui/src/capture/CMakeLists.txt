@@ -71,6 +71,8 @@ add_library(ddd_capture STATIC
     pipe_sink.cpp
     pipe_writer.cpp
     raw_sink.cpp
+    requantizing_sink.cpp
+    rf_requantizer.cpp
     sample_metrics.cpp
     sample_sink.cpp
     sequence_validator.cpp

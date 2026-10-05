@@ -209,17 +209,28 @@ TEST_F(CaptureProvenanceTest, NoBoardToDescribeWritesNoBoardTags) {
 // What was done to the signal travels with it, the defaults included: a file
 // nothing was done to has to be able to say so, or an untouched capture and
 // one written before these tags existed could not be told apart.
-TEST_F(CaptureProvenanceTest, TheBitShiftAndTheLsbDropAreAlwaysRecorded) {
+TEST_F(CaptureProvenanceTest,
+       TheBitShiftAndTheRequantisationAreAlwaysRecorded) {
   const std::vector<FlacWriter::Tag> untouched = BuildProvenanceTags(Facts());
-  EXPECT_EQ(Value(untouched, kTagLsbDrop), "0");
   EXPECT_EQ(Value(untouched, kTagBitShift), "0");
+  EXPECT_EQ(Value(untouched, kTagRequantization), "off");
+  EXPECT_FALSE(Value(untouched, kTagRequantizationMargin).has_value());
+  EXPECT_FALSE(Value(untouched, kTagRequantizationBands).has_value());
+  EXPECT_FALSE(Value(untouched, kTagRequantizationShaping).has_value());
 
   CaptureProvenance facts = Facts();
-  facts.lsb_drop = 2;
   facts.bit_shift = 2;
+  facts.requantization.enabled = true;
+  facts.requantization.margin_level = 1;
+  facts.requantization.protected_bands = {{0.0, 14.0}};
+  facts.requantization.shaping_order = 16;
+  facts.requantization.shaping_depth_db = 10.0;
   const std::vector<FlacWriter::Tag> reduced = BuildProvenanceTags(facts);
-  EXPECT_EQ(Value(reduced, kTagLsbDrop), "2");
   EXPECT_EQ(Value(reduced, kTagBitShift), "2");
+  EXPECT_EQ(Value(reduced, kTagRequantization), "dynamic");
+  EXPECT_EQ(Value(reduced, kTagRequantizationMargin), "1 (moderate, 0.50 dB)");
+  EXPECT_EQ(Value(reduced, kTagRequantizationBands), "0-14 MHz");
+  EXPECT_EQ(Value(reduced, kTagRequantizationShaping), "order 16, 10.0 dB");
 }
 
 TEST_F(CaptureProvenanceTest, TheDateIsIso8601) {

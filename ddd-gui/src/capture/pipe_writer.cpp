@@ -41,6 +41,10 @@ struct PipeWriter::State {
   struct Slot {
     std::vector<uint8_t> wire;
     size_t samples = 0;
+
+    // Already signed 16-bit little-endian, as the requantiser hands samples
+    // on, rather than wire words for the writer to convert.
+    bool converted = false;
   };
 
   std::shared_ptr<IByteStream> stream;
@@ -108,6 +112,30 @@ PipeWriter::~PipeWriter() {
 }
 
 bool PipeWriter::Offer(const uint8_t* wire_data, size_t sample_count) {
+  return Enqueue(sample_count, false,
+                 [wire_data](uint8_t* destination, size_t first, size_t count) {
+                   std::memcpy(destination,
+                               wire_data + (first * kBytesPerSample),
+                               count * kBytesPerSample);
+                 });
+}
+
+bool PipeWriter::OfferConverted(const int16_t* samples, size_t sample_count) {
+  return Enqueue(sample_count, true,
+                 [samples](uint8_t* destination, size_t first, size_t count) {
+                   for (size_t index = 0; index < count; ++index) {
+                     const auto sample =
+                         static_cast<uint16_t>(samples[first + index]);
+                     destination[index * kSigned16BytesPerSample] =
+                         static_cast<uint8_t>(sample);
+                     destination[(index * kSigned16BytesPerSample) + 1] =
+                         static_cast<uint8_t>(sample >> 8);
+                   }
+                 });
+}
+
+template <typename Copy>
+bool PipeWriter::Enqueue(size_t sample_count, bool converted, Copy copy) {
   State& state = *state_;
 
   // Nobody to give it to. Not a failure — what a reader leaving means is the
@@ -139,9 +167,9 @@ bool PipeWriter::Offer(const uint8_t* wire_data, size_t sample_count) {
 
     const size_t count = std::min(kSlotSamples, sample_count - done);
     State::Slot& slot = state.slots[head % slot_count];
-    std::memcpy(slot.wire.data(), wire_data + (done * kBytesPerSample),
-                count * kBytesPerSample);
+    copy(slot.wire.data(), done, count);
     slot.samples = count;
+    slot.converted = converted;
 
     ++head;
     state.head.store(head, std::memory_order_release);
@@ -224,10 +252,13 @@ void PipeWriter::Run(const std::shared_ptr<State>& shared) {
     if (state.closed.load(std::memory_order_relaxed)) {
       state.discarded.fetch_add(slot.samples, std::memory_order_relaxed);
     } else {
-      WireToSigned16LittleEndian(slot.wire.data(), slot.samples,
-                                 state.conversion, converted.data());
-      if (state.stream->Write(converted.data(),
-                              slot.samples * kSigned16BytesPerSample)) {
+      const uint8_t* bytes = slot.wire.data();
+      if (!slot.converted) {
+        WireToSigned16LittleEndian(slot.wire.data(), slot.samples,
+                                   state.conversion, converted.data());
+        bytes = converted.data();
+      }
+      if (state.stream->Write(bytes, slot.samples * kSigned16BytesPerSample)) {
         state.delivered.fetch_add(slot.samples, std::memory_order_relaxed);
       } else {
         state.discarded.fetch_add(slot.samples, std::memory_order_relaxed);

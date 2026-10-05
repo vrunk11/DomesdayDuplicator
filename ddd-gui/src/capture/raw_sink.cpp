@@ -81,6 +81,40 @@ bool RawSink::Write(const uint8_t* wire_data, size_t sample_count) {
   return true;
 }
 
+bool RawSink::WriteConverted(const int16_t* samples, size_t sample_count) {
+  if (!file_.is_open()) {
+    last_error_ = "RawSink::WriteConverted(): The capture file is not open";
+    return false;
+  }
+
+  // Already what the file holds; only laid out little-endian, byte by byte,
+  // whatever this machine is.
+  size_t done = 0;
+  while (done < sample_count) {
+    const size_t count = std::min(kWriteChunkSamples, sample_count - done);
+    for (size_t index = 0; index < count; ++index) {
+      const auto sample = static_cast<uint16_t>(samples[done + index]);
+      scratch_[index * kSigned16BytesPerSample] = static_cast<uint8_t>(sample);
+      scratch_[(index * kSigned16BytesPerSample) + 1] =
+          static_cast<uint8_t>(sample >> 8);
+    }
+
+    const size_t bytes = count * kSigned16BytesPerSample;
+    file_.write(reinterpret_cast<const char*>(scratch_.data()),
+                static_cast<std::streamsize>(bytes));
+    if (!file_.good()) {
+      last_error_ =
+          "RawSink::WriteConverted(): Failed to write to the capture file";
+      return false;
+    }
+
+    bytes_written_ += bytes;
+    samples_written_ += count;
+    done += count;
+  }
+  return true;
+}
+
 bool RawSink::Finish() {
   if (finished_ || !file_.is_open()) {
     return true;

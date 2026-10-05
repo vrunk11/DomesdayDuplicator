@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -60,10 +61,11 @@ class RawSink : public ISampleSink {
   const char* Name() const override { return "s16"; }
 
   bool Write(const uint8_t* wire_data, size_t sample_count) override;
+  bool WriteConverted(const int16_t* samples, size_t sample_count) override;
   bool Finish() override;
 
-  uint64_t BytesWritten() const override { return bytes_written_; }
-  uint64_t SamplesWritten() const override { return samples_written_; }
+  uint64_t BytesWritten() const override { return bytes_written_.load(); }
+  uint64_t SamplesWritten() const override { return samples_written_.load(); }
 
   const std::string& LastError() const override { return last_error_; }
 
@@ -83,8 +85,10 @@ class RawSink : public ISampleSink {
 
   bool finished_ = false;
 
-  uint64_t bytes_written_ = 0;
-  uint64_t samples_written_ = 0;
+  // Atomic because behind the requantiser this is written on its thread and
+  // read on the processing thread.
+  std::atomic<uint64_t> bytes_written_{0};
+  std::atomic<uint64_t> samples_written_{0};
 };
 
 }  // namespace ddd::capture

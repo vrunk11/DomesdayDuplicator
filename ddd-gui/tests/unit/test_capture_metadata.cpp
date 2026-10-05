@@ -309,22 +309,60 @@ TEST_F(CaptureMetadataTest, SamplesTheCorrectionPushedOutOfRangeAreRecorded) {
 }
 
 // Every change made to the signal is in the sidecar beside the DC offset: the
-// bit shift and the LSB drop, as the actions taken and written at zero too, and
-// the samples the shift clipped counted with the rest of the signal's figures.
-TEST_F(CaptureMetadataTest, TheBitShiftAndTheLsbDropAreRecorded) {
+// bit shift as the action taken and written at zero too, the requantisation
+// written as off when there was none, and the samples the shift clipped
+// counted with the rest of the signal's figures.
+TEST_F(CaptureMetadataTest, TheBitShiftAndTheRequantisationAreRecorded) {
   CaptureMetadata metadata = Ordinary();
   const std::string untouched = BuildCaptureMetadataYaml(metadata);
-  EXPECT_TRUE(Contains(untouched, "\"lsb_drop\": 0"));
   EXPECT_TRUE(Contains(untouched, "\"bit_shift\": 0"));
+  EXPECT_TRUE(Contains(untouched, "\"requantization\":\n  \"mode\": \"off\""))
+      << untouched;
 
-  metadata.lsb_drop = 1;
   metadata.bit_shift = 1;
   metadata.signal.known = true;
   metadata.signal.shift_clipped_samples = 77;
-  const std::string reduced = BuildCaptureMetadataYaml(metadata);
-  EXPECT_TRUE(Contains(reduced, "\"lsb_drop\": 1"));
-  EXPECT_TRUE(Contains(reduced, "\"bit_shift\": 1"));
-  EXPECT_TRUE(Contains(reduced, "\"shift_clipped_samples\": 77"));
+  const std::string shifted = BuildCaptureMetadataYaml(metadata);
+  EXPECT_TRUE(Contains(shifted, "\"bit_shift\": 1"));
+  EXPECT_TRUE(Contains(shifted, "\"shift_clipped_samples\": 77"));
+}
+
+// A requantised capture says what it was asked for and what was done to which
+// samples: the drop each run of samples got, keyed by its first sample, and
+// how many samples got each.
+TEST_F(CaptureMetadataTest, ARequantisedCaptureRecordsEveryChange) {
+  CaptureMetadata metadata = Ordinary();
+  RequantizationRecord& record = metadata.requantization;
+  record.enabled = true;
+  record.margin_level = 2;
+  record.protected_bands = {{0.0, 13.5}};
+  record.input_bits = 10;
+  record.shaping_order = 16;
+  record.shaping_depth_db = 10.0;
+  record.samples_by_drop = {0, 2'097'152, 0, 1'048'576};
+  record.shaped_samples = 1'048'576;
+  record.worst_degradation_db = 0.1875;
+  record.clipped_samples = 3;
+  record.changes = {{0, 1, false}, {2'097'152, 3, true}};
+
+  const std::string document = BuildCaptureMetadataYaml(metadata);
+  EXPECT_TRUE(Contains(document, "\"mode\": \"dynamic\"")) << document;
+  EXPECT_TRUE(Contains(document, "\"margin_level\": 2"));
+  EXPECT_TRUE(Contains(document, "\"margin\": \"safe\""));
+  EXPECT_TRUE(Contains(document, "\"limit_db\": 0.20"));
+  EXPECT_TRUE(Contains(document, "\"protected_bands\": \"0-13.5 MHz\""));
+  EXPECT_TRUE(Contains(document, "\"input_bits\": 10"));
+  EXPECT_TRUE(Contains(document, "\"shaped_samples\": 1048576"));
+  EXPECT_TRUE(Contains(document, "\"worst_degradation_db\": 0.188"));
+  EXPECT_TRUE(Contains(document, "\"clipped_samples\": 3"));
+  EXPECT_TRUE(Contains(document,
+                       "\"samples_by_bits_dropped\":\n"
+                       "    \"1\": 2097152\n"
+                       "    \"3\": 1048576\n"));
+  EXPECT_TRUE(Contains(document,
+                       "\"changes\":\n"
+                       "    \"0\": \"1\"\n"
+                       "    \"2097152\": \"3 shaped\"\n"));
 }
 
 TEST_F(CaptureMetadataTest, NoBoardSetupWritesNoBoardBlock) {

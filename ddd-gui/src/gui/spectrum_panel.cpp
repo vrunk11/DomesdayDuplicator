@@ -1159,15 +1159,17 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
   controls->addWidget(reset_);
 
   // The same switch as the scope's, held by the controller: on, the spectrum
-  // is of the signal as it is written — where an LSB drop shows as the noise
-  // floor rising, and a bit shift as every level moving up together.
+  // is of the signal with the DC offset taken out and the bit shift applied,
+  // where a shift shows as every level moving up together. The requantiser
+  // is not shown: it decides per segment on its own thread, and what it costs
+  // the band is what the capture panel's requantisation line says.
   corrected_ = new QCheckBox(tr("Corrected"), this);
   corrected_->setObjectName(QLatin1String(kCorrectedBoxName));
   corrected_->setToolTip(
-      tr("Analyse the signal as it is written to the file: the DC offset "
-         "taken out, then the bit shift and the LSB drop the capture panel "
-         "asks for. An LSB drop shows here as the noise floor rising. The "
-         "scope and the amplitude history follow the same switch."));
+      tr("Analyse the signal with the DC offset taken out and the bit shift "
+         "the capture panel asks for applied. Requantisation is not shown "
+         "here; the capture panel says what it is doing. The scope and the "
+         "amplitude history follow the same switch."));
   connect(corrected_, &QCheckBox::toggled, this, [this](bool on) {
     if (controller_ != nullptr) {
       controller_->SetShowCorrected(on);

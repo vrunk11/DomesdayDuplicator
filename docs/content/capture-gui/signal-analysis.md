@@ -227,18 +227,19 @@ offset of +20 the top line is at 1003, because a sample at the converter's 1023 
 1003 — so the headroom on screen is the headroom there is, and a trace touching a line is
 clipping whichever view is on.
 
-It also applies the [bit shift](capture-control.md#bit-shift-digital-gain) and the
-[LSB drop](capture-control.md#lsb-drop) the capture panel asks for, in the order the
-writers apply them, so a capture shifted by one bit is drawn twice as large and one with two
-LSBs dropped in steps of four codes. With a shift, the clip lines move out to the ends of the
-range: that is where the shift itself clips.
+It also applies the [bit shift](capture-control.md#bit-shift-digital-gain) the capture panel
+asks for, so a capture shifted by one bit is drawn twice as large. With a shift, the clip
+lines move out to the ends of the range: that is where the shift itself clips.
 
-The offset is the one the running stream started with. The bit shift and the LSB drop follow
-the capture panel as they are changed, while monitoring. In the spectrum an LSB drop shows as
-the noise floor rising and a shift as every level moving up together; in the amplitude
-history the extremes are those the file would hold and the RMS is scaled by the shift, while
-the clip ticks stay the converter's own. With no offset declared, with no shift and no LSB
-drop, or in test mode, the two views are the same.
+[Requantisation](capture-control.md#requantisation) is not drawn: it is decided segment by
+segment on a thread of its own, after these views take their samples. What it is doing, and
+what it costs the protected band, is the line under the setting in the capture panel.
+
+The offset is the one the running stream started with. The bit shift follows the capture
+panel as it is changed, while monitoring. In the spectrum a shift shows as every level moving
+up together; in the amplitude history the extremes are those the file would hold and the RMS
+is scaled by the shift, while the clip ticks stay the converter's own. With no offset
+declared and no shift, or in test mode, the two views are the same.
 
 ### The cursor
 

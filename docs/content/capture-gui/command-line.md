@@ -134,12 +134,12 @@ worked examples and what each platform needs — in
 | `--duration-limit <seconds>` | 1 to 86400. Leave it out to capture until stopped |
 | `--output-format <format>` | `flac` or `s16` |
 | `--bit-shift <bits>` | `0` to `4` — shift the signal up by this many bits, a digital gain of x1 to x16. See [Bit shift](capture-control.md#bit-shift-digital-gain) |
-| `--lsb-drop <bits>` | `0` to `4` — drop this many of the converter's low bits. See [LSB drop](capture-control.md#lsb-drop) |
+| `--requantize <margin>` | `off`, or a margin from `0` (aggressive) to `4` (ultra safe) — drop as many of the converter's low bits as the capture's own noise hides. See [Requantisation](capture-control.md#requantisation) |
 | `--pipe` | Stream the capture to standard output as signed 16-bit samples, for another program to read. Needs `--start-capture`; writes no file unless `--save` is given too |
 | `--save` | With `--pipe`, write the capture file as well. The file comes first: a reader that falls behind loses blocks of its copy, never any of the file |
 
 Given without `--start-capture` or `--stop-capture`, the nine from `--capture-directory` to
-`--lsb-drop` simply fill the window in and start nothing. Whatever they set applies to
+`--requantize` simply fill the window in and start nothing. Whatever they set applies to
 that run only and is never saved.
 
 `--decimation` and `--adc-rate` are deliberately separate: the first is a divisor applied in

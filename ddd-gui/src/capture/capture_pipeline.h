@@ -66,8 +66,8 @@ class CapturePipeline {
     // Only meaningful when the device has been put into test mode.
     bool test_mode = false;
 
-    // What the writers do to every sample: the board's declared DC offset, the
-    // bit shift and the LSB drop. The pipeline converts nothing
+    // What the writers do to every sample: the board's declared DC offset and
+    // the bit shift. The pipeline converts nothing
     // itself — the writers do, on their way to the file — but it counts the
     // samples the offset pushes out of range and the samples the shift clips,
     // which is how a declaration that belongs to some other board, or a shift

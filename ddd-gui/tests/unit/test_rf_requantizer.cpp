@@ -1,0 +1,287 @@
+/************************************************************************
+
+    test_rf_requantizer.cpp
+
+    T1 tests for re-quantising a capture to what its noise allows
+    Domesday Duplicator - LaserDisc RF sampler
+    SPDX-FileCopyrightText: 2026 Simon Inns
+    SPDX-License-Identifier: GPL-3.0-or-later
+
+************************************************************************/
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cmath>
+#include <complex>
+#include <cstdint>
+#include <numbers>
+#include <random>
+#include <vector>
+
+#include "rf_requantizer.h"
+
+namespace ddd::capture {
+namespace {
+
+constexpr double kRateMhz = 30.0;
+constexpr double kInputLsb = 64.0;
+
+// Fixed seeds, so that every run tests the same signal.
+std::mt19937 Seeded(uint32_t seed) {
+  // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp,bugprone-random-generator-seed)
+  return std::mt19937(seed);
+}
+
+// One segment of a 10-bit converter's codes, left-aligned: Gaussian noise of
+// `sigma` codes about mid-scale.
+std::vector<int16_t> NoiseSegment(
+    std::mt19937& generator, double sigma,
+    size_t count = RfRequantizer::kSegmentSamples) {
+  std::normal_distribution<double> noise(0.0, sigma);
+  std::vector<int16_t> samples(count);
+  for (int16_t& sample : samples) {
+    const double code = std::clamp(std::round(noise(generator)), -512.0, 511.0);
+    sample = static_cast<int16_t>(code * kInputLsb);
+  }
+  return samples;
+}
+
+RequantizerSettings Settings(int margin_level = kDefaultMarginLevel) {
+  RequantizerSettings settings;
+  settings.sample_rate_mhz = kRateMhz;
+  settings.margin_level = margin_level;
+  settings.input_bits = 10;
+  return settings;
+}
+
+TEST(RfRequantizerTest, TheMarginLevelsRunFromAggressiveToUltraSafe) {
+  EXPECT_DOUBLE_EQ(MarginLimitDb(0), 1.0);
+  EXPECT_DOUBLE_EQ(MarginLimitDb(kDefaultMarginLevel), 0.2);
+  EXPECT_DOUBLE_EQ(MarginLimitDb(4), 0.05);
+  EXPECT_DOUBLE_EQ(MarginHoldSeconds(0), 0.0);
+  EXPECT_DOUBLE_EQ(MarginHoldSeconds(4), 1.0);
+  EXPECT_STREQ(MarginLevelName(2), "safe");
+
+  // Out of range is held to the nearest level rather than read past the end.
+  EXPECT_DOUBLE_EQ(MarginLimitDb(-3), MarginLimitDb(0));
+  EXPECT_DOUBLE_EQ(MarginLimitDb(9), MarginLimitDb(4));
+}
+
+TEST(RfRequantizerTest, TheDefaultBandIsTheLaserDiscsRf) {
+  const std::vector<FrequencyBand> wide = DefaultProtectedBands(40.0);
+  ASSERT_EQ(wide.size(), 1U);
+  EXPECT_DOUBLE_EQ(wide[0].low_mhz, 0.0);
+  EXPECT_DOUBLE_EQ(wide[0].high_mhz, 14.0);
+
+  // At a rate that cannot hold all of it, short of the Nyquist limit.
+  EXPECT_DOUBLE_EQ(DefaultProtectedBands(20.0)[0].high_mhz, 8.5);
+}
+
+TEST(RfRequantizerTest, BandsAreDescribedAsACaptureRecordsThem) {
+  EXPECT_EQ(DescribeBands(DefaultProtectedBands(30.0)), "0-13.5 MHz");
+  EXPECT_EQ(DescribeBands({{0.0, 3.0}, {4.25, 14.0}}), "0-3, 4.25-14 MHz");
+  EXPECT_EQ(DescribeBands({}), "");
+}
+
+// The shaping filter puts the noise where the bands are not.
+TEST(RfRequantizerTest, TheShapingFilterIsQuietInTheBand) {
+  const std::vector<FrequencyBand> bands = {{0.0, 12.0}};
+  const std::vector<double> a =
+      DesignNoiseTransferFunction(bands, kRateMhz, 10.0, 16);
+  ASSERT_EQ(a.size(), 17U);
+  EXPECT_DOUBLE_EQ(a[0], 1.0);
+
+  double inside = 0.0;
+  double outside = 0.0;
+  int inside_count = 0;
+  int outside_count = 0;
+  for (int quarter = 1; quarter < 60; ++quarter) {
+    const double frequency = 0.25 * static_cast<double>(quarter);
+    const double gain = NoiseTransferGainSquared(a, frequency, kRateMhz);
+    if (frequency < 11.0) {
+      inside += gain;
+      ++inside_count;
+    } else if (frequency > 13.0) {
+      outside += gain;
+      ++outside_count;
+    }
+  }
+  EXPECT_LT(
+      10.0 * std::log10((inside / inside_count) / (outside / outside_count)),
+      -6.0);
+}
+
+TEST(RfRequantizerTest, PlainRoundingIsToNearestTiesToEven) {
+  ShapingQuantizer quantizer(8, {1.0});
+  EXPECT_DOUBLE_EQ(quantizer.step(), 256.0);
+
+  EXPECT_EQ(quantizer.Quantize(127), 0);
+  EXPECT_EQ(quantizer.Quantize(129), 256);
+  EXPECT_EQ(quantizer.Quantize(128), 0);    // tie, to even
+  EXPECT_EQ(quantizer.Quantize(384), 512);  // tie, to even
+  EXPECT_EQ(quantizer.Quantize(-128), 0);
+  EXPECT_EQ(quantizer.Quantize(-384), -512);
+}
+
+TEST(RfRequantizerTest, TheTopIsHeldOnAStepAndCounted) {
+  ShapingQuantizer quantizer(8, {1.0});
+  EXPECT_EQ(quantizer.Quantize(32767), 32768 - 256);
+  EXPECT_EQ(quantizer.Quantize(-32768), -32768);
+  EXPECT_EQ(quantizer.clipped(), 1U);
+}
+
+// The error's power at one frequency, summed over 1,024-sample blocks.
+double ErrorPower(const std::vector<double>& errors, double frequency_mhz) {
+  constexpr size_t kBlock = 1024;
+  double total = 0.0;
+  for (size_t start = 0; start + kBlock <= errors.size(); start += kBlock) {
+    std::complex<double> sum = 0.0;
+    for (size_t i = 0; i < kBlock; ++i) {
+      sum += errors[start + i] *
+             std::polar(1.0, -2.0 * std::numbers::pi * frequency_mhz /
+                                 kRateMhz * static_cast<double>(i));
+    }
+    total += std::norm(sum);
+  }
+  return total;
+}
+
+// Shaped, the output is still on the step, and the error has moved: quieter
+// than plain rounding leaves it everywhere in the band, louder above it. With
+// the band four-fifths of the spectrum there is little room to move it to,
+// so the gain inside is a couple of dB — which is what a 30 Msps capture of a
+// 14 MHz signal has to work with.
+TEST(RfRequantizerTest, ShapingMovesTheErrorOutOfTheBand) {
+  const std::vector<double> a =
+      DesignNoiseTransferFunction({{0.0, 12.0}}, kRateMhz, 10.0, 16);
+  ShapingQuantizer shaped(7, a);
+  ShapingQuantizer plain(7, {1.0});
+
+  std::mt19937 generator = Seeded(3);
+  const std::vector<int16_t> input = NoiseSegment(generator, 40.0, 65536);
+
+  std::vector<double> shaped_errors;
+  std::vector<double> plain_errors;
+  for (const int16_t sample : input) {
+    const int16_t s = shaped.Quantize(sample);
+    const int16_t p = plain.Quantize(sample);
+    ASSERT_EQ(s % 512, 0);
+    ASSERT_EQ(p % 512, 0);
+    shaped_errors.push_back(static_cast<double>(s - sample));
+    plain_errors.push_back(static_cast<double>(p - sample));
+  }
+
+  const auto ratio_db = [&](double frequency) {
+    return 10.0 * std::log10(ErrorPower(shaped_errors, frequency) /
+                             ErrorPower(plain_errors, frequency));
+  };
+  for (const double inside : {1.0, 4.0, 8.0, 11.0}) {
+    EXPECT_LT(ratio_db(inside), -1.0) << inside << " MHz";
+  }
+  for (const double outside : {13.0, 14.5}) {
+    EXPECT_GT(ratio_db(outside), 5.0) << outside << " MHz";
+  }
+}
+
+// A quiet capture keeps every bit: dropping one would be audible against a
+// floor this low.
+TEST(RfRequantizerTest, AQuietCaptureIsLeftAlone) {
+  RfRequantizer requantizer(Settings());
+  std::mt19937 generator = Seeded(1);
+
+  RequantizerDecision decision;
+  for (int segment = 0; segment < 4; ++segment) {
+    std::vector<int16_t> samples = NoiseSegment(generator, 0.6);
+    const std::vector<int16_t> original = samples;
+    decision = requantizer.Process(samples.data(), samples.size(), true);
+    EXPECT_EQ(decision.lsb_drop, 0);
+    EXPECT_EQ(samples, original);
+  }
+}
+
+// A noisy one gives up bits its noise buries, and only within the limit — and
+// every sample sits on the step that leaves.
+TEST(RfRequantizerTest, ANoisyCaptureDropsWhatItsNoiseBuries) {
+  RfRequantizer requantizer(Settings(0));
+  std::mt19937 generator = Seeded(2);
+
+  RequantizerDecision decision;
+  std::vector<int16_t> samples;
+  for (int segment = 0; segment < 4; ++segment) {
+    samples = NoiseSegment(generator, 12.0);
+    decision = requantizer.Process(samples.data(), samples.size(), true);
+  }
+  EXPECT_GE(decision.lsb_drop, 2);
+  EXPECT_LE(decision.degradation_db, MarginLimitDb(0));
+  EXPECT_NEAR(requantizer.noise_floor_lsb(), 12.0, 3.0);
+
+  const auto step = static_cast<int>(kInputLsb) << decision.lsb_drop;
+  for (const int16_t sample : samples) {
+    ASSERT_EQ(sample % step, 0) << sample;
+  }
+}
+
+// More careful at once when the noise falls; more aggressive only once the
+// history agrees and the hold has passed.
+TEST(RfRequantizerTest, CarefulAtOnceAggressiveOnlyAfterTheHold) {
+  RfRequantizer requantizer(Settings(1));
+  std::mt19937 generator = Seeded(4);
+
+  std::vector<int16_t> samples = NoiseSegment(generator, 0.6);
+  requantizer.Process(samples.data(), samples.size(), false);
+
+  samples = NoiseSegment(generator, 12.0);
+  EXPECT_EQ(requantizer.Process(samples.data(), samples.size(), false).lsb_drop,
+            0);
+
+  RequantizerDecision decision;
+  for (int segment = 0; segment < 30; ++segment) {
+    samples = NoiseSegment(generator, 12.0);
+    decision = requantizer.Process(samples.data(), samples.size(), false);
+  }
+  EXPECT_GT(decision.lsb_drop, 0);
+
+  // The noise falls away, and the next segment is protected at once.
+  samples = NoiseSegment(generator, 0.6);
+  decision = requantizer.Process(samples.data(), samples.size(), false);
+  EXPECT_EQ(decision.lsb_drop, 0);
+}
+
+// A preview decides exactly as a capture would, and leaves the samples alone.
+TEST(RfRequantizerTest, APreviewDecidesAsACaptureWouldAndChangesNothing) {
+  RfRequantizer capturing(Settings(0));
+  RfRequantizer previewing(Settings(0));
+  std::mt19937 generator = Seeded(5);
+
+  for (int segment = 0; segment < 6; ++segment) {
+    std::vector<int16_t> applied =
+        NoiseSegment(generator, segment < 3 ? 1 : 12);
+    std::vector<int16_t> previewed = applied;
+    const std::vector<int16_t> original = applied;
+
+    EXPECT_EQ(previewing.Process(previewed.data(), previewed.size(), false),
+              capturing.Process(applied.data(), applied.size(), true))
+        << segment;
+    EXPECT_EQ(previewed, original);
+  }
+}
+
+// The end of a stream is shorter than a segment, and too short to analyse: the
+// decision stands on the floor already known.
+TEST(RfRequantizerTest, AShortLastSegmentIsDecidedOnTheFloorAlreadyKnown) {
+  RfRequantizer requantizer(Settings(0));
+  std::mt19937 generator = Seeded(6);
+
+  RequantizerDecision decision;
+  for (int segment = 0; segment < 4; ++segment) {
+    std::vector<int16_t> samples = NoiseSegment(generator, 12.0);
+    decision = requantizer.Process(samples.data(), samples.size(), true);
+  }
+  std::vector<int16_t> tail = NoiseSegment(generator, 12.0, 1000);
+  EXPECT_EQ(requantizer.Process(tail.data(), tail.size(), true).lsb_drop,
+            decision.lsb_drop);
+}
+
+}  // namespace
+}  // namespace ddd::capture

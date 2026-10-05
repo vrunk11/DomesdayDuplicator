@@ -18,4 +18,9 @@ bool NullSink::Write(const uint8_t* /*wire_data*/, size_t sample_count) {
   return true;
 }
 
+bool NullSink::WriteConverted(const int16_t* /*samples*/, size_t sample_count) {
+  samples_written_ += sample_count;
+  return true;
+}
+
 }  // namespace ddd::capture

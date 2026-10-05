@@ -16,6 +16,7 @@
 #include <QStandardPaths>
 #include <algorithm>
 
+#include "rf_requantizer.h"
 #include "sample_format.h"
 
 namespace ddd::gui {
@@ -34,7 +35,8 @@ constexpr const char* kDecimationFactorKey = "capture/decimation_factor";
 constexpr const char* kRangeSelectKey = "hardware/range_select_2vpp";
 constexpr const char* kPllPresetKey = "capture/pll_preset_mhz";
 constexpr const char* kCompressionLevelKey = "capture/compression_level";
-constexpr const char* kLsbDropKey = "capture/lsb_drop";
+constexpr const char* kRequantizeKey = "capture/requantize";
+constexpr const char* kRequantizeMarginKey = "capture/requantize_margin";
 constexpr const char* kBitShiftKey = "capture/bit_shift";
 constexpr const char* kDurationLimitKey = "capture/duration_limit_seconds";
 constexpr const char* kLowSpaceKey = "capture/low_space_warning_minutes";
@@ -398,9 +400,13 @@ CaptureSettings LoadCaptureSettings() {
   loaded.bit_shift = std::clamp(
       settings.value(QLatin1String(kBitShiftKey), loaded.bit_shift).toInt(), 0,
       capture::kMaximumBitShift);
-  loaded.lsb_drop = std::clamp(
-      settings.value(QLatin1String(kLsbDropKey), loaded.lsb_drop).toInt(), 0,
-      capture::kMaximumLsbDrop);
+  loaded.requantize =
+      settings.value(QLatin1String(kRequantizeKey), loaded.requantize).toBool();
+  loaded.requantize_margin = std::clamp(
+      settings
+          .value(QLatin1String(kRequantizeMarginKey), loaded.requantize_margin)
+          .toInt(),
+      capture::kMinimumMarginLevel, capture::kMaximumMarginLevel);
 
   loaded.duration_limit_seconds =
       std::clamp(settings.value(QLatin1String(kDurationLimitKey), 0).toInt(), 0,
@@ -441,11 +447,22 @@ void SaveCaptureSettings(const CaptureSettings& settings) {
   store.setValue(QLatin1String(kCompressionLevelKey),
                  settings.compression_level);
   store.setValue(QLatin1String(kBitShiftKey), settings.bit_shift);
-  store.setValue(QLatin1String(kLsbDropKey), settings.lsb_drop);
+  store.setValue(QLatin1String(kRequantizeKey), settings.requantize);
+  store.setValue(QLatin1String(kRequantizeMarginKey),
+                 settings.requantize_margin);
   store.setValue(QLatin1String(kDurationLimitKey),
                  settings.duration_limit_seconds);
   store.setValue(QLatin1String(kLowSpaceKey),
                  settings.low_space_warning_minutes);
+}
+
+QString DescribeRequantizationMargin(int level) {
+  const int clamped = std::clamp(level, capture::kMinimumMarginLevel,
+                                 capture::kMaximumMarginLevel);
+  return QStringLiteral("%1 (%2, %3 dB)")
+      .arg(clamped)
+      .arg(QString::fromUtf8(capture::MarginLevelName(clamped)))
+      .arg(capture::MarginLimitDb(clamped), 0, 'f', 2);
 }
 
 }  // namespace ddd::gui

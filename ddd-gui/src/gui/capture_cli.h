@@ -69,7 +69,7 @@ struct CaptureCliOptionSet {
   QCommandLineOption input_range;
   QCommandLineOption duration_limit;
   QCommandLineOption output_format;
-  QCommandLineOption lsb_drop;
+  QCommandLineOption requantize;
   QCommandLineOption bit_shift;
   QCommandLineOption pipe;
   QCommandLineOption save;
@@ -121,11 +121,13 @@ struct CaptureCliOptions {
   std::optional<int> duration_limit_seconds;
   std::optional<capture::CaptureOutputFormat> output_format;
 
-  // The bit shift, 0 to 4, and the low bits dropped, 0 to 4 — see
-  // capture::SampleConversion. Both apply to standard output under
-  // --pipe as much as to a file, since both change the samples themselves.
-  std::optional<int> lsb_drop;
+  // The bit shift, 0 to 4 — see capture::SampleConversion — and whether the
+  // capture is requantised, with its margin when it is: --requantize off sets
+  // only the first, --requantize 2 both. All of it applies to standard output
+  // under --pipe as much as to a file, since it changes the samples themselves.
   std::optional<int> bit_shift;
+  std::optional<bool> requantize;
+  std::optional<int> requantize_margin;
 
   // Whether anything about the capture itself was named. An attribute given
   // with no start command is not an error: it populates the window, which is

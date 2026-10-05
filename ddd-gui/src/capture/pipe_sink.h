@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -61,6 +62,7 @@ class PipeSink : public ISampleSink {
   const char* Name() const override { return name_.c_str(); }
 
   bool Write(const uint8_t* wire_data, size_t sample_count) override;
+  bool WriteConverted(const int16_t* samples, size_t sample_count) override;
 
   // Finishes the file, if there is one, and tells the pipe that nothing more is
   // coming. Does not wait for the pipe to empty: that would hold up the
@@ -85,7 +87,9 @@ class PipeSink : public ISampleSink {
   std::shared_ptr<PipeWriter> pipe_;
   std::string name_;
   std::string last_error_;
-  uint64_t samples_written_ = 0;
+  // Atomic because behind the requantiser this is written on its thread and
+  // read on the processing thread.
+  std::atomic<uint64_t> samples_written_{0};
   bool finished_ = false;
 };
 

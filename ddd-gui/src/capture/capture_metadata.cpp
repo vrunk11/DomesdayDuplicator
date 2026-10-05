@@ -12,8 +12,10 @@
 #include "capture_metadata.h"
 
 #include <fstream>
+#include <string>
 
 #include "capture_format.h"
+#include "rf_requantizer.h"
 #include "yaml_writer.h"
 
 namespace ddd::capture {
@@ -123,6 +125,54 @@ void WriteNaming(YamlWriter& yaml, const CaptureNamingFields& naming) {
     yaml.StringIfPresent("mint_marks", naming.mint_marks);
   }
   yaml.StringIfPresent("metadata_notes", naming.metadata_notes);
+
+  yaml.EndMapping();
+}
+
+void WriteRequantization(YamlWriter& yaml,
+                         const RequantizationRecord& requantization) {
+  if (!requantization.enabled) {
+    yaml.BeginMapping("requantization");
+    yaml.String("mode", "off");
+    yaml.EndMapping();
+    return;
+  }
+
+  yaml.Comment("Bits dropped are the converter's, counted after the bit");
+  yaml.Comment("shift. Each change applies from the sample it is keyed by");
+  yaml.Comment("to the next change, or to the end of the file.");
+  yaml.BeginMapping("requantization");
+  yaml.String("mode", "dynamic");
+  yaml.Integer("margin_level", requantization.margin_level);
+  yaml.String("margin", MarginLevelName(requantization.margin_level));
+  yaml.Number("limit_db", MarginLimitDb(requantization.margin_level), 2);
+  yaml.Number("hold_seconds", MarginHoldSeconds(requantization.margin_level),
+              2);
+  yaml.StringIfPresent("protected_bands",
+                       DescribeBands(requantization.protected_bands));
+  yaml.Integer("input_bits", requantization.input_bits);
+  yaml.Integer("shaping_order", requantization.shaping_order);
+  yaml.Number("shaping_depth_db", requantization.shaping_depth_db, 1);
+  yaml.Unsigned("segment_samples", RfRequantizer::kSegmentSamples);
+  yaml.Unsigned("shaped_samples", requantization.shaped_samples);
+  yaml.Number("worst_degradation_db", requantization.worst_degradation_db, 3);
+  yaml.Unsigned("clipped_samples", requantization.clipped_samples);
+
+  yaml.BeginMapping("samples_by_bits_dropped");
+  for (size_t drop = 0; drop < requantization.samples_by_drop.size(); ++drop) {
+    if (requantization.samples_by_drop[drop] > 0) {
+      yaml.Unsigned(std::to_string(drop), requantization.samples_by_drop[drop]);
+    }
+  }
+  yaml.EndMapping();
+
+  yaml.BeginMapping("changes");
+  for (const RequantizationChange& change : requantization.changes) {
+    yaml.String(
+        std::to_string(change.first_sample),
+        std::to_string(change.lsb_drop) + (change.shaped ? " shaped" : ""));
+  }
+  yaml.EndMapping();
 
   yaml.EndMapping();
 }
@@ -263,7 +313,6 @@ std::string BuildCaptureMetadataYaml(const CaptureMetadata& metadata) {
   yaml.Integer("decimation_factor", metadata.decimation_factor);
   yaml.StringIfPresent("input_range", metadata.input_range);
   yaml.Integer("bit_shift", metadata.bit_shift);
-  yaml.Integer("lsb_drop", metadata.lsb_drop);
   yaml.StringIfPresent("front_end_gain", metadata.front_end_gain);
   yaml.StringIfPresent("started", FormatTimestamp(metadata.started));
   yaml.StringIfPresent("finished", FormatTimestamp(metadata.finished));
@@ -295,6 +344,9 @@ std::string BuildCaptureMetadataYaml(const CaptureMetadata& metadata) {
     yaml.EndMapping();
     yaml.BlankLine();
   }
+
+  WriteRequantization(yaml, metadata.requantization);
+  yaml.BlankLine();
 
   WriteNaming(yaml, metadata.naming);
   yaml.BlankLine();

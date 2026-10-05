@@ -1274,22 +1274,18 @@ TEST_F(CaptureToDiskTest, AnUncompressedCaptureGetsTheSameMetadataFile) {
 
 // --- What is kept of the signal -------------------------------------------
 
-// Changed while monitoring, the bit shift and the LSB drop take effect at once:
-// the run's conversion follows, and the panels are told.
+// Changed while monitoring, the bit shift takes effect at once: the run's
+// conversion follows, and the panels are told.
 TEST_F(CaptureToDiskTest, AShiftChangedWhileMonitoringAppliesAtOnce) {
   controller_->StartMonitoring();
   ASSERT_TRUE(controller_->monitoring());
   EXPECT_EQ(controller_->run_conversion().bit_shift, 0);
 
   QSignalSpy changed(controller_.get(), &CaptureController::ConversionChanged);
-  Settings([](CaptureSettings& settings) {
-    settings.bit_shift = 2;
-    settings.lsb_drop = 1;
-  });
+  Settings([](CaptureSettings& settings) { settings.bit_shift = 2; });
 
   EXPECT_EQ(changed.count(), 1);
   EXPECT_EQ(controller_->run_conversion().bit_shift, 2);
-  EXPECT_EQ(controller_->run_conversion().lsb_drop, 1);
 
   controller_->StopMonitoring();
   ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
@@ -1327,19 +1323,48 @@ TEST_F(CaptureToDiskTest, TheCorrectedViewIsOneSwitchForEveryPanel) {
   EXPECT_TRUE(changed.front().at(0).toBool());
 }
 
-// Shifted up one, two LSBs dropped: every sample in the file sits on the step
-// that leaves, and the file says what was done to it.
-TEST_F(CaptureToDiskTest, AReducedCaptureHoldsWhatItSaysItHolds) {
+// Monitoring with requantisation on previews it: decisions are made and
+// published, nothing is written. Turned off, the preview goes.
+TEST_F(CaptureToDiskTest, MonitoringPreviewsTheRequantiser) {
+  Settings([](CaptureSettings& settings) {
+    settings.requantize = true;
+    settings.requantize_margin = 0;
+  });
+
+  controller_->StartMonitoring();
+  ASSERT_TRUE(controller_->monitoring());
+  ASSERT_TRUE(controller_->requantization().has_value());
+  EXPECT_FALSE(controller_->requantization_applies());
+  ASSERT_TRUE(PumpUntil([&] {
+    const auto live = controller_->requantization();
+    return live.has_value() && live->segments > 0;
+  }));
+  EXPECT_TRUE(WrittenFiles().empty());
+
+  QSignalSpy updated(controller_.get(),
+                     &CaptureController::RequantizationUpdated);
+  Settings([](CaptureSettings& settings) { settings.requantize = false; });
+  EXPECT_FALSE(controller_->requantization().has_value());
+  EXPECT_GE(updated.count(), 1);
+
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+}
+
+// Shifted up one and requantised: the file's first segment sits on the step
+// the decision recorded for it, and the file says what was done to it.
+TEST_F(CaptureToDiskTest, ARequantisedCaptureHoldsWhatItSaysItHolds) {
   Settings([](CaptureSettings& settings) {
     settings.output_format = capture::CaptureOutputFormat::kSigned16Bit;
     settings.bit_shift = 1;
-    settings.lsb_drop = 2;
+    settings.requantize = true;
+    settings.requantize_margin = 0;
   });
 
   controller_->StartCapture();
   ASSERT_TRUE(controller_->capturing());
   EXPECT_EQ(controller_->run_conversion().bit_shift, 1);
-  EXPECT_EQ(controller_->run_conversion().lsb_drop, 2);
+  EXPECT_TRUE(controller_->requantization_applies());
 
   ASSERT_TRUE(PumpUntil([&] {
     return !WrittenFiles().empty() &&
@@ -1351,8 +1376,25 @@ TEST_F(CaptureToDiskTest, AReducedCaptureHoldsWhatItSaysItHolds) {
   controller_->StopMonitoring();
   ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
 
-  // Two bits dropped and one shifted up: a step of 64 << 3. The first megabyte
-  // is plenty, and an unpaced source may have written a great deal more.
+  const std::string document = ReadWholeFile(MetadataFiles().front());
+  EXPECT_NE(document.find("\"bit_shift\": 1"), std::string::npos) << document;
+  EXPECT_NE(document.find("\"mode\": \"dynamic\""), std::string::npos)
+      << document;
+  EXPECT_NE(document.find("\"margin_level\": 0"), std::string::npos)
+      << document;
+  EXPECT_NE(document.find("\"input_bits\": 9"), std::string::npos) << document;
+
+  // The first change is the first segment's decision.
+  const std::string first_change = "\"changes\":\n    \"0\": \"";
+  const size_t found = document.find(first_change);
+  ASSERT_NE(found, std::string::npos) << document;
+  const int dropped = document[found + first_change.size()] - '0';
+  ASSERT_GE(dropped, 0);
+  ASSERT_LE(dropped, capture::kMaximumRequantizerDrop);
+
+  // One shifted up and `dropped` dropped: a step of 64 << (1 + dropped). The
+  // first megabyte is inside the first segment.
+  const int step = 64 << (1 + dropped);
   std::ifstream file(WrittenFiles().front(), std::ios::binary);
   std::string bytes(size_t{1} << 20, '\0');
   file.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -1362,29 +1404,24 @@ TEST_F(CaptureToDiskTest, AReducedCaptureHoldsWhatItSaysItHolds) {
     const auto sample = static_cast<int16_t>(
         static_cast<uint16_t>(static_cast<uint8_t>(bytes[index])) |
         static_cast<uint16_t>(static_cast<uint8_t>(bytes[index + 1]) << 8));
-    ASSERT_EQ(sample % 512, 0) << "sample " << index / 2 << " is " << sample;
+    ASSERT_EQ(sample % step, 0) << "sample " << index / 2 << " is " << sample;
   }
-
-  const std::string document = ReadWholeFile(MetadataFiles().front());
-  EXPECT_NE(document.find("\"lsb_drop\": 2"), std::string::npos) << document;
-  EXPECT_NE(document.find("\"bit_shift\": 1"), std::string::npos) << document;
-  EXPECT_NE(document.find("\"shift_clipped_samples\":"), std::string::npos)
-      << document;
 }
 
 // A test capture is written exactly as counted whatever the bit shift and the
-// LSB drop are set to, so its ramp still checks — and it says so.
+// requantisation are set to, so its ramp still checks — and it says so.
 TEST_F(CaptureToDiskTest, ATestCaptureIsNeverReducedOrAmplified) {
   Settings([](CaptureSettings& settings) {
     settings.test_mode = true;
     settings.output_format = capture::CaptureOutputFormat::kSigned16Bit;
     settings.bit_shift = 2;
-    settings.lsb_drop = 2;
+    settings.requantize = true;
   });
 
   controller_->StartCapture();
   ASSERT_TRUE(controller_->capturing());
   EXPECT_EQ(controller_->run_conversion(), capture::SampleConversion{});
+  EXPECT_FALSE(controller_->requantization().has_value());
 
   ASSERT_TRUE(PumpUntil([&] {
     return !WrittenFiles().empty() &&
@@ -1402,7 +1439,9 @@ TEST_F(CaptureToDiskTest, ATestCaptureIsNeverReducedOrAmplified) {
       << analysis.message;
 
   const std::string document = ReadWholeFile(MetadataFiles().front());
-  EXPECT_NE(document.find("\"lsb_drop\": 0"), std::string::npos) << document;
+  EXPECT_NE(document.find("\"requantization\":\n  \"mode\": \"off\""),
+            std::string::npos)
+      << document;
   EXPECT_NE(document.find("\"bit_shift\": 0"), std::string::npos) << document;
 }
 

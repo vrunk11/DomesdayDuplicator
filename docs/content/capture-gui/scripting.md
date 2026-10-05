@@ -49,7 +49,7 @@ outside: see [Running it from a Flatpak](#running-it-from-a-flatpak) and
 | `--duration-limit <seconds>` | 1 to 86400 | Stop by itself after this long. Leave it out to capture until stopped |
 | `--output-format <format>` | `flac` or `s16` | Write [FLAC, or uncompressed `.ddd.s16`](capture-files.md) |
 | `--bit-shift <bits>` | `0` to `4` | Shift the signal up by this many bits, a digital gain of x1 to x16. Adds no detail; clips what it takes past full scale. Applies to `--pipe` too |
-| `--lsb-drop <bits>` | `0` to `4` | Drop this many of the converter's low bits. Each makes a FLAC capture smaller and costs 6 dB. Applies to `--pipe` too |
+| `--requantize <margin>` | `off`, or `0` to `4` | Drop as many of the converter's low bits as the capture's own noise hides, decided every segment, keeping the noise floor of the LaserDisc's RF band within the margin: `0` lets it rise 1 dB, `4` only 0.05 dB. `off` keeps the saved margin for next time. Applies to `--pipe` too |
 | `--pipe` | | Stream the capture to standard output for another program. Needs `--start-capture`. See [Streaming to another program](#streaming-to-another-program) |
 | `--save` | | With `--pipe`, write the capture file as well |
 
@@ -224,13 +224,17 @@ ddd-gui --start-capture --pipe --save --capture-name disc-42-side-1 | some-previ
 What arrives is **signed 16-bit little-endian samples**, exactly what a
 [`.ddd.s16` file](capture-files.md) holds, with the board's
 [DC offset](board-setup.md) already taken out and the
-[bit shift](capture-control.md#bit-shift-digital-gain) and [LSB drop](capture-control.md#lsb-drop)
-applied. There is no header, so the rate, the input range and all three are said once on
-standard error as the capture starts:
+[bit shift](capture-control.md#bit-shift-digital-gain) and the
+[requantisation](capture-control.md#requantisation) applied — the pipe carries the same samples
+the file would. There is no header, so the rate, the input range and all three are said once
+on standard error as the capture starts:
 
 ```text
-Standard output carries signed 16-bit samples at 40.000 Msps, 2Vpp input range, DC offset -3 taken out, bit shift 0, LSB drop 0.
+Standard output carries signed 16-bit samples at 30.000 Msps, 2Vpp input range, DC offset -3 taken out, bit shift 0, requantised at margin 2 (safe, 0.20 dB).
 ```
+
+What the requantiser then does changes segment by segment and is not announced; a reader
+sees it as samples whose low bits are zero.
 
 A script that has to keep that should keep standard error. In
 [test mode](test-mode.md) the line says so instead of naming an offset, because none is taken

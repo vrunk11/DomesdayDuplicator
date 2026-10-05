@@ -47,6 +47,7 @@ class FlacSink : public ISampleSink {
   const char* Name() const override { return "flac"; }
 
   bool Write(const uint8_t* wire_data, size_t sample_count) override;
+  bool WriteConverted(const int16_t* samples, size_t sample_count) override;
   bool Finish() override;
 
   uint64_t BytesWritten() const override;

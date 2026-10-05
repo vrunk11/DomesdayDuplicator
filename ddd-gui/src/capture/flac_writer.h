@@ -84,7 +84,7 @@ class FlacWriter {
     uint32_t sample_rate_label = 40'000;
 
     // What is done to every sample written: the board's declared DC offset,
-    // the bit shift and the LSB drop (SampleConversion). The default
+    // and the bit shift (SampleConversion). The default
     // writes exactly what the converter produced; a test-mode capture is always
     // written with it, because its samples are the gateware's counter rather
     // than the converter's, and the ramp check needs every one of them as it
@@ -121,6 +121,11 @@ class FlacWriter {
   // signal first and that filter is in the gateware. A writer that dropped
   // samples would be dropping them from a stream that had not been filtered.
   bool WriteRawDeviceSamples(const uint8_t* device_data, size_t sample_count);
+
+  // Encode samples already converted to signed 16-bit, as the requantiser
+  // hands them on. Options::conversion is not applied to these: they are
+  // what the file holds.
+  bool WriteSigned16Samples(const int16_t* samples, size_t sample_count);
 
   // Flush the encoder and close the file. Safe to call twice; the destructor
   // calls it.

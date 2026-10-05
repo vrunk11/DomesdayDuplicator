@@ -57,8 +57,7 @@ struct FlacWriter::Impl {
   std::vector<int32_t> scratch;
 
   // What is done to every sample on its way to the encoder: the board's DC
-  // offset, the bit shift and the LSB drop. See
-  // SampleConversion.
+  // offset and the bit shift. See SampleConversion.
   SampleConversion conversion;
 
   std::atomic<size_t> bytes_written{0};
@@ -283,6 +282,32 @@ bool FlacWriter::WriteRawDeviceSamples(const uint8_t* device_data,
     remaining -= chunk;
   }
 
+  return true;
+}
+
+bool FlacWriter::WriteSigned16Samples(const int16_t* samples,
+                                      size_t sample_count) {
+  if (!impl_->encoder_initialised || impl_->finished) {
+    impl_->last_error =
+        "FlacWriter::WriteSigned16Samples(): The encoder is not open";
+    return false;
+  }
+
+  size_t done = 0;
+  while (done < sample_count) {
+    const size_t chunk = std::min(sample_count - done, kEncodeChunkSamples);
+    for (size_t i = 0; i < chunk; ++i) {
+      impl_->scratch[i] = samples[done + i];
+    }
+    if (!FLAC__stream_encoder_process_interleaved(
+            impl_->encoder, impl_->scratch.data(),
+            static_cast<uint32_t>(chunk))) {
+      impl_->RecordEncoderError("WriteSigned16Samples");
+      return false;
+    }
+    impl_->samples_written += chunk;
+    done += chunk;
+  }
   return true;
 }
 
