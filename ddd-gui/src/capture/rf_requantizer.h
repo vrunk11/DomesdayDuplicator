@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ddd::capture {
@@ -48,6 +49,8 @@ namespace ddd::capture {
 struct FrequencyBand {
   double low_mhz = 0.0;
   double high_mhz = 0.0;
+
+  bool operator==(const FrequencyBand& other) const = default;
 };
 
 // How much the noise floor of any 1 MHz slice of the protected bands may rise,
@@ -71,6 +74,17 @@ std::vector<FrequencyBand> DefaultProtectedBands(double sample_rate_mhz);
 
 // The bands as a capture records them: "0-14 MHz", comma separated.
 std::string DescribeBands(const std::vector<FrequencyBand>& bands);
+
+// Bands as a person types them, in MHz: "0-12", or several, "0-1.9,2.1-13.5",
+// with ':' accepted for '-' and spaces and a trailing "MHz" ignored. Plain
+// decimals, read the same whatever the locale. Each band's low end below its
+// high end and none negative; empty for anything else.
+std::vector<FrequencyBand> ParseBands(std::string_view text);
+
+// `bands` as they can be used at `sample_rate_mhz`: cut at the Nyquist limit,
+// and any left with nothing in them dropped. Empty when none survive.
+std::vector<FrequencyBand> BandsWithin(const std::vector<FrequencyBand>& bands,
+                                       double sample_rate_mhz);
 
 struct RequantizerSettings {
   // The rate of the samples this is given, after any decimation.

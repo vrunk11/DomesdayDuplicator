@@ -14,6 +14,7 @@
 #include <QString>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "capture_format.h"
 #include "capture_naming.h"
@@ -170,6 +171,12 @@ struct CaptureSettings {
   bool requantize = false;
   int requantize_margin = capture::kDefaultMarginLevel;
 
+  // The bands the requantiser protects, in place of the default for the rate
+  // (capture::DefaultProtectedBands); empty for that default. Set from the
+  // command line, for one run, and never saved: a band chosen to try something
+  // on one player is not one to find still in force a month later.
+  std::vector<capture::FrequencyBand> requantize_bands;
+
   // Stop the capture automatically after this long. 0 means run until stopped,
   // which is the default: a limit that fired in the middle of a side would be
   // worse than no limit at all.
@@ -209,6 +216,7 @@ struct CaptureSettings {
            compression_level == other.compression_level &&
            bit_shift == other.bit_shift && requantize == other.requantize &&
            requantize_margin == other.requantize_margin &&
+           requantize_bands == other.requantize_bands &&
            duration_limit_seconds == other.duration_limit_seconds &&
            low_space_warning_minutes == other.low_space_warning_minutes;
   }

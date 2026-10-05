@@ -16,12 +16,14 @@
 #include <QStringList>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "capture_cli.h"
 #include "capture_format.h"
 #include "capture_settings.h"
+#include "rf_requantizer.h"
 
 namespace ddd::gui {
 namespace {
@@ -473,6 +475,32 @@ TEST(CaptureCliTest, AMarginOutsideZeroToFourIsRefused) {
     EXPECT_TRUE(parsed.accepted) << margin;
     EXPECT_TRUE(parsed.error.contains(QStringLiteral("--requantize")))
         << margin << ": " << parsed.error.toStdString();
+  }
+}
+
+// The bands to protect, for this run, laid over the settings as they are.
+TEST(CaptureCliTest, TheRequantisedBandsAreTakenAsGiven) {
+  const Parsed parsed = Parse(
+      {QStringLiteral("--requantize"), QStringLiteral("0"),
+       QStringLiteral("--requantize-band"), QStringLiteral("0-1.9,2.1-12")});
+
+  ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
+  const std::vector<capture::FrequencyBand> expected = {{0.0, 1.9},
+                                                        {2.1, 12.0}};
+  EXPECT_EQ(parsed.options.requantize_bands, std::optional(expected));
+
+  CaptureSettings settings;
+  ApplyCliOverrides(settings, parsed.options);
+  EXPECT_EQ(settings.requantize_bands, expected);
+}
+
+TEST(CaptureCliTest, BandsThatAreNotBandsAreRefused) {
+  for (const char* bands : {"12", "12-0", "0-12;13-14", "low-high", ""}) {
+    const Parsed parsed =
+        Parse({QStringLiteral("--requantize-band"), QLatin1String(bands)});
+    EXPECT_TRUE(parsed.accepted) << bands;
+    EXPECT_TRUE(parsed.error.contains(QStringLiteral("--requantize-band")))
+        << bands << ": " << parsed.error.toStdString();
   }
 }
 

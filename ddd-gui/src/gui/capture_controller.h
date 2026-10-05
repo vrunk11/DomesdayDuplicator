@@ -17,6 +17,7 @@
 #include <QTimer>
 #include <memory>
 #include <optional>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -474,6 +475,11 @@ class CaptureController : public QObject {
   // one is the capture's.
   void UpdateIdleSink();
 
+  // What the idle sink is built from, as it would be built now: on or off,
+  // margin, bit shift and bands. See idle_key_.
+  using IdleSinkKey = std::tuple<bool, int, int, std::string>;
+  IdleSinkKey CurrentIdleSinkKey() const;
+
   // Bring run_conversion() up to the settings while monitoring and not
   // capturing: the pipeline counts against it from the next buffer and the
   // panels redraw with it. A file being written keeps the conversion it was
@@ -615,11 +621,11 @@ class CaptureController : public QObject {
 
   // See requantization(): the status of the requantiser attached now, and of
   // the capture's, kept until its sidecar has been written. idle_key_ is what
-  // the idle sink was built from — on or off, margin, bit shift — so that a
-  // settings change that does not touch it does not rebuild it.
+  // the idle sink was built from — on or off, margin, bit shift, bands — so
+  // that a settings change that does not touch it does not rebuild it.
   std::shared_ptr<capture::RequantizationStatus> requantization_status_;
   std::shared_ptr<capture::RequantizationStatus> capture_requantization_;
-  std::optional<std::tuple<bool, int, int>> idle_key_;
+  std::optional<IdleSinkKey> idle_key_;
 
   // See show_corrected().
   bool show_corrected_ = false;

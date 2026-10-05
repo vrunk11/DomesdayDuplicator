@@ -15,6 +15,8 @@
 #include <QFileInfo>
 #include <QLatin1String>
 #include <QStringList>
+#include <utility>
+#include <vector>
 
 #include "rf_requantizer.h"
 #include "wire_protocol.h"
@@ -36,6 +38,7 @@ constexpr const char* kDurationLimitName = "duration-limit";
 constexpr const char* kOutputFormatName = "output-format";
 constexpr const char* kRequantizeName = "requantize";
 constexpr const char* kRequantizeOffWord = "off";
+constexpr const char* kRequantizeBandName = "requantize-band";
 constexpr const char* kBitShiftName = "bit-shift";
 constexpr const char* kPipeName = "pipe";
 constexpr const char* kSaveName = "save";
@@ -134,7 +137,7 @@ bool CaptureCliOptions::HasAttributeOverrides() const {
          decimation_factor.has_value() || pll_preset_mhz.has_value() ||
          range_select_2vpp.has_value() || duration_limit_seconds.has_value() ||
          output_format.has_value() || requantize.has_value() ||
-         bit_shift.has_value();
+         requantize_bands.has_value() || bit_shift.has_value();
 }
 
 CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
@@ -210,6 +213,14 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
               .arg(capture::kMaximumMarginLevel),
           QStringLiteral("margin")),
       QCommandLineOption(
+          QLatin1String(kRequantizeBandName),
+          QStringLiteral(
+              "The band, in MHz, whose noise floor --requantize keeps within "
+              "its margin, in place of the default of DC to 14 MHz or short "
+              "of the Nyquist limit: 0-12, or several, 0-1.9,2.1-13.5. For "
+              "this run only; recorded in the capture."),
+          QStringLiteral("bands")),
+      QCommandLineOption(
           QLatin1String(kBitShiftName),
           QStringLiteral(
               "Shift the signal up by 0 to 4 bits before it is written — a "
@@ -242,6 +253,7 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
   parser.addOption(set.duration_limit);
   parser.addOption(set.output_format);
   parser.addOption(set.requantize);
+  parser.addOption(set.requantize_band);
   parser.addOption(set.bit_shift);
   parser.addOption(set.pipe);
   parser.addOption(set.save);
@@ -404,6 +416,21 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
     }
   }
 
+  if (parser.isSet(set.requantize_band)) {
+    const QString text = parser.value(set.requantize_band);
+    std::vector<capture::FrequencyBand> bands =
+        capture::ParseBands(text.toStdString());
+    if (bands.empty()) {
+      result.error =
+          QStringLiteral(
+              "Unknown --requantize-band '%1'. Give bands in MHz, low to "
+              "high: 0-12, or 0-1.9,2.1-13.5.")
+              .arg(text);
+      return result;
+    }
+    options.requantize_bands = std::move(bands);
+  }
+
   if (parser.isSet(set.bit_shift)) {
     const QString text = parser.value(set.bit_shift).trimmed();
     bool numeric = false;
@@ -500,6 +527,9 @@ void ApplyCliOverrides(CaptureSettings& settings,
   }
   if (options.requantize.has_value()) {
     settings.requantize = *options.requantize;
+  }
+  if (options.requantize_bands.has_value()) {
+    settings.requantize_bands = *options.requantize_bands;
   }
   if (options.requantize_margin.has_value()) {
     settings.requantize_margin = *options.requantize_margin;

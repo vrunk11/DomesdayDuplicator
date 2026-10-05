@@ -13,9 +13,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <numbers>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "log_format.h"
@@ -124,6 +127,93 @@ std::string DescribeBands(const std::vector<FrequencyBand>& bands) {
     text += megahertz(band.low_mhz) + "-" + megahertz(band.high_mhz);
   }
   return text.empty() ? text : text + " MHz";
+}
+
+namespace {
+
+// A plain decimal at the front of `text` — digits, and optionally a point and
+// more digits — taken off it. By hand rather than through strtod, which reads
+// "13.5" as 13 in a locale whose decimal separator is a comma.
+std::optional<double> TakeDecimal(std::string_view& text) {
+  const auto is_digit = [&text](size_t index) {
+    return index < text.size() && text[index] >= '0' && text[index] <= '9';
+  };
+
+  size_t length = 0;
+  bool any_digit = false;
+  double value = 0.0;
+  while (is_digit(length)) {
+    value = (value * 10.0) + static_cast<double>(text[length] - '0');
+    any_digit = true;
+    ++length;
+  }
+  if (length < text.size() && text[length] == '.') {
+    ++length;
+    double scale = 0.1;
+    while (is_digit(length)) {
+      value += scale * static_cast<double>(text[length] - '0');
+      scale /= 10.0;
+      any_digit = true;
+      ++length;
+    }
+  }
+  if (!any_digit) {
+    return std::nullopt;
+  }
+  text.remove_prefix(length);
+  return value;
+}
+
+}  // namespace
+
+std::vector<FrequencyBand> ParseBands(std::string_view text) {
+  std::string compact;
+  for (const char character : text) {
+    if (character != ' ' && character != '\t') {
+      compact.push_back(static_cast<char>(
+          std::tolower(static_cast<unsigned char>(character))));
+    }
+  }
+  if (compact.ends_with("mhz")) {
+    compact.resize(compact.size() - 3);
+  }
+
+  std::string_view rest = compact;
+  std::vector<FrequencyBand> bands;
+  for (;;) {
+    const std::optional<double> low = TakeDecimal(rest);
+    if (!low.has_value() || rest.empty() ||
+        (rest.front() != '-' && rest.front() != ':')) {
+      return {};
+    }
+    rest.remove_prefix(1);
+    const std::optional<double> high = TakeDecimal(rest);
+    if (!high.has_value() || *high <= *low) {
+      return {};
+    }
+    bands.push_back({*low, *high});
+
+    if (rest.empty()) {
+      return bands;
+    }
+    if (rest.front() != ',') {
+      return {};
+    }
+    rest.remove_prefix(1);
+  }
+}
+
+std::vector<FrequencyBand> BandsWithin(const std::vector<FrequencyBand>& bands,
+                                       double sample_rate_mhz) {
+  const double nyquist = sample_rate_mhz / 2.0;
+  std::vector<FrequencyBand> usable;
+  for (const FrequencyBand& band : bands) {
+    const double high = std::min(band.high_mhz, nyquist);
+    if (band.low_mhz < high) {
+      usable.push_back({band.low_mhz, high});
+    }
+  }
+  return usable;
 }
 
 std::vector<double> DesignNoiseTransferFunction(

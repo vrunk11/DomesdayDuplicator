@@ -315,6 +315,15 @@ error is fed back through a filter that pushes the added noise above the protect
 where the decoder's filters remove it, so a shaped setting can keep a bit or two fewer. Up to
 six bits can go and four are always kept; in practice the margin decides.
 
+**One quiet slice holds the whole band back.** A player's RF output and the board's front
+end both roll off towards the top of the band, so the slice that decides is often the
+highest one, well below the band's median noise floor; the [Statistics](statistics.md#requantisation)
+line says which. Shaping needs room above the protected band to push its noise into, so a
+higher rate helps: at 75 MHz decimated by 2 (37.5 Msps) there is 14 to 18.75 MHz of it, at
+60 MHz by 2 (30 Msps) only 13.5 to 15. To find out how much of the band a player's RF
+actually needs, the command line's `--requantize-band` protects another band for one run —
+`--requantize-band 0-12`, or several, `0-1.9,2.1-13.5` — and the capture records which.
+
 The analysis runs on a thread of its own and costs a fraction of one core at 30 Msps, so it
 is meant for a capture written at a reduced rate — 60 MHz decimated by 2 is the case it was
 made for — as much as for the full one.

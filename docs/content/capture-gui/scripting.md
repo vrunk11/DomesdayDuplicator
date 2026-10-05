@@ -50,6 +50,7 @@ outside: see [Running it from a Flatpak](#running-it-from-a-flatpak) and
 | `--output-format <format>` | `flac` or `s16` | Write [FLAC, or uncompressed `.ddd.s16`](capture-files.md) |
 | `--bit-shift <bits>` | `0` to `4` | Shift the signal up by this many bits, a digital gain of x1 to x16. Adds no detail; clips what it takes past full scale. Applies to `--pipe` too |
 | `--requantize <margin>` | `off`, or `0` to `4` | Drop as many of the converter's low bits as the capture's own noise hides, decided every segment, keeping the noise floor of the LaserDisc's RF band within the margin: `0` lets it rise 1 dB, `4` only 0.05 dB. `off` keeps the saved margin for next time. Applies to `--pipe` too |
+| `--requantize-band <bands>` | bands in MHz, `0-12` or `0-1.9,2.1-13.5` | Protect these instead of the default band. For finding out which part of the band a player's RF actually needs. Applies to `--pipe` too |
 | `--pipe` | | Stream the capture to standard output for another program. Needs `--start-capture`. See [Streaming to another program](#streaming-to-another-program) |
 | `--save` | | With `--pipe`, write the capture file as well |
 
@@ -230,7 +231,7 @@ the file would. There is no header, so the rate, the input range and all three a
 on standard error as the capture starts:
 
 ```text
-Standard output carries signed 16-bit samples at 30.000 Msps, 2Vpp input range, DC offset -3 taken out, bit shift 0, requantised at margin 2 (safe, 0.20 dB).
+Standard output carries signed 16-bit samples at 30.000 Msps, 2Vpp input range, DC offset -3 taken out, bit shift 0, requantised at margin 2 (safe, 0.20 dB) over 0-13.5 MHz.
 ```
 
 What the requantiser then does changes segment by segment and is not announced; a reader

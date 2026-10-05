@@ -15,9 +15,11 @@
 #include <QString>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #include "capture_format.h"
 #include "capture_settings.h"
+#include "rf_requantizer.h"
 
 class QCommandLineParser;
 
@@ -70,6 +72,7 @@ struct CaptureCliOptionSet {
   QCommandLineOption duration_limit;
   QCommandLineOption output_format;
   QCommandLineOption requantize;
+  QCommandLineOption requantize_band;
   QCommandLineOption bit_shift;
   QCommandLineOption pipe;
   QCommandLineOption save;
@@ -128,6 +131,10 @@ struct CaptureCliOptions {
   std::optional<int> bit_shift;
   std::optional<bool> requantize;
   std::optional<int> requantize_margin;
+
+  // The bands --requantize protects, in place of the default for the rate.
+  // See CaptureSettings::requantize_bands.
+  std::optional<std::vector<capture::FrequencyBand>> requantize_bands;
 
   // Whether anything about the capture itself was named. An attribute given
   // with no start command is not an error: it populates the window, which is

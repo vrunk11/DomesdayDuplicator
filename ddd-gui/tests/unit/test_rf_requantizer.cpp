@@ -84,6 +84,42 @@ TEST(RfRequantizerTest, BandsAreDescribedAsACaptureRecordsThem) {
   EXPECT_EQ(DescribeBands({}), "");
 }
 
+// Typed as a person types them, and read the same in any locale.
+TEST(RfRequantizerTest, BandsAreReadAsTyped) {
+  const std::vector<FrequencyBand> one = ParseBands("0-12");
+  ASSERT_EQ(one.size(), 1U);
+  EXPECT_DOUBLE_EQ(one[0].low_mhz, 0.0);
+  EXPECT_DOUBLE_EQ(one[0].high_mhz, 12.0);
+
+  const std::vector<FrequencyBand> two = ParseBands(" 0:1.9, 2.1-13.5 MHz");
+  ASSERT_EQ(two.size(), 2U);
+  EXPECT_DOUBLE_EQ(two[0].high_mhz, 1.9);
+  EXPECT_DOUBLE_EQ(two[1].low_mhz, 2.1);
+  EXPECT_DOUBLE_EQ(two[1].high_mhz, 13.5);
+
+  // What a capture records reads back as the same bands.
+  EXPECT_EQ(ParseBands(DescribeBands(two)), two);
+}
+
+TEST(RfRequantizerTest, BandsThatAreNotBandsAreRefused) {
+  for (const char* text : {"", "12", "0-", "-12", "12-0", "5-5", "0-12,",
+                           "0-12;13-14", "0,5-12", "a-b", "0-1e1"}) {
+    EXPECT_TRUE(ParseBands(text).empty()) << text;
+  }
+}
+
+// Asked for above the Nyquist limit, a band stops there; one entirely above
+// it is gone.
+TEST(RfRequantizerTest, BandsAreCutAtTheNyquistLimit) {
+  const std::vector<FrequencyBand> usable =
+      BandsWithin({{0.0, 12.0}, {13.0, 20.0}, {16.0, 18.0}}, 30.0);
+  ASSERT_EQ(usable.size(), 2U);
+  EXPECT_DOUBLE_EQ(usable[0].high_mhz, 12.0);
+  EXPECT_DOUBLE_EQ(usable[1].low_mhz, 13.0);
+  EXPECT_DOUBLE_EQ(usable[1].high_mhz, 15.0);
+  EXPECT_TRUE(BandsWithin({{16.0, 18.0}}, 30.0).empty());
+}
+
 // The shaping filter puts the noise where the bands are not.
 TEST(RfRequantizerTest, TheShapingFilterIsQuietInTheBand) {
   const std::vector<FrequencyBand> bands = {{0.0, 12.0}};

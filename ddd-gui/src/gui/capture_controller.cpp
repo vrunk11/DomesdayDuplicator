@@ -66,10 +66,14 @@ QString DescribePipedStream(uint32_t sample_rate_hz, bool range_2vpp,
     text += QObject::tr(", DC offset %1 taken out, bit shift %2")
                 .arg(conversion.dc_offset)
                 .arg(capture::BitShift(conversion));
-    text += requantization.enabled ? QObject::tr(", requantised at margin %1")
-                                         .arg(DescribeRequantizationMargin(
-                                             requantization.margin_level))
-                                   : QObject::tr(", not requantised");
+    text +=
+        requantization.enabled
+            ? QObject::tr(", requantised at margin %1 over %2")
+                  .arg(
+                      DescribeRequantizationMargin(requantization.margin_level),
+                      QString::fromStdString(capture::DescribeBands(
+                          requantization.protected_bands)))
+            : QObject::tr(", not requantised");
   }
   return text + QStringLiteral(".");
 }
@@ -541,8 +545,14 @@ capture::RequantizerSettings CaptureController::RunRequantizerSettings() const {
   requantizer.sample_rate_mhz =
       static_cast<double>(settings_.SampleRateHz()) / 1.0e6;
   requantizer.margin_level = settings_.requantize_margin;
-  requantizer.protected_bands =
-      capture::DefaultProtectedBands(requantizer.sample_rate_mhz);
+  // The bands asked for on the command line, where they leave anything below
+  // the Nyquist limit; the default for the rate otherwise.
+  requantizer.protected_bands = capture::BandsWithin(
+      settings_.requantize_bands, requantizer.sample_rate_mhz);
+  if (requantizer.protected_bands.empty()) {
+    requantizer.protected_bands =
+        capture::DefaultProtectedBands(requantizer.sample_rate_mhz);
+  }
   requantizer.input_bits =
       capture::kConverterBits - capture::BitShift(run_conversion_);
   return requantizer;
@@ -564,9 +574,14 @@ capture::RequantizationRecord CaptureController::RequantizationSettingsRecord()
   return record;
 }
 
+CaptureController::IdleSinkKey CaptureController::CurrentIdleSinkKey() const {
+  return {RunRequantizes(), settings_.requantize_margin,
+          capture::BitShift(run_conversion_),
+          capture::DescribeBands(RunRequantizerSettings().protected_bands)};
+}
+
 std::unique_ptr<capture::ISampleSink> CaptureController::MakeIdleSink() {
-  idle_key_ = std::make_tuple(RunRequantizes(), settings_.requantize_margin,
-                              capture::BitShift(run_conversion_));
+  idle_key_ = CurrentIdleSinkKey();
   if (!RunRequantizes()) {
     requantization_status_.reset();
     return std::make_unique<capture::NullSink>();
@@ -599,9 +614,7 @@ void CaptureController::UpdateIdleSink() {
   if (!monitoring_ || capturing_ || pending_sink_change_ != 0) {
     return;
   }
-  if (idle_key_ == std::make_tuple(RunRequantizes(),
-                                   settings_.requantize_margin,
-                                   capture::BitShift(run_conversion_))) {
+  if (idle_key_ == CurrentIdleSinkKey()) {
     return;
   }
   pipeline_->AttachSink(MakeIdleSink());
