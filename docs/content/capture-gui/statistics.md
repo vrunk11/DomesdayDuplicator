@@ -160,6 +160,19 @@ band, how far that raises the noise floor of the worst 1 MHz of the protected ba
 noise floor the decision was made against, in converter steps. The same line is under the
 setting in the capture panel.
 
+That noise floor is the median across the protected band, but the decision is made slice by
+slice: a setting has to pass in **every** 1 MHz of the band, and each slice's floor is taken
+as the lowest within 2 MHz of it. So one quiet place in the band — a notch in the player's RF
+output, the roll-off of a filter near the top of the band — holds the whole capture back
+however noisy the rest of it is. When that happens the line ends with where:
+
+```
+Preview: 0 dropped (10 bit range), +0.00 dB in band, noise floor 2.80 LSB, held back at 12-13 MHz (floor 0.41 LSB)
+```
+
+is a capture whose band is 2.8 LSB noisy in the middle and less than half a step at
+12–13 MHz, where dropping even one bit would raise the floor by more than the margin allows.
+
 ## Requantised so far
 
 ```

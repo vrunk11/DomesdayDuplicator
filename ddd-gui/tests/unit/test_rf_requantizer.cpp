@@ -298,6 +298,39 @@ TEST(RfRequantizerTest, ADecisionsQuantiserIsTheOneTheFileGot) {
   }
 }
 
+// A noisy capture with one quiet notch in the band — x[n] + x[n-2] has a zero
+// at a quarter of the rate, 7.5 MHz at 30 Msps — is held back by that notch
+// alone, and the decision says so: a slice within the floor's 2 MHz low
+// envelope of it, and a floor there far below the band's median. Which slice
+// of those depends on the candidate: shaped noise rises with frequency.
+TEST(RfRequantizerTest, TheDecisionNamesTheSliceThatHeldItBack) {
+  RfRequantizer requantizer(Settings(0));
+  std::mt19937 generator = Seeded(10);
+  const std::vector<int16_t> white =
+      NoiseSegment(generator, 10.0, RfRequantizer::kSegmentSamples + 2);
+  std::vector<int16_t> notched(RfRequantizer::kSegmentSamples);
+  for (size_t index = 0; index < notched.size(); ++index) {
+    notched[index] = static_cast<int16_t>(
+        (static_cast<int32_t>(white[index + 2]) + white[index]) / 2);
+  }
+
+  const RequantizerDecision decision =
+      requantizer.Process(notched.data(), notched.size(), false);
+  EXPECT_DOUBLE_EQ(decision.limit_high_mhz - decision.limit_low_mhz, 1.0);
+  EXPECT_GE(decision.limit_high_mhz, 7.5 - 2.0);
+  EXPECT_LE(decision.limit_low_mhz, 7.5 + 2.0);
+  EXPECT_LT(decision.limit_floor_lsb, requantizer.noise_floor_lsb() / 2.0)
+      << decision.limit_floor_lsb << " against "
+      << requantizer.noise_floor_lsb();
+
+  // White noise as loud has no such slice to stop at, and goes further.
+  RfRequantizer flat(Settings(0));
+  std::vector<int16_t> plain(white.begin(),
+                             white.begin() + RfRequantizer::kSegmentSamples);
+  EXPECT_GT(flat.Process(plain.data(), plain.size(), false).lsb_drop,
+            decision.lsb_drop);
+}
+
 // The end of a stream is shorter than a segment, and too short to analyse: the
 // decision stands on the floor already known.
 TEST(RfRequantizerTest, AShortLastSegmentIsDecidedOnTheFloorAlreadyKnown) {

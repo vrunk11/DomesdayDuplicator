@@ -514,10 +514,11 @@ void RfRequantizer::Analyse(const int16_t* samples, size_t count) {
   }
 }
 
-double RfRequantizer::Degradation(const Candidate& candidate) const {
+RfRequantizer::SliceCost RfRequantizer::Degradation(
+    const Candidate& candidate) const {
   const double bin_width =
       settings_.sample_rate_mhz / static_cast<double>(kTransformSize);
-  double worst = 0.0;
+  SliceCost worst;
   for (const FrequencyBand& band : bands_) {
     // Counted rather than stepped in floating point, so that no slice is
     // gained or lost to rounding at the top of a band.
@@ -529,15 +530,20 @@ double RfRequantizer::Degradation(const Candidate& candidate) const {
       const double high = std::min(low + kSliceMhz, band.high_mhz);
       double added = 0.0;
       double floor = 0.0;
+      size_t bins = 0;
       for (size_t bin = 0; bin < kBinCount; ++bin) {
         const double frequency = static_cast<double>(bin) * bin_width;
         if (frequency >= low && frequency < high) {
           added += candidate.variance * candidate.gain[bin];
           floor += floor_[bin];
+          ++bins;
         }
       }
       if (floor > 0.0) {
-        worst = std::max(worst, 10.0 * std::log10(1.0 + (added / floor)));
+        const double cost = 10.0 * std::log10(1.0 + (added / floor));
+        if (cost > worst.db) {
+          worst = {cost, low, high, floor / static_cast<double>(bins)};
+        }
       }
     }
   }
@@ -552,7 +558,7 @@ RequantizerDecision RfRequantizer::Process(int16_t* samples, size_t count,
   size_t wanted = none;
   if (have_floor_) {
     for (size_t index = 0; index < none; ++index) {
-      if (Degradation(candidates_[index]) <= limit_db_) {
+      if (Degradation(candidates_[index]).db <= limit_db_) {
         wanted = index;
         break;
       }
@@ -566,16 +572,27 @@ RequantizerDecision RfRequantizer::Process(int16_t* samples, size_t count,
     applied_ = wanted;
     pending_ = 0;
   }
-  if (applied_ < none && Degradation(candidates_[applied_]) > limit_db_) {
+  if (applied_ < none && Degradation(candidates_[applied_]).db > limit_db_) {
     applied_ = wanted;
   }
 
   RequantizerDecision decision;
+
+  // Why it went no further: the slice the next more aggressive candidate
+  // would have raised most. Candidates run most aggressive first, so that is
+  // the one just before the decision — or the last of all when nothing passed.
+  if (have_floor_ && applied_ > 0) {
+    const SliceCost limit = Degradation(candidates_[applied_ - 1]);
+    decision.limit_low_mhz = limit.low_mhz;
+    decision.limit_high_mhz = limit.high_mhz;
+    decision.limit_floor_lsb = std::sqrt(limit.floor_power) / input_lsb_;
+  }
+
   if (applied_ < none) {
     Candidate& candidate = candidates_[applied_];
     decision.lsb_drop = candidate.lsb_drop;
     decision.shaped = candidate.shaped;
-    decision.degradation_db = Degradation(candidate);
+    decision.degradation_db = Degradation(candidate).db;
 
     if (apply) {
       // A quantiser taken over from another carries an error history that

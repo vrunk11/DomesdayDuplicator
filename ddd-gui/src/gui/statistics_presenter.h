@@ -220,8 +220,9 @@ QString FormatElapsed(double seconds);
 // with none; while it waits for its first segment, that; then the bits its
 // last decision dropped with the range the converter's codes are left
 // spanning, "2 dropped (8 bit range)", whether the noise is shaped, what that
-// costs the worst slice of the protected band, and the noise floor it was
-// decided against. `writing` says whether it is a capture's or a preview, so
+// costs the worst slice of the protected band, the noise floor it was
+// decided against, and the slice that kept it from dropping more, with that
+// slice's own floor. `writing` says whether it is a capture's or a preview, so
 // that a preview is never read as something being done to a file.
 QString FormatRequantization(
     const std::optional<capture::RequantizationStatus::Live>& live,

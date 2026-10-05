@@ -241,9 +241,19 @@ QString FormatRequantization(
   if (decision.shaped) {
     text += Translate(", noise shaped");
   }
-  return text + Translate(", +%1 dB in band, noise floor %2 LSB")
-                    .arg(decision.degradation_db, 0, 'f', 2)
-                    .arg(live->noise_floor_lsb, 0, 'f', 2);
+  text += Translate(", +%1 dB in band, noise floor %2 LSB")
+              .arg(decision.degradation_db, 0, 'f', 2)
+              .arg(live->noise_floor_lsb, 0, 'f', 2);
+
+  // Why it did not go further, which the median floor above cannot say: one
+  // quiet slice holds the whole band back.
+  if (decision.limit_high_mhz > decision.limit_low_mhz) {
+    text += Translate(", held back at %1-%2 MHz (floor %3 LSB)")
+                .arg(decision.limit_low_mhz, 0, 'g', 4)
+                .arg(decision.limit_high_mhz, 0, 'g', 4)
+                .arg(decision.limit_floor_lsb, 0, 'f', 2);
+  }
+  return text;
 }
 
 QString FormatRequantizationTotals(

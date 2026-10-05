@@ -319,16 +319,34 @@ TEST(StatisticsPresenterTest, ARequantiserWithNoSegmentYetSaysSo) {
 TEST(StatisticsPresenterTest, ADecisionReadsAsWhatItDropsAndWhatItCosts) {
   capture::RequantizationStatus::Live live;
   live.segments = 12;
-  live.current = {2, false, 0.123};
+  live.current.lsb_drop = 2;
+  live.current.degradation_db = 0.123;
   live.noise_floor_lsb = 1.804;
   EXPECT_EQ(FormatRequantization(live, false),
             QStringLiteral("Preview: 2 dropped (8 bit range), +0.12 dB in "
                            "band, noise floor 1.80 LSB"));
 
-  live.current = {3, true, 0.5};
+  live.current.lsb_drop = 3;
+  live.current.shaped = true;
+  live.current.degradation_db = 0.5;
   EXPECT_EQ(FormatRequantization(live, true),
             QStringLiteral("Requantising: 3 dropped (7 bit range), noise "
                            "shaped, +0.50 dB in band, noise floor 1.80 LSB"));
+}
+
+// The median floor says how noisy the capture is; the slice that held it back
+// says why that was not enough.
+TEST(StatisticsPresenterTest, TheSliceThatHeldItBackIsNamed) {
+  capture::RequantizationStatus::Live live;
+  live.segments = 3;
+  live.noise_floor_lsb = 2.8;
+  live.current.limit_low_mhz = 12.0;
+  live.current.limit_high_mhz = 13.0;
+  live.current.limit_floor_lsb = 0.414;
+  EXPECT_EQ(FormatRequantization(live, false),
+            QStringLiteral("Preview: 0 dropped (10 bit range), +0.00 dB in "
+                           "band, noise floor 2.80 LSB, held back at 12-13 MHz "
+                           "(floor 0.41 LSB)"));
 }
 
 TEST(StatisticsPresenterTest, NoTotalsBeforeAnythingIsDecided) {

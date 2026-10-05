@@ -101,6 +101,16 @@ struct RequantizerDecision {
   bool shaped = false;
   double degradation_db = 0.0;
 
+  // What stopped it going further: the 1 MHz slice of the protected bands
+  // that the next more aggressive setting would have raised the most, and that
+  // slice's own floor in input LSBs. The median floor of the band says how
+  // noisy the capture is; this says why that was not enough — one quiet slice,
+  // a notch in the player's RF or the edge of a filter, holds the whole band
+  // back. Zero-width when nothing was more aggressive to try.
+  double limit_low_mhz = 0.0;
+  double limit_high_mhz = 0.0;
+  double limit_floor_lsb = 0.0;
+
   bool operator==(const RequantizerDecision& other) const = default;
 };
 
@@ -234,10 +244,19 @@ class RfRequantizer {
     ShapingQuantizer quantizer;
   };
 
+  // A candidate's cost: the most it raises any slice's floor, and which slice
+  // that is, with the slice's mean floor power.
+  struct SliceCost {
+    double db = 0.0;
+    double low_mhz = 0.0;
+    double high_mhz = 0.0;
+    double floor_power = 0.0;
+  };
+
   bool InBand(double frequency_mhz) const;
   void Analyse(const int16_t* samples, size_t count);
   void Periodogram(const double* frame, double* power);
-  double Degradation(const Candidate& candidate) const;
+  SliceCost Degradation(const Candidate& candidate) const;
 
   RequantizerSettings settings_;
   std::vector<FrequencyBand> bands_;
