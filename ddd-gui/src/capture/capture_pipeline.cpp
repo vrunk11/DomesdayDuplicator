@@ -457,6 +457,17 @@ void CapturePipeline::PerformPendingSinkChange() {
   const bool detaching = pending_detach_.exchange(false);
 
   if (incoming == nullptr && !detaching) {
+    // Nothing waiting, so every request counted so far has been applied: a
+    // request is published before it is counted, so one that is counted and
+    // not waiting was taken by an earlier swap. That swap may have been
+    // counted short — taken in the moment between a request being published
+    // and being counted, which is a long moment when the caller is destroying
+    // the sink it replaced, a FLAC file being finished on the way — and this
+    // is where the count catches up, or a caller waiting on that request
+    // would wait for ever.
+    if (requests_seen > sink_change_count_.load()) {
+      sink_change_count_.store(requests_seen);
+    }
     return;
   }
 

@@ -12,8 +12,10 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "capture_pipeline.h"
@@ -686,6 +688,58 @@ TEST_F(CapturePipelineTest, DetachingFinishesTheSinkAndLeavesTheStreamRunning) {
   const std::unique_ptr<ISampleSink> retired = pipeline.TakeRetiredSink();
   ASSERT_NE(retired, nullptr);
   EXPECT_EQ(retired.get(), sink_view);
+}
+
+// A sink that takes its time to go, as a FLAC file being finished does, and
+// says when it is going.
+class SlowlyDestroyedSink : public NullSink {
+ public:
+  explicit SlowlyDestroyedSink(std::function<void()> on_destroy)
+      : on_destroy_(std::move(on_destroy)) {}
+  ~SlowlyDestroyedSink() override { on_destroy_(); }
+
+  SlowlyDestroyedSink(const SlowlyDestroyedSink&) = delete;
+  SlowlyDestroyedSink& operator=(const SlowlyDestroyedSink&) = delete;
+  SlowlyDestroyedSink(SlowlyDestroyedSink&&) = delete;
+  SlowlyDestroyedSink& operator=(SlowlyDestroyedSink&&) = delete;
+
+ private:
+  std::function<void()> on_destroy_;
+};
+
+// A capture stopped the moment it started: its sink is replaced before the
+// processing thread ever took it, and the caller destroys it — slowly, since
+// that finishes the file. A swap to the replacement that lands meanwhile is
+// counted before the replacing request is, and the count still has to reach
+// that request, or a caller waiting on it waits for ever and the capture is
+// never reported finished.
+TEST_F(CapturePipelineTest, AStopInTheSameInstantAsTheStartIsStillCounted) {
+  SyntheticSource source(BaseSourceOptions());
+
+  CapturePipeline pipeline(&logger_);
+  ASSERT_TRUE(pipeline.Start(&source, std::make_unique<NullSink>(),
+                             BasePipelineOptions()));
+  ASSERT_TRUE(
+      WaitFor([&] { return pipeline.stats().Read().buffers_processed > 3; }));
+
+  // Several times over, because whether the first sink is replaced before it
+  // is taken is up to the processing thread. Whenever it is, its destruction
+  // holds the replacing request uncounted until the replacement is in.
+  for (int attempt = 0; attempt < 20; ++attempt) {
+    const uint64_t before = pipeline.SinkChangeCount();
+    pipeline.AttachSink(
+        std::make_unique<SlowlyDestroyedSink>([&pipeline, before] {
+          WaitFor([&] { return pipeline.SinkChangeCount() > before; }, 500ms);
+        }));
+    const uint64_t request = pipeline.AttachSink(std::make_unique<NullSink>());
+    ASSERT_TRUE(
+        WaitFor([&] { return pipeline.SinkChangeCount() >= request; }, 2000ms))
+        << "attempt " << attempt << ": " << pipeline.SinkChangeCount() << " of "
+        << request;
+  }
+
+  pipeline.RequestStop();
+  EXPECT_EQ(RunToCompletion(pipeline).result, TransferResult::kSuccess);
 }
 
 TEST_F(CapturePipelineTest, ASwapLandsBetweenBuffersRatherThanDuringOne) {
