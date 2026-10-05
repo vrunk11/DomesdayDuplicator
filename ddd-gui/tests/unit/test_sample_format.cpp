@@ -373,6 +373,19 @@ TEST(SampleConversionTest, AnUnusableSettingIsHeldInRange) {
   EXPECT_EQ(BitShift(SampleConversion{0, -1, 0}), 0);
 }
 
+// Packed for another thread and back, every conversion comes out as it went
+// in — a negative offset included — and the default is still told apart from
+// "nothing set".
+TEST(SampleConversionTest, APackedConversionUnpacksUnchanged) {
+  for (const SampleConversion& conversion : EveryConversion()) {
+    EXPECT_EQ(UnpackSampleConversion(PackSampleConversion(conversion)),
+              conversion)
+        << "offset " << conversion.dc_offset << " shift "
+        << conversion.bit_shift << " drop " << conversion.lsb_drop;
+  }
+  EXPECT_NE(PackSampleConversion(SampleConversion{}), 0U);
+}
+
 TEST(SampleConversionTest, TheScopeSeesWhatTheFileHolds) {
   EXPECT_EQ(ConvertedTenBitCode(600, SampleConversion{}), 600);
   EXPECT_EQ(ConvertedTenBitCode(600, SampleConversion{0, 1, 0}), 688);

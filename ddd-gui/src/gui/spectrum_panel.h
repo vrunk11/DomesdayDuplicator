@@ -287,6 +287,7 @@ class SpectrumPanel : public QWidget {
   static constexpr const char* kResolutionComboName =
       "spectrum_resolution_combo";
   static constexpr const char* kPeakHoldBoxName = "spectrum_peak_hold_box";
+  static constexpr const char* kCorrectedBoxName = "spectrum_corrected_box";
   static constexpr const char* kResetButtonName = "spectrum_reset_button";
   static constexpr const char* kCursorLabelName = "spectrum_cursor_label";
   static constexpr const char* kViewComboName = "spectrum_view_combo";
@@ -344,6 +345,9 @@ class SpectrumPanel : public QWidget {
   QComboBox* reference_ = nullptr;
   QComboBox* range_ = nullptr;
   QCheckBox* peak_hold_ = nullptr;
+
+  // See CaptureController::show_corrected().
+  QCheckBox* corrected_ = nullptr;
   QPushButton* reset_ = nullptr;
 
   // The two contrast controls with their labels, each held as the one widget

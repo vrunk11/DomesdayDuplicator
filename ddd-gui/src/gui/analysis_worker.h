@@ -22,6 +22,7 @@
 
 #include "capture_metatypes.h"
 #include "monitor_tap.h"
+#include "sample_format.h"
 #include "spectrum_analyser.h"
 
 class QTimer;
@@ -70,6 +71,13 @@ class SnapshotAnalyser : public QObject {
 
   void RequestPeakHoldReset();
 
+  // Show the signal as the capture would write it: every code put through
+  // `conversion` before it is drawn or transformed. The default shows the
+  // converter's own codes. Taken at the next snapshot, and the spectrum's
+  // averages start again with it — an average across the change would be of
+  // two different signals.
+  void SetConversion(const capture::SampleConversion& conversion);
+
  public slots:
   // Builds the poll timer. Connected to the thread's started() signal so that
   // the timer is created on the thread it will fire on.
@@ -112,6 +120,13 @@ class SnapshotAnalyser : public QObject {
   std::atomic<bool> options_changed_{false};
   std::atomic<bool> peak_hold_reset_requested_{false};
 
+  // The conversion SetConversion() asked for, packed so that it is handed over
+  // whole (capture::PackSampleConversion), and the one in force here.
+  std::atomic<uint64_t> requested_conversion_{
+      capture::PackSampleConversion(capture::SampleConversion{})};
+  uint64_t applied_conversion_ =
+      capture::PackSampleConversion(capture::SampleConversion{});
+
   // Worker-thread scratch. Reused rather than reallocated per frame.
   std::vector<uint8_t> wire_;
   std::vector<uint16_t> codes_;
@@ -137,12 +152,13 @@ class AnalysisWorker : public QObject {
 
   bool running() const { return thread_.isRunning(); }
 
-  // All four are no-ops before Start() and after Stop(): there is no thread to
+  // All five are no-ops before Start() and after Stop(): there is no thread to
   // carry the request to, and a caller should not have to check.
   void SetSource(capture::SnapshotPublisher* snapshots);
   void SetSpectrumAveraging(double averaging);
   void SetSpectrumTransformSize(size_t transform_size);
   void ResetPeakHold();
+  void SetConversion(const capture::SampleConversion& conversion);
 
  signals:
   void WaveformReady(const std::vector<uint16_t>& codes);

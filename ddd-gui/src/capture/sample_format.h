@@ -188,6 +188,29 @@ inline constexpr int LsbDrop(const SampleConversion& conversion) {
   return std::clamp(conversion.lsb_drop, 0, kMaximumLsbDrop);
 }
 
+// A conversion in one word, for handing it to another thread with a single
+// atomic store that can never be read half written — the pipeline's and the
+// analysis worker's way of taking a change while they run. The top bit marks a
+// word as set, so that the default conversion is not mistaken for "nothing
+// asked for". The shift and the drop are packed as used, already clamped.
+inline constexpr uint64_t kSampleConversionSet = uint64_t{1} << 63;
+
+inline constexpr uint64_t PackSampleConversion(
+    const SampleConversion& conversion) {
+  return kSampleConversionSet |
+         static_cast<uint64_t>(static_cast<uint32_t>(conversion.dc_offset)) |
+         (static_cast<uint64_t>(BitShift(conversion)) << 32) |
+         (static_cast<uint64_t>(LsbDrop(conversion)) << 40);
+}
+
+inline constexpr SampleConversion UnpackSampleConversion(uint64_t packed) {
+  SampleConversion conversion;
+  conversion.dc_offset = static_cast<int32_t>(static_cast<uint32_t>(packed));
+  conversion.bit_shift = static_cast<int>((packed >> 32) & 0xFF);
+  conversion.lsb_drop = static_cast<int>((packed >> 40) & 0xFF);
+  return conversion;
+}
+
 // A centred value rounded to a step of 2^step_bits, half to even.
 //
 // Rounded rather than truncated, because truncation moves every sample the same

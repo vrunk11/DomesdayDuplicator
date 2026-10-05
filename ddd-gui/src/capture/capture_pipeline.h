@@ -171,6 +171,20 @@ class CapturePipeline {
   // Replace the current sink with a null one — stop writing, keep streaming.
   uint64_t DetachSink();
 
+  // --- The conversion, while monitoring
+  // ---------------------------------------
+
+  // Count clipping against another conversion from the next buffer on, while
+  // the stream runs. Wait-free: one atomic store here and one load per buffer
+  // on the processing thread.
+  //
+  // For a stream with no sink. The pipeline converts nothing itself, so what
+  // this changes is what is counted — a sink already open keeps the conversion
+  // it was opened with, and its file's counts would no longer describe it. The
+  // caller is what refuses that. Ignored in test mode, as Options::conversion
+  // is.
+  void SetConversion(const SampleConversion& conversion);
+
   // Sink changes completed so far
   uint64_t SinkChangeCount() const { return sink_change_count_.load(); }
 
@@ -241,6 +255,12 @@ class CapturePipeline {
 
   ISampleSource* source_ = nullptr;
   std::unique_ptr<DiskBufferRing> ring_;
+
+  // The conversion SetConversion() asked for, packed into one word so that it
+  // is published and read whole — see PackSampleConversion() — and the one the
+  // validator was last given, which only the processing thread touches.
+  std::atomic<uint64_t> requested_conversion_{0};
+  uint64_t applied_conversion_ = 0;
 
   std::unique_ptr<ISampleSink> sink_;
   std::atomic<ISampleSink*> pending_sink_{nullptr};

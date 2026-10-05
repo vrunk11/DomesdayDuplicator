@@ -89,8 +89,13 @@ bool CapturePipeline::Start(ISampleSource* source,
   source_ = source;
   sink_ = std::move(sink);
   validator_.Reset();
-  validator_.SetConversion(options.test_mode ? SampleConversion{}
-                                             : options.conversion);
+  {
+    const SampleConversion conversion =
+        options.test_mode ? SampleConversion{} : options.conversion;
+    validator_.SetConversion(conversion);
+    applied_conversion_ = PackSampleConversion(conversion);
+    requested_conversion_.store(applied_conversion_);
+  }
   metrics_.Reset();
   test_pattern_verifier_ = TestPatternVerifier{};
   test_pattern_result_ = TestPatternVerifier::Result{};
@@ -248,6 +253,14 @@ uint64_t CapturePipeline::DetachSink() {
 
   pending_detach_.store(true);
   return sink_change_requests_.fetch_add(1) + 1;
+}
+
+void CapturePipeline::SetConversion(const SampleConversion& conversion) {
+  // Test mode counts the gateware's ramp, which nothing converts.
+  if (options_.test_mode) {
+    return;
+  }
+  requested_conversion_.store(PackSampleConversion(conversion));
 }
 
 std::unique_ptr<ISampleSink> CapturePipeline::TakeRetiredSink() {
@@ -755,6 +768,16 @@ void CapturePipeline::ProcessingThread() {
     // makes "start recording" lose nothing: the boundary is a place where no
     // sample is half-written.
     PerformPendingSinkChange();
+
+    // And so is a change of conversion, for the same reason: every buffer is
+    // counted against one conversion or the other, never half of each.
+    {
+      const uint64_t requested = requested_conversion_.load();
+      if (requested != applied_conversion_) {
+        validator_.SetConversion(UnpackSampleConversion(requested));
+        applied_conversion_ = requested;
+      }
+    }
 
     if (!ring_->WaitForSlotFull(slot_index)) {
       // Woken by a dump rather than by data. Either the capture is stopping

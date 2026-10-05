@@ -18,6 +18,7 @@
 #include "front_end_gain.h"
 #include "monitor_tap.h"
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QPushButton;
@@ -71,9 +72,15 @@ class AmplitudePanel : public QWidget {
   static constexpr const char* kGainLabelName = "amplitude_gain_label";
   static constexpr const char* kClearButtonName = "amplitude_clear_button";
   static constexpr const char* kSpanComboName = "amplitude_span_combo";
+  static constexpr const char* kCorrectedBoxName = "amplitude_corrected_box";
 
-  // For tests: what the panel has accumulated.
+  // For tests: what the panel has accumulated, as the converter produced it,
+  // and as the capture would write it — kept side by side so that turning
+  // Corrected on or off changes what is shown and loses nothing.
   const analysis::AmplitudeHistory& history() const { return history_; }
+  const analysis::AmplitudeHistory& corrected_history() const {
+    return corrected_history_;
+  }
 
  public slots:
   void OnStatsUpdated(const ddd::capture::CaptureStats& stats);
@@ -93,13 +100,27 @@ class AmplitudePanel : public QWidget {
   void UpdateSummary();
   void ApplySpan();
 
+  // Draw and summarise one history or the other. See
+  // CaptureController::show_corrected().
+  void ShowCorrected(bool show);
+  const analysis::AmplitudeHistory& shown_history() const {
+    return showing_corrected_ ? corrected_history_ : history_;
+  }
+
+  CaptureController* controller_ = nullptr;
   analysis::AmplitudeHistory history_;
+
+  // Each point converted with the conversion in force when it was taken, so
+  // that a change made while monitoring shows where it was made.
+  analysis::AmplitudeHistory corrected_history_;
+  bool showing_corrected_ = false;
   double matched_window_seconds_ = 0.0;
   analysis::AmplitudeSampler sampler_;
   analysis::FrontEndGain gain_;
 
   AmplitudePlot* plot_ = nullptr;
   QComboBox* span_ = nullptr;
+  QCheckBox* corrected_ = nullptr;
   QLabel* summary_ = nullptr;
   QLabel* gain_label_ = nullptr;
   QPushButton* clear_ = nullptr;

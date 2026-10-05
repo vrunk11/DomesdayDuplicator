@@ -11,12 +11,14 @@
 
 #include "amplitude_panel.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
 #include <QPolygonF>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
 #include <algorithm>
 
@@ -269,7 +271,7 @@ void AmplitudePlot::paintEvent(QPaintEvent* event) {
 }
 
 AmplitudePanel::AmplitudePanel(CaptureController* controller, QWidget* parent)
-    : QWidget(parent) {
+    : QWidget(parent), controller_(controller) {
   auto* layout = new QVBoxLayout(this);
   layout->setContentsMargins(8, 8, 8, 8);
 
@@ -292,6 +294,21 @@ AmplitudePanel::AmplitudePanel(CaptureController* controller, QWidget* parent)
   connect(span_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplySpan(); });
   controls->addWidget(span_);
+
+  corrected_ = new QCheckBox(tr("Corrected"), this);
+  corrected_->setObjectName(QLatin1String(kCorrectedBoxName));
+  corrected_->setToolTip(
+      tr("Show the levels as they are written to the file: the DC offset "
+         "taken out and the bit shift applied. The scope and the spectrum "
+         "follow the same switch. The RMS is scaled by the shift; the clip "
+         "ticks stay the converter's own."));
+  connect(corrected_, &QCheckBox::toggled, this, [this](bool on) {
+    if (controller_ != nullptr) {
+      controller_->SetShowCorrected(on);
+    }
+    ShowCorrected(on);
+  });
+  controls->addWidget(corrected_);
 
   summary_ = new QLabel(this);
   summary_->setObjectName(QLatin1String(kSummaryLabelName));
@@ -324,6 +341,13 @@ AmplitudePanel::AmplitudePanel(CaptureController* controller, QWidget* parent)
             &AmplitudePanel::OnStatsUpdated);
     connect(controller, &CaptureController::MonitoringChanged, this,
             &AmplitudePanel::OnMonitoringChanged);
+    connect(controller, &CaptureController::ShowCorrectedChanged, this,
+            [this](bool show) {
+              const QSignalBlocker blocker(corrected_);
+              corrected_->setChecked(show);
+              ShowCorrected(show);
+            });
+    corrected_->setChecked(controller->show_corrected());
     connect(controller, &CaptureController::SettingsChanged, this,
             [this](const CaptureSettings& settings) {
               SetFrontEndGain(settings.DeclaredGain());
@@ -343,7 +367,12 @@ void AmplitudePanel::OnStatsUpdated(const ddd::capture::CaptureStats& stats) {
     return;
   }
 
-  history_.Append(point.value_or(analysis::AmplitudePoint{}));
+  const analysis::AmplitudePoint taken =
+      point.value_or(analysis::AmplitudePoint{});
+  history_.Append(taken);
+  corrected_history_.Append(analysis::ConvertAmplitudePoint(
+      taken, controller_ != nullptr ? controller_->run_conversion()
+                                    : capture::SampleConversion{}));
   plot_->Refresh();
   UpdateSummary();
 }
@@ -357,6 +386,7 @@ void AmplitudePanel::OnMonitoringChanged(bool monitoring) {
   }
 
   history_.Clear();
+  corrected_history_.Clear();
   sampler_.Reset();
   plot_->Refresh();
   UpdateSummary();
@@ -391,13 +421,21 @@ void AmplitudePanel::ClearHistory() {
   // total it last saw, and the first point after a clear would report the
   // difference against a run of history that no longer exists.
   history_.Clear();
+  corrected_history_.Clear();
   sampler_.Reset();
   plot_->Refresh();
   UpdateSummary();
 }
 
+void AmplitudePanel::ShowCorrected(bool show) {
+  showing_corrected_ = show;
+  plot_->SetHistory(&shown_history());
+  plot_->Refresh();
+  UpdateSummary();
+}
+
 void AmplitudePanel::UpdateSummary() {
-  summary_->setText(FormatAmplitudeSummary(history_, gain_));
+  summary_->setText(FormatAmplitudeSummary(shown_history(), gain_));
 }
 
 }  // namespace ddd::gui

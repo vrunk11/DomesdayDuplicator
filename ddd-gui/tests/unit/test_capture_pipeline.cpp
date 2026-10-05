@@ -405,6 +405,45 @@ TEST_F(CapturePipelineTest, TestModeIgnoresTheOffset) {
   EXPECT_EQ(outcome.stats.metrics.offset_saturated_count, 0U);
 }
 
+// A conversion changed while the stream runs is counted against from then on:
+// a bit shift of one clips every code a quarter of the way or more from the
+// middle, which the ramp visits on every pass.
+TEST_F(CapturePipelineTest, AConversionChangedWhileRunningIsCountedAgainst) {
+  SyntheticSource::Options source_options = BaseSourceOptions();
+  source_options.slot_limit = 40;
+  // Paced, so that the change lands with most of the run still to come rather
+  // than racing an unpaced source to the end of it.
+  source_options.rate_bytes_per_second = kWireBytesPerSecond;
+  SyntheticSource source(source_options);
+
+  CapturePipeline pipeline(&logger_);
+  ASSERT_TRUE(pipeline.Start(&source, std::make_unique<NullSink>(),
+                             BasePipelineOptions()));
+  pipeline.SetConversion(SampleConversion{0, 1});
+
+  const RunResult outcome = RunToCompletion(pipeline);
+  EXPECT_EQ(outcome.result, TransferResult::kSuccess);
+  EXPECT_GT(outcome.stats.metrics.shift_clipped_count, 0U);
+  EXPECT_EQ(outcome.stats.metrics.offset_saturated_count, 0U);
+}
+
+TEST_F(CapturePipelineTest, TestModeIgnoresAConversionChangedWhileRunning) {
+  SyntheticSource::Options source_options = BaseSourceOptions();
+  source_options.slot_limit = 20;
+  SyntheticSource source(source_options);
+
+  CapturePipeline::Options options = BasePipelineOptions();
+  options.test_mode = true;
+
+  CapturePipeline pipeline(&logger_);
+  ASSERT_TRUE(pipeline.Start(&source, std::make_unique<NullSink>(), options));
+  pipeline.SetConversion(SampleConversion{0, 1});
+
+  const RunResult outcome = RunToCompletion(pipeline);
+  EXPECT_EQ(outcome.result, TransferResult::kSuccess);
+  EXPECT_EQ(outcome.stats.metrics.shift_clipped_count, 0U);
+}
+
 TEST_F(CapturePipelineTest, DiscardedStartupSlotsNeverReachTheSink) {
   // The device is already streaming when the host opens it, so the first
   // transfers hold whatever was mid-flight. Discarding them is what keeps every

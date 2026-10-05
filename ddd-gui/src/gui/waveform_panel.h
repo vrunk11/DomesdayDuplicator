@@ -275,8 +275,6 @@ class WaveformPanel : public QWidget {
   // What the running stream's writers do to its samples, taken when it starts.
   capture::SampleConversion conversion_;
 
-  // The corrected snapshot, reused rather than reallocated per frame.
-  std::vector<uint16_t> corrected_codes_;
   QSlider* persistence_ = nullptr;
   QLabel* persistence_label_ = nullptr;
   CursorReadout* cursor_ = nullptr;

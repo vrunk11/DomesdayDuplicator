@@ -314,10 +314,16 @@ limit is applied once, to the finished value, so nothing clips half way through.
 Both settings, and the files, describe the action taken rather than what it leaves: a bit
 shift of 1 and an LSB drop of 2, not "x2" and "8 bits".
 
-Both are fixed for a stream when it starts, like the input range, so that the clipping count
-and the scope's [Corrected](signal-analysis.md#corrected) view describe what is actually
-being written. Neither is applied in test mode, whose ramp has to reach the file exactly as
-the gateware counted it. Both are recorded in every file's tags and its metadata.
+Both can be changed **while monitoring**, and take effect at once: the clipping count is kept
+against the new values from the next buffer, and the [Corrected](signal-analysis.md#corrected)
+view of the scope, the spectrum and the amplitude history redraws with them, so the effect
+can be watched as it is chosen. They are locked only while a capture is being written, which
+keeps the values a file was opened with from its start to its end. Neither is applied in test
+mode, whose ramp has to reach the file exactly as the gateware counted it. Both are recorded
+in every file's tags and its metadata.
+
+Each list shows the count, which is what is recorded, beside what it amounts to: `1 (x2)` for
+a one-bit shift, `2 (8 bit range)` for two LSBs dropped.
 
 ### Duration limit
 

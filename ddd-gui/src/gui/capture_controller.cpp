@@ -155,12 +155,52 @@ void CaptureController::SetSettings(const CaptureSettings& settings) {
   // whatever the settings arrived with — a dialog opened before the board
   // setup changed hands back the rate it was opened with.
   ApplyBoardLimits();
+  UpdateRunConversion();
 }
 
 void CaptureController::ApplySessionSettings(const CaptureSettings& settings) {
   settings_ = settings;
   emit SettingsChanged(settings_);
   ApplyBoardLimits();
+  UpdateRunConversion();
+}
+
+void CaptureController::SetShowCorrected(bool show) {
+  if (show == show_corrected_) {
+    return;
+  }
+  show_corrected_ = show;
+  ApplyDisplayConversion();
+  emit ShowCorrectedChanged(show);
+}
+
+void CaptureController::UpdateRunConversion() {
+  // Only the two settings that can change under a running stream do: the DC
+  // offset and test mode are the run's, fixed when it started, and a stream of
+  // the gateware's ramp or a measurement converts nothing whatever is asked.
+  if (!monitoring_ || capturing_ || !run_converts_) {
+    return;
+  }
+  capture::SampleConversion conversion = run_conversion_;
+  conversion.bit_shift = settings_.bit_shift;
+  conversion.lsb_drop = settings_.lsb_drop;
+  if (conversion == run_conversion_) {
+    return;
+  }
+  run_conversion_ = conversion;
+  pipeline_->SetConversion(conversion);
+
+  // A new conversion is judged afresh, as a new run is: a shift that clipped
+  // and was then lowered should not go on being accused.
+  shift_clipping_warned_ = false;
+
+  ApplyDisplayConversion();
+  emit ConversionChanged();
+}
+
+void CaptureController::ApplyDisplayConversion() {
+  analysis_->SetConversion(show_corrected_ ? run_conversion_
+                                           : capture::SampleConversion{});
 }
 
 void CaptureController::SetPipeOutput(
@@ -901,6 +941,7 @@ void CaptureController::StartMonitoring() {
   // anything has been written with it.
   options.conversion = RunConversion();
   run_conversion_ = options.conversion;
+  run_converts_ = !test_mode && !measuring_dc_offset();
   offset_out_of_range_warned_ = false;
   shift_clipping_warned_ = false;
 
@@ -939,6 +980,7 @@ void CaptureController::StartMonitoring() {
   // is one fewer thing to explain in a stack trace.
   analysis_->Start();
   analysis_->SetSource(&pipeline_->snapshots());
+  ApplyDisplayConversion();
 
   monitoring_ = true;
   stats_timer_.start();

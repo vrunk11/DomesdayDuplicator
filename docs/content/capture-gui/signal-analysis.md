@@ -216,7 +216,9 @@ two seconds comes back having genuinely lost two seconds of picture.
 ### Corrected
 
 Off by default, and the scope then shows the converter's own codes, with the dashed clip lines
-on its ends at 0 and 1023.
+on its ends at 0 and 1023. The switch is shared: the [spectrum](#spectrum) and the
+[amplitude history](#amplitude-history) each have one too, and turning any of them on or off
+turns all three, so two panels never show two different signals side by side.
 
 On, it shows the signal as it is written to the file: the DC offset declared in
 [Board setup](board-setup.md) taken out, so a board whose front end sits off-centre is drawn
@@ -228,11 +230,15 @@ clipping whichever view is on.
 It also applies the [bit shift](capture-control.md#bit-shift-digital-gain) and the
 [LSB drop](capture-control.md#lsb-drop) the capture panel asks for, in the order the
 writers apply them, so a capture shifted by one bit is drawn twice as large and one with two
-LSBs dropped in steps of four codes. With a shift, the clip lines move out to the ends of the range: that
-is where the shift itself clips.
+LSBs dropped in steps of four codes. With a shift, the clip lines move out to the ends of the
+range: that is where the shift itself clips.
 
-All of it is what the running stream is converted with, taken when monitoring starts. With no
-offset declared, with no shift and no LSB drop, or in test mode, the two views are the same.
+The offset is the one the running stream started with. The bit shift and the LSB drop follow
+the capture panel as they are changed, while monitoring. In the spectrum an LSB drop shows as
+the noise floor rising and a shift as every level moving up together; in the amplitude
+history the extremes are those the file would hold and the RMS is scaled by the shift, while
+the clip ticks stay the converter's own. With no offset declared, with no shift and no LSB
+drop, or in test mode, the two views are the same.
 
 ### The cursor
 

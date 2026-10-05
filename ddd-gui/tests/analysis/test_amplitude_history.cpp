@@ -283,5 +283,32 @@ TEST(AmplitudeSamplerTest, TheDefaultIntervalFillsTheDefaultRingWithMinutes) {
   EXPECT_NEAR(seconds, 300.0, 1e-9);
 }
 
+// The Corrected view of the history: the extremes as the file would hold them,
+// the RMS scaled by the shift and held to full scale, the clip count the
+// converter's.
+TEST(AmplitudeConversionTest, APointIsShownAsTheCaptureWouldWriteIt) {
+  const AmplitudePoint point = MakePoint(2.0, 100.0, 400, 600, 3);
+
+  const AmplitudePoint same = ConvertAmplitudePoint(point, {});
+  EXPECT_EQ(same.minimum_code, 400);
+  EXPECT_EQ(same.maximum_code, 600);
+  EXPECT_DOUBLE_EQ(same.rms_codes, 100.0);
+
+  const AmplitudePoint shifted =
+      ConvertAmplitudePoint(point, capture::SampleConversion{10, 1, 0});
+  EXPECT_EQ(shifted.minimum_code, 512 + ((400 - 512 - 10) * 2));
+  EXPECT_EQ(shifted.maximum_code, 512 + ((600 - 512 - 10) * 2));
+  EXPECT_DOUBLE_EQ(shifted.rms_codes, 200.0);
+  EXPECT_EQ(shifted.clipped_count, 3U);
+  EXPECT_DOUBLE_EQ(shifted.seconds, 2.0);
+
+  // Taken past full scale, and held there.
+  const AmplitudePoint clipped = ConvertAmplitudePoint(
+      MakePoint(0.0, 300.0, 100, 900), capture::SampleConversion{0, 2, 0});
+  EXPECT_EQ(clipped.minimum_code, 0);
+  EXPECT_EQ(clipped.maximum_code, 1023 - 3);
+  EXPECT_DOUBLE_EQ(clipped.rms_codes, 512.0);
+}
+
 }  // namespace
 }  // namespace ddd::analysis

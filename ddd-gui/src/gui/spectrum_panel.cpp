@@ -1158,6 +1158,23 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
   });
   controls->addWidget(reset_);
 
+  // The same switch as the scope's, held by the controller: on, the spectrum
+  // is of the signal as it is written — where an LSB drop shows as the noise
+  // floor rising, and a bit shift as every level moving up together.
+  corrected_ = new QCheckBox(tr("Corrected"), this);
+  corrected_->setObjectName(QLatin1String(kCorrectedBoxName));
+  corrected_->setToolTip(
+      tr("Analyse the signal as it is written to the file: the DC offset "
+         "taken out, then the bit shift and the LSB drop the capture panel "
+         "asks for. An LSB drop shows here as the noise floor rising. The "
+         "scope and the amplitude history follow the same switch."));
+  connect(corrected_, &QCheckBox::toggled, this, [this](bool on) {
+    if (controller_ != nullptr) {
+      controller_->SetShowCorrected(on);
+    }
+  });
+  controls->addWidget(corrected_);
+
   // No spacer before it, and whatever is left of the last row given to it: the
   // readout is what fills the end of the row. It asks the layout for no width
   // of its own, which is what keeps the dock from being re-laid out every time
@@ -1181,6 +1198,12 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
             &SpectrumPanel::OnSpectrumReady);
     connect(controller_, &CaptureController::MonitoringChanged, this,
             &SpectrumPanel::OnMonitoringChanged);
+    connect(controller_, &CaptureController::ShowCorrectedChanged, this,
+            [this](bool show) {
+              const QSignalBlocker blocker(corrected_);
+              corrected_->setChecked(show);
+            });
+    corrected_->setChecked(controller_->show_corrected());
 
     // The frequency axis is a property of the stream's rate, so it follows the
     // setting rather than being fixed at construction. The rate cannot change

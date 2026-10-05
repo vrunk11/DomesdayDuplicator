@@ -673,12 +673,20 @@ WaveformPanel::WaveformPanel(CaptureController* controller, QWidget* parent)
   corrected_ = new QCheckBox(tr("Corrected"), this);
   corrected_->setObjectName(QLatin1String(kCorrectedBoxName));
   corrected_->setToolTip(
-      tr("Show the signal as it is written to the file, with the DC offset "
-         "declared in Board setup taken out. The dashed clip lines move with "
-         "it and stay on the converter's real limits, so the headroom shown is "
-         "the headroom there is. Off shows the converter's own codes."));
-  connect(corrected_, &QCheckBox::toggled, this,
-          [this](bool) { ApplyCorrection(); });
+      tr("Show the signal as it is written to the file: the DC offset "
+         "declared in Board setup taken out, then the bit shift and the LSB "
+         "drop the capture panel asks for. The dashed clip lines move with it "
+         "and stay on the converter's real limits, so the headroom shown is "
+         "the headroom there is. Off shows the converter's own codes. The "
+         "spectrum and the amplitude history follow the same switch."));
+  connect(corrected_, &QCheckBox::toggled, this, [this](bool on) {
+    // One switch for every signal panel, held by the controller, so the scope
+    // and the spectrum are never showing two different signals.
+    if (controller_ != nullptr) {
+      controller_->SetShowCorrected(on);
+    }
+    ApplyCorrection();
+  });
   controls->addWidget(corrected_);
 
   controls->addWidget(new QLabel(tr("Persistence"), this));
@@ -739,6 +747,17 @@ WaveformPanel::WaveformPanel(CaptureController* controller, QWidget* parent)
             &WaveformPanel::OnWaveformReady);
     connect(controller, &CaptureController::MonitoringChanged, this,
             &WaveformPanel::OnMonitoringChanged);
+    connect(controller, &CaptureController::ShowCorrectedChanged, this,
+            [this](bool show) {
+              const QSignalBlocker blocker(corrected_);
+              corrected_->setChecked(show);
+              ApplyCorrection();
+            });
+    connect(controller, &CaptureController::ConversionChanged, this, [this] {
+      conversion_ = controller_->run_conversion();
+      ApplyCorrection();
+    });
+    corrected_->setChecked(controller->show_corrected());
     connect(controller, &CaptureController::SettingsChanged, this,
             [this](const CaptureSettings& settings) {
               SetFrontEndGain(settings.DeclaredGain());
@@ -773,22 +792,10 @@ void WaveformPanel::SetSampleRate(uint32_t sample_rate_hz) {
 }
 
 void WaveformPanel::OnWaveformReady(const std::vector<uint16_t>& codes) {
-  if (!corrected_->isChecked() || conversion_ == capture::SampleConversion{}) {
-    plot_->SetCodes(codes);
-    return;
-  }
-
-  // The same thing the writers do, in the 10-bit domain the plot draws in:
-  // each code centred by the offset, shifted up, its low bits dropped by
-  // rounding, and held at the end of the range it would otherwise leave —
-  // which is exactly what the file holds. See capture::ConvertedTenBitCode.
-  corrected_codes_.resize(codes.size());
-  for (size_t index = 0; index < codes.size(); ++index) {
-    corrected_codes_[index] =
-        static_cast<uint16_t>(capture::ConvertedTenBitCode(
-            static_cast<int32_t>(codes[index]), conversion_));
-  }
-  plot_->SetCodes(corrected_codes_);
+  // Already converted, when the Corrected view is on: the analysis worker does
+  // it once for every panel, so the scope and the spectrum are drawn from the
+  // same codes. See CaptureController::show_corrected().
+  plot_->SetCodes(codes);
 }
 
 void WaveformPanel::OnMonitoringChanged(bool monitoring) {

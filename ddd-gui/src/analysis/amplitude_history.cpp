@@ -199,4 +199,17 @@ void AmplitudeSampler::Reset() {
   have_clipped_total_ = false;
 }
 
+AmplitudePoint ConvertAmplitudePoint(
+    const AmplitudePoint& point, const capture::SampleConversion& conversion) {
+  AmplitudePoint converted = point;
+  converted.minimum_code = static_cast<uint16_t>(
+      capture::ConvertedTenBitCode(point.minimum_code, conversion));
+  converted.maximum_code = static_cast<uint16_t>(
+      capture::ConvertedTenBitCode(point.maximum_code, conversion));
+  converted.rms_codes = std::min(
+      point.rms_codes * static_cast<double>(1 << capture::BitShift(conversion)),
+      static_cast<double>(capture::kSampleZeroOffset));
+  return converted;
+}
+
 }  // namespace ddd::analysis

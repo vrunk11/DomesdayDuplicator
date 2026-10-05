@@ -41,6 +41,11 @@ void SnapshotAnalyser::RequestPeakHoldReset() {
   peak_hold_reset_requested_.store(true);
 }
 
+void SnapshotAnalyser::SetConversion(
+    const capture::SampleConversion& conversion) {
+  requested_conversion_.store(capture::PackSampleConversion(conversion));
+}
+
 void SnapshotAnalyser::Begin() {
   // Created here rather than in the constructor because a QTimer fires on the
   // thread it was created on. Built in the constructor it would belong to the
@@ -66,6 +71,15 @@ void SnapshotAnalyser::Poll() {
   if (peak_hold_reset_requested_.exchange(false)) {
     spectrum_.ResetPeakHold();
   }
+
+  const uint64_t requested_conversion = requested_conversion_.load();
+  if (requested_conversion != applied_conversion_) {
+    applied_conversion_ = requested_conversion;
+    spectrum_.Reset();
+  }
+  const capture::SampleConversion conversion =
+      capture::UnpackSampleConversion(applied_conversion_);
+  const bool converting = conversion != capture::SampleConversion{};
 
   {
     const std::lock_guard<std::mutex> lock(source_mutex_);
@@ -93,7 +107,14 @@ void SnapshotAnalyser::Poll() {
         static_cast<uint16_t>(
             static_cast<uint16_t>(wire_[(index * capture::kBytesPerSample) + 1])
             << 8);
-    codes_[index] = capture::SampleValueFromWord(word);
+    const uint16_t code = capture::SampleValueFromWord(word);
+
+    // What the capture would write, in the codes every display is drawn in:
+    // the scope, the spectrum and its spectrogram all see the same thing.
+    codes_[index] = converting
+                        ? static_cast<uint16_t>(
+                              capture::ConvertedTenBitCode(code, conversion))
+                        : code;
   }
 
   emit WaveformReady(codes_);
@@ -182,6 +203,13 @@ void AnalysisWorker::SetSpectrumTransformSize(size_t transform_size) {
 void AnalysisWorker::ResetPeakHold() {
   if (analyser_ != nullptr) {
     analyser_->RequestPeakHoldReset();
+  }
+}
+
+void AnalysisWorker::SetConversion(
+    const capture::SampleConversion& conversion) {
+  if (analyser_ != nullptr) {
+    analyser_->SetConversion(conversion);
   }
 }
 

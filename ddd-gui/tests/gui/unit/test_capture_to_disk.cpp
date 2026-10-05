@@ -1274,6 +1274,59 @@ TEST_F(CaptureToDiskTest, AnUncompressedCaptureGetsTheSameMetadataFile) {
 
 // --- What is kept of the signal -------------------------------------------
 
+// Changed while monitoring, the bit shift and the LSB drop take effect at once:
+// the run's conversion follows, and the panels are told.
+TEST_F(CaptureToDiskTest, AShiftChangedWhileMonitoringAppliesAtOnce) {
+  controller_->StartMonitoring();
+  ASSERT_TRUE(controller_->monitoring());
+  EXPECT_EQ(controller_->run_conversion().bit_shift, 0);
+
+  QSignalSpy changed(controller_.get(), &CaptureController::ConversionChanged);
+  Settings([](CaptureSettings& settings) {
+    settings.bit_shift = 2;
+    settings.lsb_drop = 1;
+  });
+
+  EXPECT_EQ(changed.count(), 1);
+  EXPECT_EQ(controller_->run_conversion().bit_shift, 2);
+  EXPECT_EQ(controller_->run_conversion().lsb_drop, 1);
+
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+}
+
+// While a file is being written its conversion is the one it was opened with,
+// whatever the settings say in the meantime.
+TEST_F(CaptureToDiskTest, AShiftIsNotChangedUnderAFileBeingWritten) {
+  controller_->StartCapture();
+  ASSERT_TRUE(controller_->capturing());
+
+  QSignalSpy changed(controller_.get(), &CaptureController::ConversionChanged);
+  Settings([](CaptureSettings& settings) { settings.bit_shift = 1; });
+
+  EXPECT_EQ(changed.count(), 0);
+  EXPECT_EQ(controller_->run_conversion().bit_shift, 0);
+
+  controller_->StopCapture();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->capturing(); }));
+  controller_->StopMonitoring();
+  ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
+}
+
+// One Corrected switch for every panel: set once, said once.
+TEST_F(CaptureToDiskTest, TheCorrectedViewIsOneSwitchForEveryPanel) {
+  EXPECT_FALSE(controller_->show_corrected());
+
+  QSignalSpy changed(controller_.get(),
+                     &CaptureController::ShowCorrectedChanged);
+  controller_->SetShowCorrected(true);
+  controller_->SetShowCorrected(true);
+
+  EXPECT_TRUE(controller_->show_corrected());
+  ASSERT_EQ(changed.count(), 1);
+  EXPECT_TRUE(changed.front().at(0).toBool());
+}
+
 // Shifted up one, two LSBs dropped: every sample in the file sits on the step
 // that leaves, and the file says what was done to it.
 TEST_F(CaptureToDiskTest, AReducedCaptureHoldsWhatItSaysItHolds) {

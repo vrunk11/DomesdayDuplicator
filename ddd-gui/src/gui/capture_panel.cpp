@@ -245,10 +245,8 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
   bit_shift_combo_ = new QComboBox(contents);
   bit_shift_combo_->setObjectName(QLatin1String(kBitShiftComboName));
   for (int shift = 0; shift <= capture::kMaximumBitShift; ++shift) {
-    const QString label = shift == 1
-                              ? tr("1 bit (x2)")
-                              : tr("%1 bits (x%2)").arg(shift).arg(1 << shift);
-    bit_shift_combo_->addItem(label, shift);
+    // The count, which is what is recorded, and the gain it amounts to.
+    bit_shift_combo_->addItem(tr("%1 (x%2)").arg(shift).arg(1 << shift), shift);
   }
   bit_shift_combo_->setToolTip(
       tr("Shift the signal up by this many bits before it is written — a "
@@ -262,16 +260,11 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
   lsb_drop_combo_ = new QComboBox(contents);
   lsb_drop_combo_->setObjectName(QLatin1String(kLsbDropComboName));
   for (int drop = 0; drop <= capture::kMaximumLsbDrop; ++drop) {
-    const int kept = capture::kConverterBits - drop;
-    QString label;
-    if (drop == 0) {
-      label = tr("0 bits (keep all %1)").arg(kept);
-    } else if (drop == 1) {
-      label = tr("1 bit (keep %1)").arg(kept);
-    } else {
-      label = tr("%1 bits (keep %2)").arg(drop).arg(kept);
-    }
-    lsb_drop_combo_->addItem(label, drop);
+    // The count, which is what is recorded, and the range the converter's
+    // codes are left spanning.
+    lsb_drop_combo_->addItem(
+        tr("%1 (%2 bit range)").arg(drop).arg(capture::kConverterBits - drop),
+        drop);
   }
   lsb_drop_combo_->setToolTip(
       tr("Drop this many of the converter's low bits before the capture is "
@@ -1038,11 +1031,12 @@ void CapturePanel::UpdateEnabledState() {
       !capturing_ && format_combo_->currentData().toInt() ==
                          static_cast<int>(capture::CaptureOutputFormat::kFlac));
 
-  // Fixed for a run when it starts, as the DC offset is: the pipeline counts
-  // what the shift clips and the scope draws what the file holds, and both
-  // have to be judging the conversion the writers are actually applying.
-  lsb_drop_combo_->setEnabled(!monitoring_);
-  bit_shift_combo_->setEnabled(!monitoring_);
+  // Live while monitoring, so that the effect can be watched as it is chosen —
+  // the pipeline counts against the change from the next buffer and the
+  // Corrected views redraw with it. Locked only while a file is being
+  // written, which keeps the conversion it was opened with from start to end.
+  lsb_drop_combo_->setEnabled(!capturing_);
+  bit_shift_combo_->setEnabled(!capturing_);
 
   // These three are read as the capture runs rather than when it starts, so all
   // stay live: noticing halfway through that the disk is filling and wanting a

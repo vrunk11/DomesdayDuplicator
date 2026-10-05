@@ -142,6 +142,14 @@ class CaptureController : public QObject {
   // The DC offset part of it, in converter codes.
   int32_t run_dc_offset() const { return run_conversion_.dc_offset; }
 
+  // Whether the signal panels show the signal as it is written — converted by
+  // run_conversion() — or as the converter produced it. One answer for every
+  // panel, so that the scope, the spectrum and the amplitude history are
+  // never showing two different signals side by side. Off by default, and
+  // not saved: it is a way of looking, not a setting.
+  bool show_corrected() const { return show_corrected_; }
+  void SetShowCorrected(bool show);
+
   // The ADC rate, in MHz, the capture settings run at — "board default" taken
   // as the 40 MHz every figure assumes for it. The rate whose offset applies.
   uint8_t configured_rate_mhz() const {
@@ -322,6 +330,14 @@ class CaptureController : public QObject {
   // on its own, so it says the declaration is wrong. Raised once per run.
   void DcOffsetOutOfRange(const QString& message);
 
+  // Every panel's Corrected switch follows this.
+  void ShowCorrectedChanged(bool show);
+
+  // run_conversion() changed while the stream ran: the bit shift or the LSB
+  // drop was changed while monitoring, which takes effect at once rather than
+  // at the next start. Never while a file is being written.
+  void ConversionChanged();
+
   // The bit shift clipped samples that neither the converter nor the DC
   // offset had: the shift is too large for this signal. A setting rather than a
   // fault, so it is said once per run and nothing is stopped.
@@ -417,6 +433,16 @@ class CaptureController : public QObject {
   // settings' bit shift and LSB drop — none of it in test mode or while
   // measuring.
   capture::SampleConversion RunConversion() const;
+
+  // Bring run_conversion() up to the settings while monitoring and not
+  // capturing: the pipeline counts against it from the next buffer and the
+  // panels redraw with it. A file being written keeps the conversion it was
+  // opened with, so nothing changes while one is.
+  void UpdateRunConversion();
+
+  // Tell the analysis worker what the panels are to be shown: the run's
+  // conversion when show_corrected(), and the converter's own codes otherwise.
+  void ApplyDisplayConversion();
 
   // One step of the DC offset measurement, from measure_timer_.
   void MeasurementStep();
@@ -544,6 +570,14 @@ class CaptureController : public QObject {
 
   // See run_conversion().
   capture::SampleConversion run_conversion_;
+
+  // See show_corrected().
+  bool show_corrected_ = false;
+
+  // Whether the running stream is one a conversion applies to: not the
+  // gateware's ramp, and not a DC offset measurement. See
+  // UpdateRunConversion().
+  bool run_converts_ = false;
 
   // The DC offset measurement, run as a short sequence of monitoring runs
   // driven from measure_timer_ — see MeasureDcOffset().
