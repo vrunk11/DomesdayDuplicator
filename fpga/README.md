@@ -56,7 +56,7 @@ Inside `application/`:
 | `DomesdayDuplicator.qpf` | Quartus project file |
 | `DomesdayDuplicator.SDC` | Timing constraints. Checked by `tests/run-sdc.sh`; the I/O delay values in its header are pessimistic placeholders pending the datasheets |
 | `DomesdayDuplicator.cof` | Conversion to the raw image bytes a device update writes. Its `rpd_little_endian` setting decides the bit orientation of those bytes and is load-bearing — read the comment beside it before changing anything here |
-| `halfBandDecimator.v` | The 10 MHz anti-alias filter and 2:1 decimation, for tape capture at 20 Msps. In front of `dataGenerator.v`, so the sequence counter and the test ramp are attached to the samples that survive. The design, the measured response and the phase are on [The decimation filter](../docs/content/development/fpga-decimation-filter.md) |
+| `halfBandDecimator.v` | The anti-alias filter and 2:1 decimation: a 95-tap half-band, flat and alias-free to 0.225 of its input rate — 20 Msps tape capture from 40, or a LaserDisc at 30 Msps from 60, flat to 13.5 MHz. In front of `dataGenerator.v`, so the sequence counter and the test ramp are attached to the samples that survive. The design, the measured response and the phase are on [The decimation filter](../docs/content/development/fpga-decimation-filter.md) |
 | `dataGenerator.v` | ADC sampling and the built-in test-data generator |
 | `buffer.v` | Sample buffering between the sampling side and the FX3 |
 | `fifo.v` | The single-clock FIFO `buffer.v` is built from |

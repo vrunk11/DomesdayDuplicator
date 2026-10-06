@@ -162,8 +162,9 @@ allow 2.
 
 **Decimation happens in the FPGA, not on this machine**, and that is what makes it worth
 having: dividing the rate correctly means low-passing the signal first, at half of whatever
-rate feeds each stage, and the gateware does that with a 63-tap half-band filter costing 13%
-of the FPGA's logic and no CPU at all — cascaded a second time for quarter rate. The
+rate feeds each stage, and the gateware does that with a 95-tap half-band filter, flat and
+alias-free to 0.225 of its input rate (13.5 MHz at 60 MHz in) and costing no CPU at all —
+cascaded a second time for quarter rate. The
 application asks for the division over the register link and receives a stream that is
 already divided — so the USB link carries proportionally less data too.
 

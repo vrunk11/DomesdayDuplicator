@@ -365,8 +365,8 @@ TEST_F(CaptureControllerTest, TestModeIsSentToTheDeviceBeforeItIsOpened) {
 //
 // Decimating is the device's job. Halving the rate means low-passing the signal
 // at 10 MHz first, or everything above that folds down on top of it — and that
-// filter is sixteen multipliers in the FPGA rather than several cores here. All
-// this application does is ask.
+// filter is twenty-four multipliers in the FPGA rather than several cores here.
+// All this application does is ask.
 TEST_F(CaptureControllerTest, TheSampleRateIsSentToTheDeviceBeforeItIsOpened) {
   UseSmallQueue();
 

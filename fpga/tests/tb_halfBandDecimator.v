@@ -42,8 +42,8 @@ module tb_halfBandDecimator;
     // converted to a phase step against this.
     localparam real SampleRateHz = 40.0e6;
 
-    // The filter's group delay is (63-1)/2 = 31 input samples, and the
-    // pipeline adds seven system clocks on top. Nothing here depends on the
+    // The filter's group delay is (95-1)/2 = 47 input samples, and the
+    // pipeline adds eight system clocks on top. Nothing here depends on the
     // exact figure - the measurements below discard a settling window far
     // longer than it - but a run that produced no output at all would
     // otherwise look like a very quiet one.
@@ -269,9 +269,11 @@ module tb_halfBandDecimator;
 
         // --- The passband --------------------------------------------------
         //
-        // Flat to 8 MHz: the generator measures 0.001 dB of ripple there, and
+        // Flat to 9 MHz: the generator measures 0.002 dB of ripple there, and
         // the window here is wide enough to absorb the coarse quantisation of
-        // a 10-bit measurement rather than to pin that figure.
+        // a 10-bit measurement rather than to pin that figure. 9 MHz is the
+        // edge of the flat part - 0.225 of the rate, 13.5 MHz at 60 MHz in -
+        // and is measured because it is what the length was chosen for.
 
         do_reset;
         drive_tone(1.0e6, SettlingSamples);
@@ -291,6 +293,12 @@ module tb_halfBandDecimator;
         drive_tone(8.0e6, 3000);
         check_gain("8 MHz", 0.95, 1.03);
 
+        do_reset;
+        drive_tone(9.0e6, SettlingSamples);
+        clear_measurement(0);
+        drive_tone(9.0e6, 3000);
+        check_gain("9 MHz", 0.95, 1.03);
+
         // --- The stopband, which is the reason this module exists -----------
         //
         // Each of these would come out at full amplitude from a decimator that
@@ -298,10 +306,18 @@ module tb_halfBandDecimator;
         // itself: 15 MHz would appear as 5 MHz, on top of a tape's luma FM
         // carrier, and nothing downstream could tell it from signal.
         //
-        // The bounds are generous against the generator's predicted -79 dB and
-        // -85 dB. What is being asserted is that the energy is gone, and a
+        // The bounds are generous against the generator's predicted -72 dB or
+        // better. What is being asserted is that the energy is gone, and a
         // 10-bit output measured over a few thousand samples cannot resolve
-        // much below a count or two of the 960 driven in.
+        // much below a count or two of the 960 driven in. 11 MHz is the start
+        // of the stopband, 0.275 of the rate: at 60 MHz in it is 16.5 MHz, the
+        // component that would fold onto 13.5.
+
+        do_reset;
+        drive_tone(11.0e6, SettlingSamples);
+        clear_measurement(0);
+        drive_tone(11.0e6, 3000);
+        check_gain("11 MHz alias", 0.0, 0.02);
 
         do_reset;
         drive_tone(13.0e6, SettlingSamples);
@@ -337,17 +353,20 @@ module tb_halfBandDecimator;
         // number says anything about the filter. Every other frequency in this
         // file is irrational against the sampling rate for the same reason.
 
+        // The generator predicts 0.922 at 9.5 MHz and 0.078 at 10.5, the two
+        // summing to one as a half-band's do either side of its edge.
+
         do_reset;
         drive_tone(9.5e6, SettlingSamples);
         clear_measurement(0);
         drive_tone(9.5e6, 3000);
-        check_gain("9.5 MHz", 0.75, 0.88);
+        check_gain("9.5 MHz", 0.86, 0.96);
 
         do_reset;
         drive_tone(10.5e6, SettlingSamples);
         clear_measurement(0);
         drive_tone(10.5e6, 3000);
-        check_gain("10.5 MHz", 0.12, 0.25);
+        check_gain("10.5 MHz", 0.04, 0.12);
 
         // --- Clipping -------------------------------------------------------
         //

@@ -67,14 +67,14 @@ def main():
 
     # Every second coefficient either side of the centre is exactly zero. This
     # is what makes it a half-band filter and what halves the multiplier count;
-    # a table without it would need thirty-two multipliers, not sixteen.
+    # a table without it would need forty-eight multipliers, not twenty-four.
     for index, value in enumerate(table):
         offset = index - centre
         if offset != 0 and offset % 2 == 0:
             check(value == 0, f"tap {index} should be zero and is {value}")
 
-    check(len(make_halfband.symmetric_pairs(table)) == 16,
-          "expected 16 multiplier pairs")
+    check(len(make_halfband.symmetric_pairs(table)) == 24,
+          "expected 24 multiplier pairs")
 
     # Symmetric, which is what makes the pre-add legal and the phase linear.
     for index in range(make_halfband.TAP_COUNT):
@@ -97,7 +97,9 @@ def main():
         (0.0, -0.01, 0.01),
         (4.0, -0.01, 0.01),
         (8.0, -0.05, 0.05),
+        (9.0, -0.05, 0.05),     # the edge of the flat part: 13.5 MHz at 60 in
         (10.0, -6.1, -5.9),     # -6 dB at the edge, by construction
+        (11.0, -1000.0, -70.0),  # the start of the stopband: 16.5 MHz at 60 in
         (12.0, -1000.0, -70.0),
         (15.0, -1000.0, -70.0),
         (18.0, -1000.0, -70.0),
@@ -107,6 +109,28 @@ def main():
         check(low_db <= response <= high_db,
               f"{megahertz} MHz response is {response:.2f} dB, "
               f"expected {low_db} to {high_db} dB")
+
+    # And everywhere between them, not only at those points: whatever lies
+    # above 0.275 of the input rate folds into the flat part when the rate is
+    # halved, and that is what the length is for. Swept at 50 kHz, finer than
+    # the stopband's ripple.
+    worst_flat = 0.0
+    for step in range(0, 181):
+        megahertz = step * 0.05
+        response = make_halfband.decibels(
+            make_halfband.frequency_response(table, megahertz * 1e6))
+        worst_flat = max(worst_flat, abs(response))
+    check(worst_flat <= 0.05,
+          f"the response strays {worst_flat:.3f} dB from flat below 9 MHz")
+
+    worst_stop = -1000.0
+    for step in range(220, 401):
+        megahertz = step * 0.05
+        response = make_halfband.decibels(
+            make_halfband.frequency_response(table, megahertz * 1e6))
+        worst_stop = max(worst_stop, response)
+    check(worst_stop <= -70.0,
+          f"the stopband reaches {worst_stop:.1f} dB above 11 MHz")
 
     # --- The committed Verilog ----------------------------------------------
 

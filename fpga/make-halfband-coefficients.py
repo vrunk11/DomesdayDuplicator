@@ -24,20 +24,34 @@ Why a half-band filter, and why this one:
 
 A half-band FIR is the filter 2:1 decimation is shaped for. Every second
 coefficient either side of the centre is exactly zero and the centre is exactly
-one half, so a 63-tap filter costs 16 multipliers rather than 32 - and the
+one half, so a 95-tap filter costs 24 multipliers rather than 48 - and the
 centre tap, being 2^14 of a 2^15 scale, costs a shift rather than a multiply.
 The cutoff is fixed at exactly a quarter of the sampling rate by the form of
 the filter, which for a 40 MHz sampling rate is the 10 MHz this needs.
 
 The length and the window were chosen by measuring, and
---response prints the measurement:
+--response prints the measurement. Every figure scales with the input rate:
 
-    N=63, Kaiser beta=7   0.001 dB ripple to 8 MHz, -75 dB beyond 12 MHz
+    N=95, Kaiser beta=7   0.002 dB ripple to 9 MHz, -72 dB beyond 11 MHz
+                          (at 60 MHz in: flat to 13.5 MHz, -72 dB from 16.5)
 
-Shorter filters were tried and rejected. A 31-tap reaches only -35 dB by
-12 MHz, which puts an alias of a strong 13 MHz component back into the picture
-at a level a decode can see; 47 taps reach -69 dB but give up 10 dB in the
-11-12 MHz corner, which is the part of the band a tape's upper sidebands
+What the length buys is the width of the transition. A half-band is flat to
+some edge and stops at the rate's half minus that edge, so everything that
+could fold into the flat part is in the stopband: the flat part is alias-free
+by construction, and only the space between it and the half rate takes the
+fold. At 63 taps, the earlier length, the transition ran from a fifth of the
+input rate to three tenths - flat to 12 MHz and -75 dB only from 18 at 60 MHz
+in, with a component at 16.5 MHz folding onto 13.5 at -32 dB, inside a
+LaserDisc's band. At 95 it runs from 0.225 to 0.275 of the rate, which at
+60 MHz in puts the whole band to 13.5 MHz flat and alias-free. Longer buys
+next to nothing: with coefficients on a 2^15 scale the stopband floors at
+-72 to -76 dB however long the filter, already below a 10-bit converter's
+own noise.
+
+Shorter filters were tried and rejected for tape. A 31-tap reaches only -35 dB
+by 12 MHz, which puts an alias of a strong 13 MHz component back into the
+picture at a level a decode can see; 47 taps reach -69 dB but give up 10 dB in
+the 11-12 MHz corner, which is the part of the band a tape's upper sidebands
 actually occupy.
 
 What no half-band can do is protect the band edge itself. The response is
@@ -58,7 +72,7 @@ SAMPLE_RATE_HZ = 40_000_000
 # Taps, and the window that shapes them. Both are the measured choice described
 # in the module docstring; changing either changes the committed table and the
 # test will say so.
-TAP_COUNT = 63
+TAP_COUNT = 95
 KAISER_BETA = 7.0
 
 # Coefficients are scaled by 2^15 and held as signed 16-bit values. Fifteen
@@ -128,7 +142,7 @@ def coefficients():
 
 
 def symmetric_pairs(table):
-    """The 16 (coefficient, low index, high index) triples the fabric multiplies.
+    """The (coefficient, low index, high index) triples the fabric multiplies.
 
     The filter is symmetric, so each coefficient multiplies the sum of the two
     samples it applies to and one multiplier does the work of two.
@@ -177,7 +191,8 @@ def verilog_table():
     lines.append("    //")
     lines.append(f"    // {TAP_COUNT} taps, Kaiser window beta {KAISER_BETA}, scaled by 2^{COEFFICIENT_SCALE_BITS}.")
     lines.append("    // Each entry multiplies the sum of the two samples it is symmetric")
-    lines.append("    // across, so 16 multipliers cover 32 taps; the centre tap is exactly")
+    lines.append(f"    // across, so {len(pairs)} multipliers cover {2 * len(pairs)} taps; "
+                 "the centre tap is exactly")
     lines.append(f"    // half of full scale and is applied as a shift rather than a multiply.")
     lines.append("    //")
     lines.append("    //   tap pair        coefficient")
@@ -187,8 +202,8 @@ def verilog_table():
     lines.append("")
 
     # Packed so that a part select at 16*i reads the coefficient for taps 2i and
-    # N-1-2i: index 0 is the outermost pair and index 15 the pair either side of
-    # the centre. Verilog concatenation puts the first element in the most
+    # N-1-2i: index 0 is the outermost pair and the last index the pair either
+    # side of the centre. Verilog concatenation puts the first element in the most
     # significant bits, so the list is reversed to put the outermost pair at the
     # bottom - which is where the fabric's generate loop looks for it.
     parts = [f"-16'sd{-c}" if c < 0 else f"16'sd{c}" for c, _, _ in reversed(pairs)]
@@ -222,6 +237,7 @@ def main():
     print()
     print("   frequency      response")
     for megahertz in (0, 1, 2, 4, 6, 8, 9, 9.5, 10, 10.5, 11, 12, 13, 15, 18, 20):
+        # At 40 MHz in. Scale by the rate: at 60 MHz in, 9 reads as 13.5.
         magnitude = frequency_response(table, megahertz * 1e6)
         print(f"   {megahertz:5.1f} MHz     {decibels(magnitude):8.2f} dB")
     return 0

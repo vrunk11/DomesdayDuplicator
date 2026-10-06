@@ -82,7 +82,7 @@ inline constexpr uint32_t kFlacSampleRateLabel =
 // CaptureSettings::BaseSampleRateHz()) — nothing in this file or its callers
 // may assume what that rate is.
 //
-// Not plain selection: the gateware low-passes first with a 63-tap
+// Not plain selection: the gateware low-passes first with a 95-tap
 // half-band filter at a quarter of its input rate, cascaded a second time for
 // four, because dropping samples without that folds everything above the new
 // Nyquist down on top of the signal. See fpga/application/halfBandDecimator.v.
