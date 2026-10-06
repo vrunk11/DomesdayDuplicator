@@ -93,7 +93,7 @@ later travel with it rather than in somebody's notes:
 | `DDD_REQUANTIZATION` | `off`, or `dynamic` for a requantised capture. Always written — see [Requantisation](capture-control.md#requantisation) |
 | `DDD_REQUANTIZATION_MARGIN` | The margin, with its name and the most the protected band's floor was allowed to rise: `2 (safe, 0.20 dB)`. Requantised captures only |
 | `DDD_REQUANTIZATION_BANDS` | The protected band: `0-14 MHz`, or `0-13.5 MHz` at 30 Msps. Requantised captures only |
-| `DDD_REQUANTIZATION_SHAPING` | The noise shaping it could use: `order 16, 10.0 dB`. Requantised captures only |
+| `DDD_REQUANTIZATION_SHAPING` | The noise shaping it could use, fixed or adaptive, with its order and depth: `fixed, order 16, 10.0 dB` or `adaptive, order 32, 20.0 dB`. Requantised captures only |
 
 **The DC offset is the one board tag that changes the samples.** Every sample in the file is
 the converter's code less `DDD_DC_OFFSET`, still scaled by 64, so the samples the converter

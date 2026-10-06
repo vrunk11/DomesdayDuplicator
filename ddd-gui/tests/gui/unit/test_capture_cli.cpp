@@ -494,6 +494,33 @@ TEST(CaptureCliTest, TheRequantisedBandsAreTakenAsGiven) {
   EXPECT_EQ(settings.requantize_bands, expected);
 }
 
+TEST(CaptureCliTest, TheShapingIsTakenAsGiven) {
+  const Parsed adaptive = Parse(
+      {QStringLiteral("--requantize-shaping"), QStringLiteral("Adaptive")});
+  ASSERT_TRUE(adaptive.ok()) << adaptive.error.toStdString();
+  EXPECT_EQ(adaptive.options.requantize_adaptive, std::optional<bool>(true));
+
+  CaptureSettings settings;
+  ApplyCliOverrides(settings, adaptive.options);
+  EXPECT_TRUE(settings.requantize_adaptive);
+
+  const Parsed fixed =
+      Parse({QStringLiteral("--requantize-shaping"), QStringLiteral("fixed")});
+  ASSERT_TRUE(fixed.ok()) << fixed.error.toStdString();
+  ApplyCliOverrides(settings, fixed.options);
+  EXPECT_FALSE(settings.requantize_adaptive);
+}
+
+TEST(CaptureCliTest, AShapingThatIsNotOneIsRefused) {
+  for (const char* shaping : {"on", "shaped", ""}) {
+    const Parsed parsed =
+        Parse({QStringLiteral("--requantize-shaping"), QLatin1String(shaping)});
+    EXPECT_TRUE(parsed.accepted) << shaping;
+    EXPECT_TRUE(parsed.error.contains(QStringLiteral("--requantize-shaping")))
+        << shaping << ": " << parsed.error.toStdString();
+  }
+}
+
 TEST(CaptureCliTest, BandsThatAreNotBandsAreRefused) {
   for (const char* bands : {"12", "12-0", "0-12;13-14", "low-high", ""}) {
     const Parsed parsed =

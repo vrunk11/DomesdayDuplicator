@@ -104,24 +104,19 @@ void SnapshotAnalyser::Poll() {
       }
       requantization_ = requested_requantization_;
       requantizer_settings_ = requested_requantizer_settings_;
-      quantizer_decision_.reset();
     }
   }
 
-  // The decision in force, with its quantiser built once per change of
-  // decision rather than per snapshot: a shaped one designs its filter.
+  // The decision in force, with the quantiser it carries: the filter adaptive
+  // shaping designed for that segment, or the fixed one. Built from its
+  // coefficients, which costs nothing beside the snapshot it rounds.
   bool requantizing = false;
   if (requantization_ != nullptr) {
     const capture::RequantizationStatus::Live live =
         requantization_->ReadLive();
-    const capture::RequantizationChange decision{0, live.current.lsb_drop,
-                                                 live.current.shaped};
-    if (decision.lsb_drop > 0) {
-      if (quantizer_decision_ != decision) {
-        quantizer_ = capture::DecisionQuantizer(
-            requantizer_settings_, decision.lsb_drop, decision.shaped);
-        quantizer_decision_ = decision;
-      }
+    if (live.current.lsb_drop > 0) {
+      quantizer_ =
+          capture::DecisionQuantizer(requantizer_settings_, live.current);
       requantizing = true;
     }
   }

@@ -136,11 +136,12 @@ worked examples and what each platform needs — in
 | `--bit-shift <bits>` | `0` to `4` — shift the signal up by this many bits, a digital gain of x1 to x16. See [Bit shift](capture-control.md#bit-shift-digital-gain) |
 | `--requantize <margin>` | `off`, or a margin from `0` (aggressive) to `4` (ultra safe) — drop as many of the converter's low bits as the capture's own noise hides. See [Requantisation](capture-control.md#requantisation) |
 | `--requantize-band <bands>` | The band, in MHz, whose noise floor `--requantize` keeps within its margin, in place of the default — `0-12`, or several, `0-1.9,2.1-13.5`. Cut at the Nyquist limit. For this run only, and recorded in the capture. See [Requantisation](capture-control.md#requantisation) |
+| `--requantize-shaping <shaping>` | `fixed` (the default) or `adaptive` — how `--requantize` shapes the noise it adds: one filter from the bands, or one designed again for every segment so that the noise follows the measured floor. For this run only, and recorded in the capture. See [Requantisation](capture-control.md#requantisation) |
 | `--pipe` | Stream the capture to standard output as signed 16-bit samples, for another program to read. Needs `--start-capture`; writes no file unless `--save` is given too |
 | `--save` | With `--pipe`, write the capture file as well. The file comes first: a reader that falls behind loses blocks of its copy, never any of the file |
 
-Given without `--start-capture` or `--stop-capture`, the ten from `--capture-directory` to
-`--requantize-band` simply fill the window in and start nothing. Whatever they set applies to
+Given without `--start-capture` or `--stop-capture`, the eleven from `--capture-directory` to
+`--requantize-shaping` simply fill the window in and start nothing. Whatever they set applies to
 that run only and is never saved.
 
 `--decimation` and `--adc-rate` are deliberately separate: the first is a divisor applied in

@@ -151,6 +151,8 @@ void WriteRequantization(YamlWriter& yaml,
   yaml.StringIfPresent("protected_bands",
                        DescribeBands(requantization.protected_bands));
   yaml.Integer("input_bits", requantization.input_bits);
+  yaml.String("shaping",
+              requantization.adaptive_shaping ? "adaptive" : "fixed");
   yaml.Integer("shaping_order", requantization.shaping_order);
   yaml.Number("shaping_depth_db", requantization.shaping_depth_db, 1);
   yaml.Unsigned("segment_samples", RfRequantizer::kSegmentSamples);

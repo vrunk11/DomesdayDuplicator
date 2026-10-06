@@ -230,7 +230,14 @@ TEST_F(CaptureProvenanceTest,
   EXPECT_EQ(Value(reduced, kTagRequantization), "dynamic");
   EXPECT_EQ(Value(reduced, kTagRequantizationMargin), "1 (moderate, 0.50 dB)");
   EXPECT_EQ(Value(reduced, kTagRequantizationBands), "0-14 MHz");
-  EXPECT_EQ(Value(reduced, kTagRequantizationShaping), "order 16, 10.0 dB");
+  EXPECT_EQ(Value(reduced, kTagRequantizationShaping),
+            "fixed, order 16, 10.0 dB");
+
+  facts.requantization.adaptive_shaping = true;
+  facts.requantization.shaping_order = 32;
+  facts.requantization.shaping_depth_db = 20.0;
+  EXPECT_EQ(Value(BuildProvenanceTags(facts), kTagRequantizationShaping),
+            "adaptive, order 32, 20.0 dB");
 }
 
 TEST_F(CaptureProvenanceTest, TheDateIsIso8601) {

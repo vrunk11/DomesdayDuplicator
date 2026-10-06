@@ -68,11 +68,13 @@ QString DescribePipedStream(uint32_t sample_rate_hz, bool range_2vpp,
                 .arg(capture::BitShift(conversion));
     text +=
         requantization.enabled
-            ? QObject::tr(", requantised at margin %1 over %2")
+            ? QObject::tr(", requantised at margin %1 over %2, %3 shaping")
                   .arg(
                       DescribeRequantizationMargin(requantization.margin_level),
                       QString::fromStdString(capture::DescribeBands(
                           requantization.protected_bands)))
+                  .arg(requantization.adaptive_shaping ? QObject::tr("adaptive")
+                                                       : QObject::tr("fixed"))
             : QObject::tr(", not requantised");
   }
   return text + QStringLiteral(".");
@@ -555,6 +557,9 @@ capture::RequantizerSettings CaptureController::RunRequantizerSettings() const {
   }
   requantizer.input_bits =
       capture::kConverterBits - capture::BitShift(run_conversion_);
+  if (settings_.requantize_adaptive) {
+    capture::UseAdaptiveShaping(requantizer);
+  }
   return requantizer;
 }
 
@@ -569,6 +574,8 @@ capture::RequantizationRecord CaptureController::RequantizationSettingsRecord()
   record.margin_level = requantizer.margin_level;
   record.protected_bands = requantizer.protected_bands;
   record.input_bits = requantizer.input_bits;
+  record.adaptive_shaping =
+      requantizer.shaping == capture::RequantizerSettings::Shaping::kAdaptive;
   record.shaping_order = requantizer.shaping_order;
   record.shaping_depth_db = requantizer.shaping_depth_db;
   return record;
@@ -577,7 +584,8 @@ capture::RequantizationRecord CaptureController::RequantizationSettingsRecord()
 CaptureController::IdleSinkKey CaptureController::CurrentIdleSinkKey() const {
   return {RunRequantizes(), settings_.requantize_margin,
           capture::BitShift(run_conversion_),
-          capture::DescribeBands(RunRequantizerSettings().protected_bands)};
+          capture::DescribeBands(RunRequantizerSettings().protected_bands),
+          settings_.requantize_adaptive};
 }
 
 std::unique_ptr<capture::ISampleSink> CaptureController::MakeIdleSink() {
@@ -1360,7 +1368,9 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
         (requantization.enabled
              ? "margin " + std::to_string(requantization.margin_level) +
                    " over " +
-                   capture::DescribeBands(requantization.protected_bands)
+                   capture::DescribeBands(requantization.protected_bands) +
+                   (requantization.adaptive_shaping ? ", adaptive shaping"
+                                                    : ", fixed shaping")
              : std::string("off")) +
         ", duration limit " +
         (settings_.duration_limit_seconds > 0

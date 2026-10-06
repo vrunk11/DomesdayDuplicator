@@ -18,7 +18,6 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <vector>
 
 #include "capture_metatypes.h"
@@ -140,7 +139,7 @@ class SnapshotAnalyser : public QObject {
 
   // What SetRequantization() asked for, under its own lock, with a count of
   // the requests so the worker copies it only when it changes; and the
-  // worker's copy, with the quantiser built for the decision last seen.
+  // worker's copy, with the quantiser of the decision last seen.
   std::mutex requantization_mutex_;
   std::shared_ptr<capture::RequantizationStatus> requested_requantization_;
   capture::RequantizerSettings requested_requantizer_settings_;
@@ -149,7 +148,6 @@ class SnapshotAnalyser : public QObject {
   uint64_t requantization_applied_ = 0;
   std::shared_ptr<capture::RequantizationStatus> requantization_;
   capture::RequantizerSettings requantizer_settings_;
-  std::optional<capture::RequantizationChange> quantizer_decision_;
   capture::ShapingQuantizer quantizer_;
 
   // Worker-thread scratch. Reused rather than reallocated per frame.

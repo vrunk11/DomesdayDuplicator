@@ -45,7 +45,8 @@ inline constexpr const char* kTagBitShift = "DDD_BIT_SHIFT";
 // Whether the capture was requantised (RfRequantizer): "off" or "dynamic",
 // always written for the same reason. A dynamic one adds what it was asked
 // for — the margin level with its name and limit, the bands it protected and
-// the noise shaping it could use. What it then did, segment by segment, is
+// the noise shaping it could use, fixed or adaptive, with its order and
+// depth. What it then did, segment by segment, is
 // known only at the end and is in the sidecar; the file's own blocks show it
 // too, as the zero bits FLAC finds at the bottom of every sample.
 inline constexpr const char* kTagRequantization = "DDD_REQUANTIZATION";

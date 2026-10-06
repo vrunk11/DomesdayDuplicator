@@ -323,6 +323,22 @@ higher rate helps: at 75 MHz decimated by 2 (37.5 Msps) there is 14 to 18.75 MHz
 60 MHz by 2 (30 Msps) only 13.5 to 15. To find out how much of the band a player's RF
 actually needs, the command line's `--requantize-band` protects another band for one run —
 `--requantize-band 0-12`, or several, `0-1.9,2.1-13.5` — and the capture records which.
+Narrowing the band is rarely the answer, though: the upper FM sidebands above 9 MHz carry
+picture detail, and a capture that leaves them unprotected shows it.
+
+**Adaptive shaping** is the better answer to a sloping floor, and the command line's
+`--requantize-shaping adaptive` turns it on for one run. The default, fixed shaping, adds the
+same noise everywhere in the protected band, so the band's quietest slice decides for all of
+it. Adaptive shaping designs its filter again for every segment from the floor just measured,
+so that the added noise follows the floor — more where the band is already noisy, less where
+it is quiet — and pushes as much as it can outside the protected bands. Every slice is then
+raised by about the same proportion, and the band's typical floor decides rather than its
+quietest corner. It also takes out a bias in how the floor is estimated, which made fixed
+shaping about 1.2 dB more careful than its margin says. On a floor falling 7.5 dB across the
+top of the band, as a player's RF does, it drops one or two bits more at the same margin; it
+costs about a third of a processor core at 37.5 Msps. Protecting only what is needed —
+`--requantize-band 2-3,4.5-14` keeps the analog audio and the video and gives up the EFM and
+the quiet space between them — leaves it more room still.
 
 The analysis runs on a thread of its own and costs a fraction of one core at 30 Msps, so it
 is meant for a capture written at a reduced rate — 60 MHz decimated by 2 is the case it was

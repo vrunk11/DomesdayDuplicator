@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -309,29 +310,143 @@ TEST(RfRequantizerTest, APreviewDecidesAsACaptureWouldAndChangesNothing) {
 TEST(RfRequantizerTest, ADecisionsQuantiserIsTheOneTheFileGot) {
   // 2.77 and 10.8 are shaped here, the others plain; equality is what is
   // checked, whatever a library's random numbers make of them.
-  for (const double sigma : {2.77, 6.0, 10.8, 30.0}) {
-    RfRequantizer requantizer(Settings(0));
-    std::mt19937 generator = Seeded(8);
-    std::vector<int16_t> written = NoiseSegment(generator, sigma);
-    std::vector<int16_t> shown = written;
+  // Adaptive shaping designs its filter from the floor, segment by segment,
+  // and the decision carries the one it used.
+  for (const bool adaptive : {false, true}) {
+    for (const double sigma : {2.77, 6.0, 10.8, 30.0}) {
+      RequantizerSettings settings = Settings(0);
+      if (adaptive) {
+        UseAdaptiveShaping(settings);
+      }
+      RfRequantizer requantizer(settings);
+      std::mt19937 generator = Seeded(8);
+      std::vector<int16_t> written = NoiseSegment(generator, sigma);
+      std::vector<int16_t> shown = written;
 
-    const RequantizerDecision decision =
-        requantizer.Process(written.data(), written.size(), true);
-    ShapingQuantizer quantizer =
-        DecisionQuantizer(Settings(0), decision.lsb_drop, decision.shaped);
-    quantizer.QuantizeInPlace(shown.data(), shown.size());
-    EXPECT_EQ(shown, written) << "sigma " << sigma << ", " << decision.lsb_drop
-                              << (decision.shaped ? " shaped" : "");
+      const RequantizerDecision decision =
+          requantizer.Process(written.data(), written.size(), true);
+      ShapingQuantizer quantizer = DecisionQuantizer(settings, decision);
+      quantizer.QuantizeInPlace(shown.data(), shown.size());
+      EXPECT_EQ(shown, written)
+          << (adaptive ? "adaptive" : "fixed") << ", sigma " << sigma << ", "
+          << decision.lsb_drop << (decision.shaped ? " shaped" : "");
+    }
   }
 
   std::mt19937 generator = Seeded(9);
   const std::vector<int16_t> original = NoiseSegment(generator, 12.0, 4096);
   for (const bool shaped : {false, true}) {
+    RequantizerDecision nothing;
+    nothing.coefficients =
+        shaped ? DesignNoiseTransferFunction(DefaultProtectedBands(kRateMhz),
+                                             kRateMhz, 10.0, 16)
+               : std::vector<double>{1.0};
     std::vector<int16_t> untouched = original;
-    ShapingQuantizer quantizer = DecisionQuantizer(Settings(), 0, shaped);
+    ShapingQuantizer quantizer = DecisionQuantizer(Settings(), nothing);
     quantizer.QuantizeInPlace(untouched.data(), untouched.size());
     EXPECT_EQ(untouched, original) << shaped;
   }
+}
+
+// A floor that falls towards the top of the band, as a player's RF does: flat
+// noise through a low-pass that starts to cut at about 9 MHz. The fixed filter
+// adds the same noise everywhere in the band, so the quiet top decides; the
+// adaptive one puts the noise where the floor can take it, and drops more at
+// the same margin, without raising the quiet top more than the margin allows.
+std::vector<int16_t> SlopedNoise(std::mt19937& generator, size_t count) {
+  // A 15-tap windowed-sinc low-pass at 10.5 MHz, over noise loud enough that
+  // the floor below it is several codes, plus a little flat noise so the top
+  // of the band is quiet but not empty.
+  constexpr int kTaps = 15;
+  constexpr double kCutoff = 10.5 / kRateMhz;
+  std::array<double, kTaps> taps{};
+  for (int t = 0; t < kTaps; ++t) {
+    constexpr int kCentre = kTaps / 2;
+    const double centred = static_cast<double>(t - kCentre);
+    const double sinc =
+        centred == 0.0 ? 2.0 * kCutoff
+                       : std::sin(2.0 * std::numbers::pi * kCutoff * centred) /
+                             (std::numbers::pi * centred);
+    const double window =
+        0.54 - 0.46 * std::cos(2.0 * std::numbers::pi * static_cast<double>(t) /
+                               static_cast<double>(kTaps - 1));
+    taps[static_cast<size_t>(t)] = sinc * window;
+  }
+  std::normal_distribution<double> loud(0.0, 4.0);
+  std::normal_distribution<double> quiet(0.0, 0.9);
+  std::vector<double> white(count + kTaps);
+  for (double& value : white) {
+    value = loud(generator);
+  }
+  std::vector<int16_t> samples(count);
+  for (size_t index = 0; index < count; ++index) {
+    double sum = quiet(generator);
+    for (size_t t = 0; t < kTaps; ++t) {
+      sum += taps[t] * white[index + t];
+    }
+    samples[index] = static_cast<int16_t>(
+        std::clamp(std::round(sum), -512.0, 511.0) * kInputLsb);
+  }
+  return samples;
+}
+
+TEST(RfRequantizerTest, AdaptiveShapingFollowsASlopingFloor) {
+  RequantizerSettings fixed_settings = Settings(0);
+  RequantizerSettings adaptive_settings = Settings(0);
+  UseAdaptiveShaping(adaptive_settings);
+  RfRequantizer fixed(fixed_settings);
+  RfRequantizer adaptive(adaptive_settings);
+
+  std::mt19937 generator = Seeded(11);
+  RequantizerDecision fixed_decision;
+  RequantizerDecision adaptive_decision;
+  std::vector<int16_t> original;
+  std::vector<int16_t> shaped;
+  for (int segment = 0; segment < 4; ++segment) {
+    original = SlopedNoise(generator, RfRequantizer::kSegmentSamples);
+    std::vector<int16_t> copy = original;
+    fixed_decision = fixed.Process(copy.data(), copy.size(), false);
+    shaped = original;
+    adaptive_decision = adaptive.Process(shaped.data(), shaped.size(), true);
+  }
+
+  EXPECT_GT(adaptive_decision.lsb_drop, fixed_decision.lsb_drop)
+      << "adaptive " << adaptive_decision.lsb_drop << ", fixed "
+      << fixed_decision.lsb_drop;
+  EXPECT_LE(adaptive_decision.degradation_db, MarginLimitDb(0));
+
+  // The added noise follows the floor: well below it at the quiet top of the
+  // band, where plain rounding would be as loud as anywhere.
+  std::vector<double> errors(shaped.size());
+  for (size_t index = 0; index < shaped.size(); ++index) {
+    errors[index] = static_cast<double>(shaped[index] - original[index]);
+  }
+  EXPECT_LT(ErrorPower(errors, 12.5), ErrorPower(errors, 5.0) / 2.0);
+}
+
+// A quantiser handed new coefficients of the same order keeps the errors it
+// has made, which belong to the stream; of another order, it starts again.
+TEST(RfRequantizerTest, NewCoefficientsKeepTheHistoryOfTheSameOrder) {
+  const std::vector<double> first = {1.0, -0.5};
+  const std::vector<double> second = {1.0, 0.25};
+
+  ShapingQuantizer changed(8, first);
+  ShapingQuantizer fresh(8, second);
+  changed.Quantize(1000);
+  changed.SetCoefficients(second);
+  EXPECT_EQ(changed.coefficients(), second);
+  // The history carried over makes the next sample differ from a fresh start:
+  // 1000 rounds to 1024 at a step of 256, and the error of +24 fed back at
+  // 0.25 takes 1150 past the half-way point to 1280, where alone it rounds to
+  // 1024.
+  EXPECT_EQ(changed.Quantize(1150), 1280);
+  EXPECT_EQ(fresh.Quantize(1150), 1024);
+
+  ShapingQuantizer reordered(8, first);
+  reordered.Quantize(1000);
+  reordered.SetCoefficients({1.0, 0.25, 0.1});
+  ShapingQuantizer reordered_fresh(8, {1.0, 0.25, 0.1});
+  EXPECT_EQ(reordered.Quantize(1000), reordered_fresh.Quantize(1000));
 }
 
 // A noisy capture with one quiet notch in the band — x[n] + x[n-2] has a zero

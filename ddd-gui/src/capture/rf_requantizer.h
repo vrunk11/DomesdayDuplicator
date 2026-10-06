@@ -100,12 +100,36 @@ struct RequantizerSettings {
   // already, and a drop is counted from the first one that is not.
   int input_bits = 10;
 
+  // How the added noise is shaped.
+  //
+  //  - kFixed: one filter, designed at the start from the bands alone — low in
+  //    them, shaping_depth_db higher outside. The added noise is the same
+  //    everywhere in the bands, so the band's quietest slice decides for all of
+  //    it, however much more noise the rest could take.
+  //  - kAdaptive: designed again for every segment from the floor just
+  //    measured, so that the added noise follows it — more where the band is
+  //    already noisy, less where it is quiet — and as much as possible goes
+  //    outside the bands, up to shaping_depth_db above the band's highest
+  //    floor. The floor is also smoothed over a quarter of a megahertz before
+  //    its low envelope is taken, which takes out the bias a minimum of noisy
+  //    estimates has: about 1.2 dB too low on a flat floor.
+  //
+  // Fixed is the original design, and what is decided with it is what rfquant
+  // decides. See UseAdaptiveShaping() for the adaptive mode's own order and
+  // depth.
+  enum class Shaping { kFixed, kAdaptive };
+  Shaping shaping = Shaping::kFixed;
   int shaping_order = 16;
   double shaping_depth_db = 10.0;
 
   // How far back the noise floor is estimated from.
   double history_seconds = 0.5;
 };
+
+// Switch `settings` to adaptive shaping, with the order and depth it was
+// measured at: order 32, 20 dB. A finer filter is what lets the noise follow a
+// sloping floor, and the wider depth what lets it be pushed out of the bands.
+void UseAdaptiveShaping(RequantizerSettings& settings);
 
 // What was done to one segment: how many of the input's low bits were
 // dropped, whether the added noise was shaped, and what that cost the worst
@@ -124,6 +148,12 @@ struct RequantizerDecision {
   double limit_low_mhz = 0.0;
   double limit_high_mhz = 0.0;
   double limit_floor_lsb = 0.0;
+
+  // A(z) as it was applied, {1.0} for plain rounding; empty when nothing was
+  // dropped. Carried because adaptive shaping designs it afresh for every
+  // segment, and something showing a decision's effect — the signal panels —
+  // has to round with exactly this. See DecisionQuantizer().
+  std::vector<double> coefficients;
 
   bool operator==(const RequantizerDecision& other) const = default;
 };
@@ -148,6 +178,7 @@ struct RequantizationRecord {
   int margin_level = kDefaultMarginLevel;
   std::vector<FrequencyBand> protected_bands;
   int input_bits = 0;
+  bool adaptive_shaping = false;
   int shaping_order = 0;
   double shaping_depth_db = 0.0;
 
@@ -189,6 +220,15 @@ class ShapingQuantizer {
   // Forget the error history, as at the start of a stream.
   void Reset();
 
+  // Shape with another A(z) from the next sample on. The error history is kept
+  // when the order is the same — adaptive shaping changes the filter between
+  // segments of one stream, and the errors already made belong to it — and
+  // forgotten when it is not.
+  void SetCoefficients(const std::vector<double>& coefficients);
+
+  // A(z) as given, {1.0} for plain rounding.
+  std::vector<double> coefficients() const;
+
   double step() const { return step_; }
   uint64_t clipped() const { return clipped_; }
 
@@ -205,12 +245,11 @@ class ShapingQuantizer {
   uint64_t clipped_ = 0;
 };
 
-// The quantiser a decision applies, built as the requantiser builds it:
-// `lsb_drop` of the input's bits, with the noise shaped or not. For showing a
-// decision's effect somewhere other than the file — the signal panels — exactly
-// as the file gets it.
+// The quantiser a decision applies: its bits dropped from the input's, with
+// the A(z) it carries. For showing a decision's effect somewhere other than the
+// file — the signal panels — exactly as the file gets it.
 ShapingQuantizer DecisionQuantizer(const RequantizerSettings& settings,
-                                   int lsb_drop, bool shaped);
+                                   const RequantizerDecision& decision);
 
 class RfRequantizer {
  public:
@@ -272,6 +311,10 @@ class RfRequantizer {
   void Periodogram(const double* frame, double* power);
   SliceCost Degradation(const Candidate& candidate) const;
 
+  // Adaptive shaping: A(z) designed from the floor just measured, and handed
+  // to every shaped candidate with the gain it has in each bin.
+  void RedesignShaping();
+
   RequantizerSettings settings_;
   std::vector<FrequencyBand> bands_;
   double limit_db_ = 0.0;
@@ -305,6 +348,13 @@ class RfRequantizer {
   std::vector<double> spectrum_;
   std::vector<double> group_;
   std::vector<double> raw_floor_;
+  std::vector<double> smoothed_floor_;
+
+  // For adaptive shaping: cos and sin of each bin's frequency times each lag,
+  // lag by lag, worked out once — the design and the gain it gives are then
+  // sums over them.
+  std::vector<double> lag_cos_;
+  std::vector<double> lag_sin_;
   // The fixed transform: bit-reversal order, twiddles and the Hann window,
   // worked out once.
   std::vector<size_t> bit_reverse_;

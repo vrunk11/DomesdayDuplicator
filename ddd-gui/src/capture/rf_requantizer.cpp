@@ -41,6 +41,19 @@ constexpr double kMedianCorrection = 0.959;
 // floor, and so only make the decision more careful.
 constexpr double kEnvelopeHalfWidthMhz = 2.0;
 
+// Adaptive shaping only: the floor is averaged over this distance either side
+// before its low envelope is taken. A minimum of noisy estimates sits below
+// their mean — by about 13% on a flat floor, a 1.2 dB caution nobody chose —
+// and an average over a quarter of a megahertz has too little noise left to
+// do that, while a quiet place much narrower than a slice still shows.
+constexpr double kFloorSmoothingHalfWidthMhz = 0.25;
+
+// What UseAdaptiveShaping() sets: measured, on a floor falling 7.5 dB across
+// the top of the band, to drop a bit more than the fixed filter at the same
+// margin.
+constexpr int kAdaptiveShapingOrder = 32;
+constexpr double kAdaptiveShapingDepthDb = 20.0;
+
 // The slices the degradation is judged in.
 constexpr double kSliceMhz = 1.0;
 
@@ -96,7 +109,40 @@ bool InBands(const std::vector<FrequencyBand>& bands, double frequency_mhz) {
       });
 }
 
+// A(z), minimum phase with a[0] = 1, from the autocorrelation of the wanted
+// noise weighting, by Levinson-Durbin: |A|^2 comes out proportional to
+// 1/weight.
+std::vector<double> LevinsonDurbin(const std::vector<double>& correlation) {
+  const size_t size = correlation.empty() ? 0 : correlation.size() - 1;
+  std::vector<double> coefficients(size + 1, 0.0);
+  coefficients[0] = 1.0;
+  if (size == 0) {
+    return coefficients;
+  }
+  double error = correlation[0] * (1.0 + 1e-9);
+  for (size_t i = 1; i <= size; ++i) {
+    double accumulated = correlation[i];
+    for (size_t j = 1; j < i; ++j) {
+      accumulated += coefficients[j] * correlation[i - j];
+    }
+    const double reflection = -accumulated / error;
+    const std::vector<double> previous = coefficients;
+    for (size_t j = 1; j < i; ++j) {
+      coefficients[j] = previous[j] + (reflection * previous[i - j]);
+    }
+    coefficients[i] = reflection;
+    error *= 1.0 - (reflection * reflection);
+  }
+  return coefficients;
+}
+
 }  // namespace
+
+void UseAdaptiveShaping(RequantizerSettings& settings) {
+  settings.shaping = RequantizerSettings::Shaping::kAdaptive;
+  settings.shaping_order = kAdaptiveShapingOrder;
+  settings.shaping_depth_db = kAdaptiveShapingDepthDb;
+}
 
 double MarginLimitDb(int level) { return Level(level).limit_db; }
 
@@ -237,26 +283,7 @@ std::vector<double> DesignNoiseTransferFunction(
     }
     correlation[lag] = sum / static_cast<double>(kDesignGrid);
   }
-  correlation[0] *= 1.0 + 1e-9;
-
-  // Levinson-Durbin.
-  std::vector<double> coefficients(size + 1, 0.0);
-  coefficients[0] = 1.0;
-  double error = correlation[0];
-  for (size_t i = 1; i <= size; ++i) {
-    double accumulated = correlation[i];
-    for (size_t j = 1; j < i; ++j) {
-      accumulated += coefficients[j] * correlation[i - j];
-    }
-    const double reflection = -accumulated / error;
-    const std::vector<double> previous = coefficients;
-    for (size_t j = 1; j < i; ++j) {
-      coefficients[j] = previous[j] + (reflection * previous[i - j]);
-    }
-    coefficients[i] = reflection;
-    error *= 1.0 - (reflection * reflection);
-  }
-  return coefficients;
+  return LevinsonDurbin(correlation);
 }
 
 double NoiseTransferGainSquared(const std::vector<double>& coefficients,
@@ -341,25 +368,35 @@ void ShapingQuantizer::Reset() {
   position_ = 0;
 }
 
+void ShapingQuantizer::SetCoefficients(
+    const std::vector<double>& coefficients) {
+  const size_t order = coefficients.empty() ? 0 : coefficients.size() - 1;
+  if (order != feedback_.size()) {
+    feedback_.assign(order, 0.0);
+    history_.assign(2 * order, 0.0);
+    position_ = 0;
+  }
+  std::copy(coefficients.begin() + (coefficients.empty() ? 0 : 1),
+            coefficients.end(), feedback_.begin());
+}
+
+std::vector<double> ShapingQuantizer::coefficients() const {
+  std::vector<double> all{1.0};
+  all.insert(all.end(), feedback_.begin(), feedback_.end());
+  return all;
+}
+
 // --- RfRequantizer -------------------------------------------------------
 
 ShapingQuantizer DecisionQuantizer(const RequantizerSettings& settings,
-                                   int lsb_drop, bool shaped) {
+                                   const RequantizerDecision& decision) {
   const int input_bits =
       std::clamp(settings.input_bits, kMinimumAdaptiveBits + 1, kSampleBits);
-  const int bits = std::clamp(input_bits - std::max(lsb_drop, 0),
+  const int bits = std::clamp(input_bits - std::max(decision.lsb_drop, 0),
                               kMinimumAdaptiveBits, input_bits);
-  if (!shaped) {
-    return ShapingQuantizer(bits, {1.0});
-  }
-  const std::vector<FrequencyBand> bands =
-      settings.protected_bands.empty()
-          ? DefaultProtectedBands(settings.sample_rate_mhz)
-          : settings.protected_bands;
-  return ShapingQuantizer(
-      bits, DesignNoiseTransferFunction(bands, settings.sample_rate_mhz,
-                                        settings.shaping_depth_db,
-                                        settings.shaping_order));
+  return ShapingQuantizer(bits, decision.coefficients.empty()
+                                    ? std::vector<double>{1.0}
+                                    : decision.coefficients);
 }
 
 RfRequantizer::RfRequantizer(const RequantizerSettings& settings)
@@ -412,6 +449,23 @@ RfRequantizer::RfRequantizer(const RequantizerSettings& settings)
   }
   applied_ = candidates_.size();
   previous_ = candidates_.size();
+
+  // Adaptive shaping starts from the fixed design above, which stands until
+  // there is a floor to design from.
+  if (settings_.shaping == RequantizerSettings::Shaping::kAdaptive) {
+    const auto lags = static_cast<size_t>(std::max(settings_.shaping_order, 0));
+    lag_cos_.resize((lags + 1) * kBinCount);
+    lag_sin_.resize((lags + 1) * kBinCount);
+    for (size_t lag = 0; lag <= lags; ++lag) {
+      for (size_t bin = 0; bin < kBinCount; ++bin) {
+        const double angle = 2.0 * std::numbers::pi *
+                             static_cast<double>(bin * lag) /
+                             static_cast<double>(kTransformSize);
+        lag_cos_[(lag * kBinCount) + bin] = std::cos(angle);
+        lag_sin_[(lag * kBinCount) + bin] = std::sin(angle);
+      }
+    }
+  }
 
   history_groups_ =
       std::max(kMinimumHistoryGroups,
@@ -567,10 +621,35 @@ void RfRequantizer::Analyse(const int16_t* samples, size_t count) {
     raw_floor_[bin] = estimate;
   }
 
+  const auto bins = static_cast<std::ptrdiff_t>(kBinCount);
+
+  // Adaptive shaping smooths the estimates first, within the bands, so that
+  // the envelope below takes the minimum of a floor rather than of its noise.
+  if (settings_.shaping == RequantizerSettings::Shaping::kAdaptive) {
+    const auto reach = static_cast<std::ptrdiff_t>(
+        std::ceil(kFloorSmoothingHalfWidthMhz / bin_width));
+    smoothed_floor_.resize(kBinCount);
+    for (std::ptrdiff_t bin = 0; bin < bins; ++bin) {
+      const bool inside = InBand(static_cast<double>(bin) * bin_width);
+      double sum = 0.0;
+      size_t count = 0;
+      for (std::ptrdiff_t other = std::max<std::ptrdiff_t>(0, bin - reach);
+           other <= std::min(bins - 1, bin + reach); ++other) {
+        const auto index = static_cast<size_t>(other);
+        if (!inside || InBand(static_cast<double>(index) * bin_width)) {
+          sum += raw_floor_[index];
+          ++count;
+        }
+      }
+      smoothed_floor_[static_cast<size_t>(bin)] =
+          sum / static_cast<double>(count);
+    }
+    raw_floor_.swap(smoothed_floor_);
+  }
+
   // The low envelope, within the bands.
   const auto half_width =
       static_cast<std::ptrdiff_t>(std::ceil(kEnvelopeHalfWidthMhz / bin_width));
-  const auto bins = static_cast<std::ptrdiff_t>(kBinCount);
   for (std::ptrdiff_t bin = 0; bin < bins; ++bin) {
     double lowest = raw_floor_[static_cast<size_t>(bin)];
     for (std::ptrdiff_t other = std::max<std::ptrdiff_t>(0, bin - half_width);
@@ -640,9 +719,68 @@ RfRequantizer::SliceCost RfRequantizer::Degradation(
   return worst;
 }
 
+void RfRequantizer::RedesignShaping() {
+  const double bin_width =
+      settings_.sample_rate_mhz / static_cast<double>(kTransformSize);
+
+  // The wanted noise: the floor itself in the bands, so that every slice of
+  // them is raised by the same proportion; and outside them, the depth above
+  // the bands' highest floor, so that as much as can go there does.
+  double highest = 0.0;
+  for (size_t bin = 0; bin < kBinCount; ++bin) {
+    if (InBand(static_cast<double>(bin) * bin_width)) {
+      highest = std::max(highest, floor_[bin]);
+    }
+  }
+  if (highest <= kSmallestPower) {
+    return;
+  }
+  const double outside =
+      highest * std::pow(10.0, settings_.shaping_depth_db / 10.0);
+
+  // Its weighting's autocorrelation, and A(z) from that as the fixed design
+  // does it — over the analysis bins rather than a finer grid, because the
+  // floor is known at no finer a resolution.
+  const size_t lags = lag_cos_.size() / kBinCount;
+  std::vector<double> correlation(lags, 0.0);
+  for (size_t bin = 0; bin < kBinCount; ++bin) {
+    const double target = InBand(static_cast<double>(bin) * bin_width)
+                              ? std::max(floor_[bin], kSmallestPower)
+                              : outside;
+    const double weight = 1.0 / target;
+    for (size_t lag = 0; lag < lags; ++lag) {
+      correlation[lag] += weight * lag_cos_[(lag * kBinCount) + bin];
+    }
+  }
+  const std::vector<double> shaping = LevinsonDurbin(correlation);
+
+  // |A|^2 in every bin, once for all the shaped candidates.
+  std::vector<double> gain(kBinCount);
+  for (size_t bin = 0; bin < kBinCount; ++bin) {
+    double real = 0.0;
+    double imaginary = 0.0;
+    for (size_t k = 0; k < shaping.size(); ++k) {
+      real += shaping[k] * lag_cos_[(k * kBinCount) + bin];
+      imaginary -= shaping[k] * lag_sin_[(k * kBinCount) + bin];
+    }
+    gain[bin] = (real * real) + (imaginary * imaginary);
+  }
+
+  for (Candidate& candidate : candidates_) {
+    if (candidate.shaped) {
+      candidate.gain = gain;
+      candidate.quantizer.SetCoefficients(shaping);
+    }
+  }
+}
+
 RequantizerDecision RfRequantizer::Process(int16_t* samples, size_t count,
                                            bool apply) {
   Analyse(samples, count);
+  if (settings_.shaping == RequantizerSettings::Shaping::kAdaptive &&
+      have_floor_) {
+    RedesignShaping();
+  }
 
   const size_t none = candidates_.size();
   size_t wanted = none;
@@ -683,6 +821,7 @@ RequantizerDecision RfRequantizer::Process(int16_t* samples, size_t count,
     decision.lsb_drop = candidate.lsb_drop;
     decision.shaped = candidate.shaped;
     decision.degradation_db = Degradation(candidate).db;
+    decision.coefficients = candidate.quantizer.coefficients();
 
     if (apply) {
       // A quantiser taken over from another carries an error history that

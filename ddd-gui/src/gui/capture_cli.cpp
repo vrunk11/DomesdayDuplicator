@@ -39,6 +39,9 @@ constexpr const char* kOutputFormatName = "output-format";
 constexpr const char* kRequantizeName = "requantize";
 constexpr const char* kRequantizeOffWord = "off";
 constexpr const char* kRequantizeBandName = "requantize-band";
+constexpr const char* kRequantizeShapingName = "requantize-shaping";
+constexpr const char* kFixedShapingWord = "fixed";
+constexpr const char* kAdaptiveShapingWord = "adaptive";
 constexpr const char* kBitShiftName = "bit-shift";
 constexpr const char* kPipeName = "pipe";
 constexpr const char* kSaveName = "save";
@@ -137,7 +140,8 @@ bool CaptureCliOptions::HasAttributeOverrides() const {
          decimation_factor.has_value() || pll_preset_mhz.has_value() ||
          range_select_2vpp.has_value() || duration_limit_seconds.has_value() ||
          output_format.has_value() || requantize.has_value() ||
-         requantize_bands.has_value() || bit_shift.has_value();
+         requantize_bands.has_value() || requantize_adaptive.has_value() ||
+         bit_shift.has_value();
 }
 
 CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
@@ -221,6 +225,18 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
               "this run only; recorded in the capture."),
           QStringLiteral("bands")),
       QCommandLineOption(
+          QLatin1String(kRequantizeShapingName),
+          QStringLiteral(
+              "How --requantize shapes the noise it adds: %1, one filter "
+              "designed from the bands, or %2, designed again for every "
+              "segment so that the noise follows the measured floor — more "
+              "where the band is noisy, less where it is quiet. Adaptive "
+              "drops more bits at the same margin on a floor that slopes. For "
+              "this run only; recorded in the capture.")
+              .arg(QLatin1String(kFixedShapingWord),
+                   QLatin1String(kAdaptiveShapingWord)),
+          QStringLiteral("shaping")),
+      QCommandLineOption(
           QLatin1String(kBitShiftName),
           QStringLiteral(
               "Shift the signal up by 0 to 4 bits before it is written — a "
@@ -254,6 +270,7 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
   parser.addOption(set.output_format);
   parser.addOption(set.requantize);
   parser.addOption(set.requantize_band);
+  parser.addOption(set.requantize_shaping);
   parser.addOption(set.bit_shift);
   parser.addOption(set.pipe);
   parser.addOption(set.save);
@@ -431,6 +448,23 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
     options.requantize_bands = std::move(bands);
   }
 
+  if (parser.isSet(set.requantize_shaping)) {
+    const QString word =
+        parser.value(set.requantize_shaping).trimmed().toLower();
+    if (word == QLatin1String(kFixedShapingWord)) {
+      options.requantize_adaptive = false;
+    } else if (word == QLatin1String(kAdaptiveShapingWord)) {
+      options.requantize_adaptive = true;
+    } else {
+      result.error =
+          QStringLiteral("Unknown --requantize-shaping '%1'. Use %2 or %3.")
+              .arg(parser.value(set.requantize_shaping),
+                   QLatin1String(kFixedShapingWord),
+                   QLatin1String(kAdaptiveShapingWord));
+      return result;
+    }
+  }
+
   if (parser.isSet(set.bit_shift)) {
     const QString text = parser.value(set.bit_shift).trimmed();
     bool numeric = false;
@@ -530,6 +564,9 @@ void ApplyCliOverrides(CaptureSettings& settings,
   }
   if (options.requantize_bands.has_value()) {
     settings.requantize_bands = *options.requantize_bands;
+  }
+  if (options.requantize_adaptive.has_value()) {
+    settings.requantize_adaptive = *options.requantize_adaptive;
   }
   if (options.requantize_margin.has_value()) {
     settings.requantize_margin = *options.requantize_margin;

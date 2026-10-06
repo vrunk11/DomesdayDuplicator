@@ -251,7 +251,8 @@ capture has `mode: dynamic` and:
 | `hold_seconds` | How long dropping more had to stay justified before it was done |
 | `protected_bands` | `0-14 MHz`, or short of the Nyquist limit at a lower rate: `0-13.5 MHz` at 30 Msps |
 | `input_bits` | The bits the requantiser was given: the converter's ten, less the bit shift |
-| `shaping_order`, `shaping_depth_db` | The noise-shaping filter it could use |
+| `shaping` | `fixed`, one filter designed from the bands, or `adaptive`, designed again for every segment from the measured floor |
+| `shaping_order`, `shaping_depth_db` | The noise-shaping filter it could use: 16 and 10 dB fixed, 32 and 20 dB adaptive |
 | `segment_samples` | `1048576` — one decision per this many samples |
 | `shaped_samples` | How many samples were noise shaped |
 | `worst_degradation_db` | The most the floor of any slice rose, over the whole file |
@@ -427,6 +428,7 @@ examination at all.
   "hold_seconds": 0.25
   "protected_bands": "0-14 MHz"
   "input_bits": 10
+  "shaping": "fixed"
   "shaping_order": 16
   "shaping_depth_db": 10.0
   "segment_samples": 1048576

@@ -352,6 +352,7 @@ TEST_F(CaptureMetadataTest, ARequantisedCaptureRecordsEveryChange) {
   EXPECT_TRUE(Contains(document, "\"limit_db\": 0.20"));
   EXPECT_TRUE(Contains(document, "\"protected_bands\": \"0-13.5 MHz\""));
   EXPECT_TRUE(Contains(document, "\"input_bits\": 10"));
+  EXPECT_TRUE(Contains(document, "\"shaping\": \"fixed\""));
   EXPECT_TRUE(Contains(document, "\"shaped_samples\": 1048576"));
   EXPECT_TRUE(Contains(document, "\"worst_degradation_db\": 0.188"));
   EXPECT_TRUE(Contains(document, "\"clipped_samples\": 3"));
@@ -363,6 +364,10 @@ TEST_F(CaptureMetadataTest, ARequantisedCaptureRecordsEveryChange) {
                        "\"changes\":\n"
                        "    \"0\": \"1\"\n"
                        "    \"2097152\": \"3 shaped\"\n"));
+
+  record.adaptive_shaping = true;
+  EXPECT_TRUE(Contains(BuildCaptureMetadataYaml(metadata),
+                       "\"shaping\": \"adaptive\""));
 }
 
 TEST_F(CaptureMetadataTest, NoBoardSetupWritesNoBoardBlock) {

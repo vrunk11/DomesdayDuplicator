@@ -73,6 +73,7 @@ struct CaptureCliOptionSet {
   QCommandLineOption output_format;
   QCommandLineOption requantize;
   QCommandLineOption requantize_band;
+  QCommandLineOption requantize_shaping;
   QCommandLineOption bit_shift;
   QCommandLineOption pipe;
   QCommandLineOption save;
@@ -135,6 +136,10 @@ struct CaptureCliOptions {
   // The bands --requantize protects, in place of the default for the rate.
   // See CaptureSettings::requantize_bands.
   std::optional<std::vector<capture::FrequencyBand>> requantize_bands;
+
+  // Adaptive noise shaping, or the fixed filter. See
+  // CaptureSettings::requantize_adaptive.
+  std::optional<bool> requantize_adaptive;
 
   // Whether anything about the capture itself was named. An attribute given
   // with no start command is not an error: it populates the window, which is

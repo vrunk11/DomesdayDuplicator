@@ -177,6 +177,12 @@ struct CaptureSettings {
   // on one player is not one to find still in force a month later.
   std::vector<capture::FrequencyBand> requantize_bands;
 
+  // Whether the requantiser's noise shaping follows the measured floor rather
+  // than the fixed filter (capture::RequantizerSettings::Shaping). From the
+  // command line and never saved, for the same reason as the bands: it is
+  // being tried, and a capture should not take it up unasked.
+  bool requantize_adaptive = false;
+
   // Stop the capture automatically after this long. 0 means run until stopped,
   // which is the default: a limit that fired in the middle of a side would be
   // worse than no limit at all.
@@ -217,6 +223,7 @@ struct CaptureSettings {
            bit_shift == other.bit_shift && requantize == other.requantize &&
            requantize_margin == other.requantize_margin &&
            requantize_bands == other.requantize_bands &&
+           requantize_adaptive == other.requantize_adaptive &&
            duration_limit_seconds == other.duration_limit_seconds &&
            low_space_warning_minutes == other.low_space_warning_minutes;
   }
