@@ -131,6 +131,15 @@ struct RequantizerSettings {
 // sloping floor, and the wider depth what lets it be pushed out of the bands.
 void UseAdaptiveShaping(RequantizerSettings& settings);
 
+// The range a shaping filter's order and depth may be set to by hand, to try
+// them. The order is the length of the error feedback every sample pays for,
+// so it is held to what a stream can afford; the depth is how far above the
+// bands the added noise may be pushed, and beyond 40 dB the filter's gain
+// outside them is more than the quantiser's error clamp lets it use.
+inline constexpr int kMinimumShapingOrder = 2;
+inline constexpr int kMaximumShapingOrder = 64;
+inline constexpr double kMaximumShapingDepthDb = 40.0;
+
 // What was done to one segment: how many of the input's low bits were
 // dropped, whether the added noise was shaped, and what that cost the worst
 // protected slice. A drop of 0 leaves the segment as it was.

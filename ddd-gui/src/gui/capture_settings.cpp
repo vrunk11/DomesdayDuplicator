@@ -35,8 +35,15 @@ constexpr const char* kDecimationFactorKey = "capture/decimation_factor";
 constexpr const char* kRangeSelectKey = "hardware/range_select_2vpp";
 constexpr const char* kPllPresetKey = "capture/pll_preset_mhz";
 constexpr const char* kCompressionLevelKey = "capture/compression_level";
-constexpr const char* kRequantizeKey = "capture/requantize";
 constexpr const char* kRequantizeMarginKey = "capture/requantize_margin";
+constexpr const char* kRequantizeBandsKey = "capture/requantize_bands";
+constexpr const char* kRequantizeShapingKey = "capture/requantize_shaping";
+constexpr const char* kRequantizeShapingDepthKey =
+    "capture/requantize_shaping_depth_db";
+constexpr const char* kRequantizeShapingOrderKey =
+    "capture/requantize_shaping_order";
+constexpr const char* kFixedShapingName = "fixed";
+constexpr const char* kAdaptiveShapingName = "adaptive";
 constexpr const char* kBitShiftKey = "capture/bit_shift";
 constexpr const char* kDurationLimitKey = "capture/duration_limit_seconds";
 constexpr const char* kLowSpaceKey = "capture/low_space_warning_minutes";
@@ -400,13 +407,30 @@ CaptureSettings LoadCaptureSettings() {
   loaded.bit_shift = std::clamp(
       settings.value(QLatin1String(kBitShiftKey), loaded.bit_shift).toInt(), 0,
       capture::kMaximumBitShift);
-  loaded.requantize =
-      settings.value(QLatin1String(kRequantizeKey), loaded.requantize).toBool();
+  // Whether the requantiser is on is not read back: every session starts
+  // with it off. How it is set up is.
   loaded.requantize_margin = std::clamp(
       settings
           .value(QLatin1String(kRequantizeMarginKey), loaded.requantize_margin)
           .toInt(),
       capture::kMinimumMarginLevel, capture::kMaximumMarginLevel);
+  loaded.requantize_bands =
+      capture::ParseBands(settings.value(QLatin1String(kRequantizeBandsKey))
+                              .toString()
+                              .toStdString());
+  loaded.requantize_adaptive =
+      settings.value(QLatin1String(kRequantizeShapingKey)).toString() ==
+      QLatin1String(kAdaptiveShapingName);
+  loaded.requantize_shaping_depth_db = std::clamp(
+      settings.value(QLatin1String(kRequantizeShapingDepthKey), 0.0).toDouble(),
+      0.0, capture::kMaximumShapingDepthDb);
+  loaded.requantize_shaping_order =
+      settings.value(QLatin1String(kRequantizeShapingOrderKey), 0).toInt();
+  if (loaded.requantize_shaping_order != 0) {
+    loaded.requantize_shaping_order = std::clamp(
+        loaded.requantize_shaping_order, capture::kMinimumShapingOrder,
+        capture::kMaximumShapingOrder);
+  }
 
   loaded.duration_limit_seconds =
       std::clamp(settings.value(QLatin1String(kDurationLimitKey), 0).toInt(), 0,
@@ -447,9 +471,19 @@ void SaveCaptureSettings(const CaptureSettings& settings) {
   store.setValue(QLatin1String(kCompressionLevelKey),
                  settings.compression_level);
   store.setValue(QLatin1String(kBitShiftKey), settings.bit_shift);
-  store.setValue(QLatin1String(kRequantizeKey), settings.requantize);
   store.setValue(QLatin1String(kRequantizeMarginKey),
                  settings.requantize_margin);
+  store.setValue(QLatin1String(kRequantizeBandsKey),
+                 QString::fromStdString(
+                     capture::DescribeBands(settings.requantize_bands)));
+  store.setValue(
+      QLatin1String(kRequantizeShapingKey),
+      QLatin1String(settings.requantize_adaptive ? kAdaptiveShapingName
+                                                 : kFixedShapingName));
+  store.setValue(QLatin1String(kRequantizeShapingDepthKey),
+                 settings.requantize_shaping_depth_db);
+  store.setValue(QLatin1String(kRequantizeShapingOrderKey),
+                 settings.requantize_shaping_order);
   store.setValue(QLatin1String(kDurationLimitKey),
                  settings.duration_limit_seconds);
   store.setValue(QLatin1String(kLowSpaceKey),

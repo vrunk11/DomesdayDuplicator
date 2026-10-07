@@ -164,24 +164,32 @@ struct CaptureSettings {
   // capture::RfRequantizer, which takes the signal after the shift. While
   // monitoring, the same settings preview what a capture would do.
   //
-  // Persisted like the compression level: decisions about what is kept, made
-  // once for a collection rather than per capture. None of it applies in test
-  // mode, whose ramp has to reach the file exactly as counted.
+  // The shift is persisted like the compression level: a decision about what
+  // is kept, made once for a collection rather than per capture. So is every
+  // way the requantiser is set up — the margin, the bands, the shaping — but
+  // not whether it is on: requantisation starts every session off, and is
+  // turned on for the run that wants it, so a capture never takes it up
+  // unasked. None of it applies in test mode, whose ramp has to reach the file
+  // exactly as counted.
   int bit_shift = 0;
   bool requantize = false;
   int requantize_margin = capture::kDefaultMarginLevel;
 
   // The bands the requantiser protects, in place of the default for the rate
-  // (capture::DefaultProtectedBands); empty for that default. Set from the
-  // command line, for one run, and never saved: a band chosen to try something
-  // on one player is not one to find still in force a month later.
+  // (capture::DefaultProtectedBands); empty for that default.
   std::vector<capture::FrequencyBand> requantize_bands;
 
   // Whether the requantiser's noise shaping follows the measured floor rather
-  // than the fixed filter (capture::RequantizerSettings::Shaping). From the
-  // command line and never saved, for the same reason as the bands: it is
-  // being tried, and a capture should not take it up unasked.
+  // than the fixed filter (capture::RequantizerSettings::Shaping).
   bool requantize_adaptive = false;
+
+  // The shaping filter's depth in dB and its order, in place of the mode's
+  // own (capture::UseAdaptiveShaping, or the fixed filter's 10 dB and 16); 0
+  // for those. The depth decides, at a given number of bits, how much of the
+  // added noise stays in the protected bands and how much goes outside them,
+  // where it costs the FLAC encoder instead of the picture.
+  double requantize_shaping_depth_db = 0.0;
+  int requantize_shaping_order = 0;
 
   // Stop the capture automatically after this long. 0 means run until stopped,
   // which is the default: a limit that fired in the middle of a side would be
@@ -224,6 +232,8 @@ struct CaptureSettings {
            requantize_margin == other.requantize_margin &&
            requantize_bands == other.requantize_bands &&
            requantize_adaptive == other.requantize_adaptive &&
+           requantize_shaping_depth_db == other.requantize_shaping_depth_db &&
+           requantize_shaping_order == other.requantize_shaping_order &&
            duration_limit_seconds == other.duration_limit_seconds &&
            low_space_warning_minutes == other.low_space_warning_minutes;
   }

@@ -15,6 +15,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCommandLineParser>
+#include <QDoubleSpinBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -36,6 +37,7 @@
 #include "capture_format.h"
 #include "capture_panel.h"
 #include "fake_usb_device.h"
+#include "rf_requantizer.h"
 #include "theme_color_tokens.h"
 
 namespace ddd::gui {
@@ -162,6 +164,22 @@ class CapturePanelTest : public ::testing::Test {
     return panel_->findChild<QLabel*>(
         QLatin1String(CapturePanel::kFreeSpaceLabelName));
   }
+  QComboBox* ShapingCombo() const {
+    return panel_->findChild<QComboBox*>(
+        QLatin1String(CapturePanel::kShapingComboName));
+  }
+  QLineEdit* BandsEdit() const {
+    return panel_->findChild<QLineEdit*>(
+        QLatin1String(CapturePanel::kBandsEditName));
+  }
+  QDoubleSpinBox* ShapingDepthSpin() const {
+    return panel_->findChild<QDoubleSpinBox*>(
+        QLatin1String(CapturePanel::kShapingDepthSpinName));
+  }
+  QSpinBox* ShapingOrderSpin() const {
+    return panel_->findChild<QSpinBox*>(
+        QLatin1String(CapturePanel::kShapingOrderSpinName));
+  }
 
   // The background colour a button's stylesheet sets, or an invalid colour if
   // it has none. Read out of the stylesheet rather than by grabbing pixels,
@@ -219,6 +237,10 @@ TEST_F(CapturePanelTest, EveryControlIsPresentAndFindable) {
   EXPECT_NE(DurationResetButton(), nullptr);
   EXPECT_NE(LowSpaceSpin(), nullptr);
   EXPECT_NE(FreeSpaceLabel(), nullptr);
+  EXPECT_NE(ShapingCombo(), nullptr);
+  EXPECT_NE(BandsEdit(), nullptr);
+  EXPECT_NE(ShapingDepthSpin(), nullptr);
+  EXPECT_NE(ShapingOrderSpin(), nullptr);
 }
 
 // Test mode belongs to the Tools menu now. A checkbox left behind here would be
@@ -622,6 +644,43 @@ TEST_F(CapturePanelTest, TheFormatAndRateReachTheController) {
       SampleRateCombo()->findData(capture::kTapeDecimationFactor));
   EXPECT_EQ(controller_->settings().decimation_factor,
             capture::kTapeDecimationFactor);
+}
+
+// Everything the command line can say about the requantiser's noise shaping,
+// said here too, and "Default" is the mode's own value rather than a number.
+TEST_F(CapturePanelTest, TheShapingSetupReachesTheController) {
+  ShapingCombo()->setCurrentIndex(ShapingCombo()->findData(true));
+  EXPECT_TRUE(controller_->settings().requantize_adaptive);
+
+  ShapingDepthSpin()->setValue(25.0);
+  EXPECT_DOUBLE_EQ(controller_->settings().requantize_shaping_depth_db, 25.0);
+  ShapingDepthSpin()->setValue(ShapingDepthSpin()->minimum());
+  EXPECT_DOUBLE_EQ(controller_->settings().requantize_shaping_depth_db, 0.0);
+
+  ShapingOrderSpin()->setValue(48);
+  EXPECT_EQ(controller_->settings().requantize_shaping_order, 48);
+  ShapingOrderSpin()->setValue(ShapingOrderSpin()->minimum());
+  EXPECT_EQ(controller_->settings().requantize_shaping_order, 0);
+  EXPECT_EQ(ShapingOrderSpin()->text(), ShapingOrderSpin()->specialValueText());
+}
+
+// Bands are read when the typing is done. Text that is not bands is put back
+// to what is in force rather than taken as none, and empty is the default.
+TEST_F(CapturePanelTest, TheProtectedBandsAreTakenOnlyWhenTheyReadAsBands) {
+  BandsEdit()->setText(QStringLiteral("2-13.5"));
+  Q_EMIT BandsEdit()->editingFinished();
+  const std::vector<capture::FrequencyBand> expected{{2.0, 13.5}};
+  EXPECT_EQ(controller_->settings().requantize_bands, expected);
+
+  BandsEdit()->setText(QStringLiteral("13.5-2"));
+  Q_EMIT BandsEdit()->editingFinished();
+  EXPECT_EQ(controller_->settings().requantize_bands, expected);
+  EXPECT_EQ(capture::ParseBands(BandsEdit()->text().toStdString()), expected);
+
+  BandsEdit()->clear();
+  Q_EMIT BandsEdit()->editingFinished();
+  EXPECT_TRUE(controller_->settings().requantize_bands.empty());
+  EXPECT_FALSE(BandsEdit()->placeholderText().isEmpty());
 }
 
 // Nothing to compress in the uncompressed format, so the level stops being a

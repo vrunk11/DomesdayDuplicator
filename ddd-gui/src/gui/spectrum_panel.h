@@ -73,6 +73,12 @@ class SpectrumPlot : public QWidget {
   void SetPeakHoldVisible(bool visible);
   void SetView(SpectrumView view);
 
+  // A second trace, on the same scale: what the requantiser's rounding adds
+  // on its own (AnalysisWorker::NoiseSpectrumReady). Empty for none. Drawn
+  // under the signal's trace, in the trace view only.
+  void SetNoise(const std::vector<double>& magnitudes_db);
+  const std::vector<double>& noise_db() const { return noise_db_; }
+
   // The top of the spectrogram's colour scale, and how far below it the scale
   // reaches. History is held as levels, so moving either re-colours every row
   // already on screen rather than only the rows drawn after the change.
@@ -230,6 +236,7 @@ class SpectrumPlot : public QWidget {
 
   std::vector<double> magnitudes_db_;
   std::vector<double> peak_hold_db_;
+  std::vector<double> noise_db_;
   bool peak_hold_visible_ = false;
 
   // Segments behind the levels above, and zero before anything has said.

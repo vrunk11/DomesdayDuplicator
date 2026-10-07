@@ -216,9 +216,10 @@ two seconds comes back having genuinely lost two seconds of picture.
 ### Corrected
 
 Off by default, and the scope then shows the converter's own codes, with the dashed clip lines
-on its ends at 0 and 1023. The switch is shared: the [spectrum](#spectrum) and the
-[amplitude history](#amplitude-history) each have one too, and turning any of them on or off
-turns all three, so two panels never show two different signals side by side.
+on its ends at 0 and 1023. The [spectrum](#spectrum) and the
+[amplitude history](#amplitude-history) each have a switch of their own, independent of this
+one, so the converter's codes can be watched in one panel while another shows what the file
+gets — the raw scope beside the corrected spectrum, for instance.
 
 On, it shows the signal as it is written to the file: the DC offset declared in
 [Board setup](board-setup.md) taken out, so a board whose front end sits off-centre is drawn
@@ -237,8 +238,11 @@ preview while monitoring, what is being written while capturing. The scope then 
 steps of 2^bits dropped codes, and the spectrum's noise floor rises: evenly for plain
 rounding, and much more above the LaserDisc's band than in it when the noise is shaped. The
 decision changes as the noise does, several times a second at the aggressive margin, and the
-spectrum's average carries across those changes. The amplitude history is not affected: its
-extremes and RMS move by less than a step.
+spectrum's average carries across those changes. In the LaserDisc's band that rise is meant
+to be a fraction of a decibel, which is too little to see on the signal's own trace, so the
+corrected spectrum also draws [the noise the requantiser adds](#requantisation-noise) as a
+trace of its own. The amplitude history is not affected: its extremes and RMS move by less
+than a step.
 
 The offset is the one the running stream started with. The bit shift follows the capture
 panel as it is changed, while monitoring. In the spectrum a shift shows as every level moving
@@ -457,6 +461,20 @@ measured while you were looking for it.
 Both belong to the live trace, and each view shows only the controls that do something in
 it: peak hold and its reset in the spectrum, the two colour-scale controls in the
 spectrogram.
+
+### Requantisation noise
+
+With **Corrected** on in this panel and [requantisation](capture-control.md#requantisation)
+on, a second trace, in a colour of its own, is the spectrum of what the requantiser adds: each
+rounded sample less the sample before rounding, analysed with the same window, resolution and
+averaging as the signal, so the two are read against each other on the same scale. The gap
+between them is the requantiser's margin, slice by slice. Plain rounding draws it flat; shaped
+rounding draws it low across the protected bands and rising outside them, and how far it rises
+is the [shaping depth](capture-control.md#requantisation). Where it comes within a few
+decibels of the signal's floor, the floor is visibly raised there.
+
+It is the spectrum view's only; the spectrogram shows the signal alone. With requantisation
+off, or Corrected off here, there is nothing to draw and it goes.
 
 ### The cursor
 

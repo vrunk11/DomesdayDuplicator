@@ -207,13 +207,14 @@ void CaptureController::ApplySessionSettings(const CaptureSettings& settings) {
   UpdateIdleSink();
 }
 
-void CaptureController::SetShowCorrected(bool show) {
-  if (show == show_corrected_) {
+void CaptureController::SetShowCorrected(SignalPanel panel, bool show) {
+  bool& shown = show_corrected_[static_cast<size_t>(panel)];
+  if (show == shown) {
     return;
   }
-  show_corrected_ = show;
+  shown = show;
   ApplyDisplayConversion();
-  emit ShowCorrectedChanged(show);
+  emit ShowCorrectedChanged(panel, show);
 }
 
 void CaptureController::UpdateRunConversion() {
@@ -240,14 +241,17 @@ void CaptureController::UpdateRunConversion() {
 }
 
 void CaptureController::ApplyDisplayConversion() {
-  analysis_->SetConversion(show_corrected_ ? run_conversion_
-                                           : capture::SampleConversion{});
+  analysis_->SetConversion(run_conversion_);
 
   // And the requantiser attached now, previewing or writing, whose decisions
   // the panels then show as they are made.
-  analysis_->SetRequantization(
-      show_corrected_ ? requantization_status_ : nullptr,
-      RunRequantizerSettings());
+  analysis_->SetRequantization(requantization_status_,
+                               RunRequantizerSettings());
+
+  // The amplitude history converts its own points; the scope and the
+  // spectrum are converted by the worker.
+  analysis_->SetCorrected(show_corrected(SignalPanel::kScope),
+                          show_corrected(SignalPanel::kSpectrum));
 }
 
 void CaptureController::SetPipeOutput(
@@ -560,6 +564,18 @@ capture::RequantizerSettings CaptureController::RunRequantizerSettings() const {
   if (settings_.requantize_adaptive) {
     capture::UseAdaptiveShaping(requantizer);
   }
+
+  // A depth or an order asked for on the command line, in place of the
+  // mode's own.
+  if (settings_.requantize_shaping_depth_db > 0.0) {
+    requantizer.shaping_depth_db = std::min(
+        settings_.requantize_shaping_depth_db, capture::kMaximumShapingDepthDb);
+  }
+  if (settings_.requantize_shaping_order > 0) {
+    requantizer.shaping_order = std::clamp(settings_.requantize_shaping_order,
+                                           capture::kMinimumShapingOrder,
+                                           capture::kMaximumShapingOrder);
+  }
   return requantizer;
 }
 
@@ -582,10 +598,14 @@ capture::RequantizationRecord CaptureController::RequantizationSettingsRecord()
 }
 
 CaptureController::IdleSinkKey CaptureController::CurrentIdleSinkKey() const {
-  return {RunRequantizes(), settings_.requantize_margin,
+  const capture::RequantizerSettings requantizer = RunRequantizerSettings();
+  return {RunRequantizes(),
+          settings_.requantize_margin,
           capture::BitShift(run_conversion_),
-          capture::DescribeBands(RunRequantizerSettings().protected_bands),
-          settings_.requantize_adaptive};
+          capture::DescribeBands(requantizer.protected_bands),
+          settings_.requantize_adaptive,
+          requantizer.shaping_order,
+          requantizer.shaping_depth_db};
 }
 
 std::unique_ptr<capture::ISampleSink> CaptureController::MakeIdleSink() {

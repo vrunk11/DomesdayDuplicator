@@ -27,6 +27,12 @@ enum class PlotColorToken {
   kSignalTraceMuted,
   kSpectrumTrace,
   kSpectrumPeakHold,
+
+  // What the requantiser's rounding adds, drawn under the spectrum it was
+  // added to. Its own hue, so that a reader never takes the added noise for
+  // the signal's floor.
+  kSpectrumNoise,
+
   kAmplitudeTrace,
   kAmplitudeEnvelope,
   kClipMarker,
@@ -140,6 +146,10 @@ inline QColor PlotColor(PlotColorToken token, bool dark_theme) {
       return dark_theme ? QColor(140, 230, 140) : QColor(0, 130, 40);
     case PlotColorToken::kSpectrumPeakHold:
       return dark_theme ? QColor(255, 220, 120) : QColor(190, 130, 0);
+    case PlotColorToken::kSpectrumNoise:
+      // Rose: apart from the green trace, the amber peak hold and the violet
+      // filter corner.
+      return dark_theme ? QColor(255, 140, 180) : QColor(185, 40, 110);
     case PlotColorToken::kAmplitudeTrace:
       return dark_theme ? QColor(255, 255, 100) : QColor(200, 180, 0);
     case PlotColorToken::kAmplitudeEnvelope:

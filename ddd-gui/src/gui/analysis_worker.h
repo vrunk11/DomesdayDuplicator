@@ -73,12 +73,16 @@ class SnapshotAnalyser : public QObject {
 
   void RequestPeakHoldReset();
 
-  // Show the signal as the capture would write it: every code put through
-  // `conversion` before it is drawn or transformed. The default shows the
-  // converter's own codes. Taken at the next snapshot, and the spectrum's
-  // averages start again with it — an average across the change would be of
-  // two different signals.
+  // The signal as the capture would write it: every code put through
+  // `conversion`, for whichever panel is showing it (SetCorrected). Taken at
+  // the next snapshot, and the spectrum's averages start again with it when
+  // the spectrum is showing it — an average across the change would be of two
+  // different signals.
   void SetConversion(const capture::SampleConversion& conversion);
+
+  // Which panels are shown the signal as written rather than the converter's
+  // own codes: the scope and the spectrum each choose for themselves.
+  void SetCorrected(bool scope, bool spectrum);
 
   // Show the requantiser's effect on top of the conversion: every snapshot
   // rounded as the decision in force in `status` would round it, with the
@@ -111,6 +115,14 @@ class SnapshotAnalyser : public QObject {
                      const std::vector<double>& peak_hold_db,
                      const std::vector<double>& snapshot_db, size_t segments);
 
+  // What the requantiser adds on its own — the rounded signal less the signal
+  // it rounded — averaged as the trace is and on the same scale, with every
+  // SpectrumReady while the spectrum shows a requantised signal; empty with
+  // each one when it does not, so the panel clears it. The added noise is
+  // under the signal in the bands it protects and is hard to see in the
+  // whole; on its own it shows where the shaping put it.
+  void NoiseSpectrumReady(const std::vector<double>& magnitudes_db);
+
  private:
   // Guards the source pointer and the read through it, and nothing else. Held
   // for a memcpy, never for a transform.
@@ -120,7 +132,13 @@ class SnapshotAnalyser : public QObject {
   QTimer* timer_ = nullptr;
 
   analysis::SpectrumAnalyser spectrum_;
+  analysis::SpectrumAnalyser noise_spectrum_;
   std::atomic<double> requested_averaging_{analysis::kDefaultAveraging};
+
+  // See SetCorrected(), and the spectrum's choice as it was last applied.
+  std::atomic<bool> scope_corrected_{false};
+  std::atomic<bool> spectrum_corrected_{false};
+  bool applied_spectrum_corrected_ = false;
   std::atomic<size_t> requested_transform_size_{
       analysis::kDefaultTransformSize};
 
@@ -153,6 +171,8 @@ class SnapshotAnalyser : public QObject {
   // Worker-thread scratch. Reused rather than reallocated per frame.
   std::vector<uint8_t> wire_;
   std::vector<uint16_t> codes_;
+  std::vector<uint16_t> corrected_codes_;
+  std::vector<uint16_t> noise_codes_;
   std::vector<int16_t> samples_;
 };
 
@@ -176,13 +196,14 @@ class AnalysisWorker : public QObject {
 
   bool running() const { return thread_.isRunning(); }
 
-  // All five are no-ops before Start() and after Stop(): there is no thread to
-  // carry the request to, and a caller should not have to check.
+  // All of these are no-ops before Start() and after Stop(): there is no thread
+  // to carry the request to, and a caller should not have to check.
   void SetSource(capture::SnapshotPublisher* snapshots);
   void SetSpectrumAveraging(double averaging);
   void SetSpectrumTransformSize(size_t transform_size);
   void ResetPeakHold();
   void SetConversion(const capture::SampleConversion& conversion);
+  void SetCorrected(bool scope, bool spectrum);
   void SetRequantization(std::shared_ptr<capture::RequantizationStatus> status,
                          const capture::RequantizerSettings& settings);
 
@@ -194,6 +215,9 @@ class AnalysisWorker : public QObject {
   void SpectrumReady(const std::vector<double>& magnitudes_db,
                      const std::vector<double>& peak_hold_db,
                      const std::vector<double>& snapshot_db, size_t segments);
+
+  // See SnapshotAnalyser::NoiseSpectrumReady.
+  void NoiseSpectrumReady(const std::vector<double>& magnitudes_db);
 
  private:
   QThread thread_;

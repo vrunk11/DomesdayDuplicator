@@ -172,6 +172,10 @@ every session for something that has not changed is how a setting ends up ignore
 It is a diagnostic, and an application that silently started in test mode because of
 something you did last week would produce a capture full of ramps.
 
+**Requantisation** is not remembered either, for the same kind of reason: it starts Off, and a
+capture that drops bits does so because it was asked to this session. Its setup — the margin,
+the protected bands and the shaping — is remembered, so turning it back on is one click.
+
 ## Where settings are kept
 
 | Platform | Location |

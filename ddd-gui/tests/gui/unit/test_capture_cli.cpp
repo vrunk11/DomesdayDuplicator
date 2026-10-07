@@ -521,6 +521,40 @@ TEST(CaptureCliTest, AShapingThatIsNotOneIsRefused) {
   }
 }
 
+TEST(CaptureCliTest, TheShapingDepthAndOrderAreTakenAsGiven) {
+  const Parsed parsed = Parse(
+      {QStringLiteral("--requantize-shaping-depth"), QStringLiteral("12.5"),
+       QStringLiteral("--requantize-shaping-order"), QStringLiteral("24")});
+  ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
+  EXPECT_EQ(parsed.options.requantize_shaping_depth_db,
+            std::optional<double>(12.5));
+  EXPECT_EQ(parsed.options.requantize_shaping_order, std::optional<int>(24));
+
+  CaptureSettings settings;
+  ApplyCliOverrides(settings, parsed.options);
+  EXPECT_DOUBLE_EQ(settings.requantize_shaping_depth_db, 12.5);
+  EXPECT_EQ(settings.requantize_shaping_order, 24);
+}
+
+TEST(CaptureCliTest, AShapingDepthOrOrderOutOfRangeIsRefused) {
+  for (const char* depth : {"0", "-3", "41", "deep", ""}) {
+    const Parsed parsed = Parse(
+        {QStringLiteral("--requantize-shaping-depth"), QLatin1String(depth)});
+    EXPECT_TRUE(parsed.accepted) << depth;
+    EXPECT_TRUE(
+        parsed.error.contains(QStringLiteral("--requantize-shaping-depth")))
+        << depth << ": " << parsed.error.toStdString();
+  }
+  for (const char* order : {"1", "65", "16.5", "high", ""}) {
+    const Parsed parsed = Parse(
+        {QStringLiteral("--requantize-shaping-order"), QLatin1String(order)});
+    EXPECT_TRUE(parsed.accepted) << order;
+    EXPECT_TRUE(
+        parsed.error.contains(QStringLiteral("--requantize-shaping-order")))
+        << order << ": " << parsed.error.toStdString();
+  }
+}
+
 TEST(CaptureCliTest, BandsThatAreNotBandsAreRefused) {
   for (const char* bands : {"12", "12-0", "0-12;13-14", "low-high", ""}) {
     const Parsed parsed =

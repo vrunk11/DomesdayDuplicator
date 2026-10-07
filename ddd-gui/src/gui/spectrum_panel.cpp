@@ -364,9 +364,20 @@ void SpectrumPlot::SetPeakHoldVisible(bool visible) {
   update();
 }
 
+void SpectrumPlot::SetNoise(const std::vector<double>& magnitudes_db) {
+  // Nothing to redraw when there was none and still is none, which is every
+  // frame of an ordinary run.
+  if (magnitudes_db.empty() && noise_db_.empty()) {
+    return;
+  }
+  noise_db_ = magnitudes_db;
+  update();
+}
+
 void SpectrumPlot::Clear() {
   magnitudes_db_.clear();
   peak_hold_db_.clear();
+  noise_db_.clear();
   segments_ = 0;
   history_.Clear();
   clock_.invalidate();
@@ -931,6 +942,13 @@ void SpectrumPlot::paintEvent(QPaintEvent* event) {
                    theme_tokens::PlotColorToken::kSpectrumPeakHold, dark));
   }
 
+  // The requantiser's added noise, under the signal it was added to.
+  if (!noise_db_.empty()) {
+    PaintTrace(painter, area, noise_db_,
+               theme_tokens::PlotColor(
+                   theme_tokens::PlotColorToken::kSpectrumNoise, dark));
+  }
+
   PaintTrace(painter, area, magnitudes_db_,
              theme_tokens::PlotColor(
                  theme_tokens::PlotColorToken::kSpectrumTrace, dark));
@@ -1158,23 +1176,25 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
   });
   controls->addWidget(reset_);
 
-  // The same switch as the scope's, held by the controller: on, the spectrum
-  // is of the signal as it is written — a shift shows as every level moving
-  // up together, and the requantiser's latest decision as the noise floor
-  // rising, flat for plain rounding and tilted up out of the band where the
-  // noise is shaped.
+  // This panel's own switch, held by the controller: on, the spectrum is of
+  // the signal as it is written — a shift shows as every level moving up
+  // together — and, while the requantiser runs, a second trace shows what its
+  // rounding adds on its own, which is usually well under the signal in the
+  // bands it protects and is where the shaping put it.
   corrected_ = new QCheckBox(tr("Corrected"), this);
   corrected_->setObjectName(QLatin1String(kCorrectedBoxName));
   corrected_->setToolTip(
       tr("Analyse the signal as it is written to the file: the DC offset "
          "taken out, the bit shift applied, and rounded as the requantiser's "
-         "latest decision rounds it, previewed while monitoring. "
-         "Requantisation shows here as the noise floor rising — above the "
-         "LaserDisc's band more than in it when the noise is shaped. The "
-         "scope and the amplitude history follow the same switch."));
+         "latest decision rounds it, previewed while monitoring. While the "
+         "requantiser runs, a second trace shows the noise its rounding adds "
+         "on its own: low in the protected bands, pushed out of them where "
+         "the noise is shaped. The scope and the amplitude history have "
+         "switches of their own."));
   connect(corrected_, &QCheckBox::toggled, this, [this](bool on) {
     if (controller_ != nullptr) {
-      controller_->SetShowCorrected(on);
+      controller_->SetShowCorrected(CaptureController::SignalPanel::kSpectrum,
+                                    on);
     }
   });
   controls->addWidget(corrected_);
@@ -1200,14 +1220,20 @@ SpectrumPanel::SpectrumPanel(CaptureController* controller, QWidget* parent)
 
     connect(controller_->analysis(), &AnalysisWorker::SpectrumReady, this,
             &SpectrumPanel::OnSpectrumReady);
+    connect(controller_->analysis(), &AnalysisWorker::NoiseSpectrumReady, plot_,
+            &SpectrumPlot::SetNoise);
     connect(controller_, &CaptureController::MonitoringChanged, this,
             &SpectrumPanel::OnMonitoringChanged);
     connect(controller_, &CaptureController::ShowCorrectedChanged, this,
-            [this](bool show) {
+            [this](CaptureController::SignalPanel panel, bool show) {
+              if (panel != CaptureController::SignalPanel::kSpectrum) {
+                return;
+              }
               const QSignalBlocker blocker(corrected_);
               corrected_->setChecked(show);
             });
-    corrected_->setChecked(controller_->show_corrected());
+    corrected_->setChecked(
+        controller_->show_corrected(CaptureController::SignalPanel::kSpectrum));
 
     // The frequency axis is a property of the stream's rate, so it follows the
     // setting rather than being fixed at construction. The rate cannot change

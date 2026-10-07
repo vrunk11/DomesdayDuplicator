@@ -15,6 +15,7 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -158,13 +159,20 @@ class CaptureController : public QObject {
     return requantization_status_ != nullptr && capturing_;
   }
 
-  // Whether the signal panels show the signal as it is written — converted by
-  // run_conversion() — or as the converter produced it. One answer for every
-  // panel, so that the scope, the spectrum and the amplitude history are
-  // never showing two different signals side by side. Off by default, and
-  // not saved: it is a way of looking, not a setting.
-  bool show_corrected() const { return show_corrected_; }
-  void SetShowCorrected(bool show);
+  // The panels that can show the signal as it is written.
+  enum class SignalPanel { kScope, kSpectrum, kAmplitude };
+  Q_ENUM(SignalPanel)
+
+  // Whether a signal panel shows the signal as it is written — converted by
+  // run_conversion(), and rounded as the requantiser rounds it — or as the
+  // converter produced it. Each panel chooses for itself, so that one can be
+  // compared with the other: the spectrum as written beside the scope as it
+  // arrived. Off by default, and not saved: it is a way of looking, not a
+  // setting.
+  bool show_corrected(SignalPanel panel) const {
+    return show_corrected_[static_cast<size_t>(panel)];
+  }
+  void SetShowCorrected(SignalPanel panel, bool show);
 
   // The ADC rate, in MHz, the capture settings run at — "board default" taken
   // as the 40 MHz every figure assumes for it. The rate whose offset applies.
@@ -346,8 +354,9 @@ class CaptureController : public QObject {
   // on its own, so it says the declaration is wrong. Raised once per run.
   void DcOffsetOutOfRange(const QString& message);
 
-  // Every panel's Corrected switch follows this.
-  void ShowCorrectedChanged(bool show);
+  // A panel's Corrected switch was changed. See show_corrected().
+  void ShowCorrectedChanged(ddd::gui::CaptureController::SignalPanel panel,
+                            bool show);
 
   // run_conversion() changed while the stream ran: the bit shift was changed
   // while monitoring, which takes effect at once rather than at the next
@@ -476,8 +485,10 @@ class CaptureController : public QObject {
   void UpdateIdleSink();
 
   // What the idle sink is built from, as it would be built now: on or off,
-  // margin, bit shift, bands and shaping. See idle_key_.
-  using IdleSinkKey = std::tuple<bool, int, int, std::string, bool>;
+  // margin, bit shift, bands, and the shaping with its order and depth. See
+  // idle_key_.
+  using IdleSinkKey =
+      std::tuple<bool, int, int, std::string, bool, int, double>;
   IdleSinkKey CurrentIdleSinkKey() const;
 
   // Bring run_conversion() up to the settings while monitoring and not
@@ -486,10 +497,10 @@ class CaptureController : public QObject {
   // opened with, so nothing changes while one is.
   void UpdateRunConversion();
 
-  // Tell the analysis worker what the panels are to be shown: the run's
-  // conversion and the decisions of the requantiser attached now when
-  // show_corrected(), and the converter's own codes otherwise. Called again
-  // whenever either changes.
+  // Tell the analysis worker what the signal as written is — the run's
+  // conversion and the decisions of the requantiser attached now — and which
+  // of the scope and the spectrum show it rather than the converter's own
+  // codes. Called again whenever any of that changes.
   void ApplyDisplayConversion();
 
   // One step of the DC offset measurement, from measure_timer_.
@@ -627,8 +638,8 @@ class CaptureController : public QObject {
   std::shared_ptr<capture::RequantizationStatus> capture_requantization_;
   std::optional<IdleSinkKey> idle_key_;
 
-  // See show_corrected().
-  bool show_corrected_ = false;
+  // See show_corrected(), one per SignalPanel.
+  std::array<bool, 3> show_corrected_{};
 
   // Whether the running stream is one a conversion applies to: not the
   // gateware's ramp, and not a DC offset measurement. See

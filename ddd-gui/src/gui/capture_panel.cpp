@@ -12,6 +12,7 @@
 #include "capture_panel.h"
 
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -29,6 +30,8 @@
 #include <ctime>
 #include <filesystem>
 #include <optional>
+#include <utility>
+#include <vector>
 
 #include "board_setup_page.h"
 #include "capture_controller.h"
@@ -285,6 +288,58 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
   requantize_status_label_->setVisible(false);
   form->addRow(QString(), requantize_status_label_);
 
+  // How it shapes the noise it adds, and where it may not add it. Kept from
+  // one session to the next, as the margin is; only whether it is on is not.
+  shaping_combo_ = new QComboBox(contents);
+  shaping_combo_->setObjectName(QLatin1String(kShapingComboName));
+  shaping_combo_->addItem(tr("Fixed"), false);
+  shaping_combo_->addItem(tr("Adaptive"), true);
+  shaping_combo_->setToolTip(
+      tr("Fixed adds the same noise everywhere in the protected bands, so "
+         "their quietest part decides how many bits go. Adaptive designs the "
+         "shaping again every segment from the floor just measured: more "
+         "noise where the band is already noisy, less where it is quiet. "
+         "Adaptive drops more bits at the same margin on a floor that "
+         "slopes, as a LaserDisc's does towards the top of the band."));
+  form->addRow(tr("Noise shaping"), shaping_combo_);
+
+  bands_edit_ = new QLineEdit(contents);
+  bands_edit_->setObjectName(QLatin1String(kBandsEditName));
+  bands_edit_->setToolTip(
+      tr("The bands, in MHz, whose noise floor the margin protects: 0-13.5, "
+         "or several, 2-13.5 or 0-1.9,2.1-13.5. Empty for the default, DC "
+         "to 14 MHz or short of the Nyquist limit. What is outside them is "
+         "where the shaping puts the noise, with no limit: leave out only "
+         "what nothing uses — the EFM below 2 MHz if its digital audio is "
+         "not wanted — and never the space between the audio carriers and "
+         "the video, which the lower video sidebands reach into."));
+  form->addRow(tr("Protected bands"), bands_edit_);
+
+  shaping_depth_spin_ = new QDoubleSpinBox(contents);
+  shaping_depth_spin_->setObjectName(QLatin1String(kShapingDepthSpinName));
+  shaping_depth_spin_->setRange(0.0, capture::kMaximumShapingDepthDb);
+  shaping_depth_spin_->setDecimals(1);
+  shaping_depth_spin_->setSingleStep(1.0);
+  shaping_depth_spin_->setSuffix(tr(" dB"));
+  shaping_depth_spin_->setSpecialValueText(tr("Default"));
+  shaping_depth_spin_->setToolTip(
+      tr("How far above the protected bands the shaped noise may be pushed. "
+         "At the same number of bits, deeper leaves less noise in the bands "
+         "and puts more outside them, where the FLAC encoder has to store it "
+         "and the file grows a little. Default is 10 dB fixed, 20 adaptive."));
+  form->addRow(tr("Shaping depth"), shaping_depth_spin_);
+
+  shaping_order_spin_ = new QSpinBox(contents);
+  shaping_order_spin_->setObjectName(QLatin1String(kShapingOrderSpinName));
+  shaping_order_spin_->setRange(capture::kMinimumShapingOrder - 1,
+                                capture::kMaximumShapingOrder);
+  shaping_order_spin_->setSpecialValueText(tr("Default"));
+  shaping_order_spin_->setToolTip(
+      tr("The shaping filter's order: how closely the added noise can follow "
+         "the floor. Higher costs more processing. Default is 16 fixed, 32 "
+         "adaptive."));
+  form->addRow(tr("Shaping order"), shaping_order_spin_);
+
   // The limit and the button that clears it, side by side. A limit is the one
   // setting here that is set for a single capture and then wants to be gone
   // again, and holding the down arrow from 40 minutes to "No limit" is forty
@@ -404,6 +459,16 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
           [this](int) { ApplySettingsFromWidgets(); });
   connect(requantize_combo_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
+  connect(shaping_combo_, &QComboBox::currentIndexChanged, this,
+          [this](int) { ApplySettingsFromWidgets(); });
+  connect(shaping_depth_spin_, &QDoubleSpinBox::valueChanged, this,
+          [this](double) { ApplySettingsFromWidgets(); });
+  connect(shaping_order_spin_, &QSpinBox::valueChanged, this,
+          [this](int) { ApplySettingsFromWidgets(); });
+  // Read when the typing is done, not at every keystroke: "0-1" on the way to
+  // "0-13.5" is a band, and not the one meant.
+  connect(bands_edit_, &QLineEdit::editingFinished, this,
+          [this] { ApplySettingsFromWidgets(); });
   connect(bit_shift_combo_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
   connect(duration_spin_, &QSpinBox::valueChanged, this,
@@ -498,6 +563,21 @@ void CapturePanel::ShowSettings() {
   compression_spin_->setValue(settings.compression_level);
   requantize_combo_->setCurrentIndex(requantize_combo_->findData(
       settings.requantize ? settings.requantize_margin : kRequantizeOff));
+  shaping_combo_->setCurrentIndex(
+      shaping_combo_->findData(settings.requantize_adaptive));
+  bands_edit_->setText(QString::fromStdString(
+      capture::DescribeBands(settings.requantize_bands)));
+  bands_edit_->setPlaceholderText(
+      tr("Default: %1")
+          .arg(QString::fromStdString(
+              capture::DescribeBands(capture::DefaultProtectedBands(
+                  static_cast<double>(settings.SampleRateHz()) / 1.0e6)))));
+  shaping_depth_spin_->setValue(settings.requantize_shaping_depth_db);
+  // 0 is the shaping's own order, shown at the bottom of the range as
+  // "Default".
+  shaping_order_spin_->setValue(settings.requantize_shaping_order > 0
+                                    ? settings.requantize_shaping_order
+                                    : shaping_order_spin_->minimum());
   bit_shift_combo_->setCurrentIndex(
       bit_shift_combo_->findData(settings.bit_shift));
   // Rounded to the nearest whole minute for display. The stored value is in
@@ -634,6 +714,29 @@ void CapturePanel::ApplySettingsFromWidgets() {
   settings.requantize = requantize != kRequantizeOff;
   if (settings.requantize) {
     settings.requantize_margin = requantize;
+  }
+  settings.requantize_adaptive = shaping_combo_->currentData().toBool();
+  settings.requantize_shaping_depth_db = shaping_depth_spin_->value();
+  settings.requantize_shaping_order =
+      shaping_order_spin_->value() == shaping_order_spin_->minimum()
+          ? 0
+          : shaping_order_spin_->value();
+
+  // Empty is the default. Anything else has to read as bands; text that does
+  // not is put back to what is in force rather than taken as none.
+  const QString bands_text = bands_edit_->text().trimmed();
+  if (bands_text.isEmpty()) {
+    settings.requantize_bands.clear();
+  } else {
+    std::vector<capture::FrequencyBand> bands =
+        capture::ParseBands(bands_text.toStdString());
+    if (bands.empty()) {
+      const QSignalBlocker blocker(bands_edit_);
+      bands_edit_->setText(QString::fromStdString(
+          capture::DescribeBands(controller_->settings().requantize_bands)));
+    } else {
+      settings.requantize_bands = std::move(bands);
+    }
   }
   settings.bit_shift = bit_shift_combo_->currentData().toInt();
   settings.duration_limit_seconds = duration_spin_->value() * 60;
@@ -1068,6 +1171,10 @@ void CapturePanel::UpdateEnabledState() {
   // Corrected views redraw with it. Locked only while a file is being
   // written, which keeps the conversion it was opened with from start to end.
   requantize_combo_->setEnabled(!capturing_);
+  shaping_combo_->setEnabled(!capturing_);
+  bands_edit_->setEnabled(!capturing_);
+  shaping_depth_spin_->setEnabled(!capturing_);
+  shaping_order_spin_->setEnabled(!capturing_);
   bit_shift_combo_->setEnabled(!capturing_);
 
   // These three are read as the capture runs rather than when it starts, so all

@@ -674,16 +674,17 @@ WaveformPanel::WaveformPanel(CaptureController* controller, QWidget* parent)
   corrected_->setObjectName(QLatin1String(kCorrectedBoxName));
   corrected_->setToolTip(
       tr("Show the signal as it is written to the file: the DC offset "
-         "declared in Board setup taken out, then the bit shift and the LSB "
-         "drop the capture panel asks for. The dashed clip lines move with it "
-         "and stay on the converter's real limits, so the headroom shown is "
-         "the headroom there is. Off shows the converter's own codes. The "
-         "spectrum and the amplitude history follow the same switch."));
+         "declared in Board setup taken out, the bit shift applied, and "
+         "rounded as the requantiser rounds it when it is on. The dashed clip "
+         "lines move with it and stay on the converter's real limits, so the "
+         "headroom shown is the headroom there is. Off shows the converter's "
+         "own codes. The spectrum and the amplitude history have switches of "
+         "their own."));
   connect(corrected_, &QCheckBox::toggled, this, [this](bool on) {
-    // One switch for every signal panel, held by the controller, so the scope
-    // and the spectrum are never showing two different signals.
+    // Held by the controller, which tells the analysis worker which signal
+    // this panel is to be sent.
     if (controller_ != nullptr) {
-      controller_->SetShowCorrected(on);
+      controller_->SetShowCorrected(CaptureController::SignalPanel::kScope, on);
     }
     ApplyCorrection();
   });
@@ -748,7 +749,10 @@ WaveformPanel::WaveformPanel(CaptureController* controller, QWidget* parent)
     connect(controller, &CaptureController::MonitoringChanged, this,
             &WaveformPanel::OnMonitoringChanged);
     connect(controller, &CaptureController::ShowCorrectedChanged, this,
-            [this](bool show) {
+            [this](CaptureController::SignalPanel panel, bool show) {
+              if (panel != CaptureController::SignalPanel::kScope) {
+                return;
+              }
               const QSignalBlocker blocker(corrected_);
               corrected_->setChecked(show);
               ApplyCorrection();
@@ -757,7 +761,8 @@ WaveformPanel::WaveformPanel(CaptureController* controller, QWidget* parent)
       conversion_ = controller_->run_conversion();
       ApplyCorrection();
     });
-    corrected_->setChecked(controller->show_corrected());
+    corrected_->setChecked(
+        controller->show_corrected(CaptureController::SignalPanel::kScope));
     connect(controller, &CaptureController::SettingsChanged, this,
             [this](const CaptureSettings& settings) {
               SetFrontEndGain(settings.DeclaredGain());
@@ -792,9 +797,9 @@ void WaveformPanel::SetSampleRate(uint32_t sample_rate_hz) {
 }
 
 void WaveformPanel::OnWaveformReady(const std::vector<uint16_t>& codes) {
-  // Already converted, when the Corrected view is on: the analysis worker does
-  // it once for every panel, so the scope and the spectrum are drawn from the
-  // same codes. See CaptureController::show_corrected().
+  // Already converted, when this panel's Corrected view is on: the analysis
+  // worker sends each panel the signal it asked for. See
+  // CaptureController::show_corrected().
   plot_->SetCodes(codes);
 }
 

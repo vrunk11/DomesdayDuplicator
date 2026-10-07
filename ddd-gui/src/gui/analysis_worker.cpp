@@ -12,6 +12,8 @@
 #include "analysis_worker.h"
 
 #include <QTimer>
+#include <algorithm>
+#include <cstdint>
 #include <mutex>
 #include <utility>
 
@@ -50,6 +52,11 @@ void SnapshotAnalyser::SetConversion(
   requested_conversion_.store(capture::PackSampleConversion(conversion));
 }
 
+void SnapshotAnalyser::SetCorrected(bool scope, bool spectrum) {
+  scope_corrected_.store(scope);
+  spectrum_corrected_.store(spectrum);
+}
+
 void SnapshotAnalyser::SetRequantization(
     std::shared_ptr<capture::RequantizationStatus> status,
     const capture::RequantizerSettings& settings) {
@@ -79,20 +86,31 @@ void SnapshotAnalyser::Poll() {
     options.averaging = requested_averaging_.load();
     options.transform_size = requested_transform_size_.load();
     spectrum_ = analysis::SpectrumAnalyser(options);
+    noise_spectrum_ = analysis::SpectrumAnalyser(options);
   }
 
   if (peak_hold_reset_requested_.exchange(false)) {
     spectrum_.ResetPeakHold();
   }
 
+  // Which panel shows which signal. The spectrum's averages start again when
+  // what it is averaging changes; the scope has nothing to start again.
+  const bool scope_corrected = scope_corrected_.load();
+  const bool spectrum_corrected = spectrum_corrected_.load();
+  if (spectrum_corrected != applied_spectrum_corrected_) {
+    applied_spectrum_corrected_ = spectrum_corrected;
+    spectrum_.Reset();
+  }
+
   const uint64_t requested_conversion = requested_conversion_.load();
   if (requested_conversion != applied_conversion_) {
     applied_conversion_ = requested_conversion;
-    spectrum_.Reset();
+    if (spectrum_corrected) {
+      spectrum_.Reset();
+    }
   }
   const capture::SampleConversion conversion =
       capture::UnpackSampleConversion(applied_conversion_);
-  const bool converting = conversion != capture::SampleConversion{};
 
   {
     const std::lock_guard<std::mutex> lock(requantization_mutex_);
@@ -100,7 +118,10 @@ void SnapshotAnalyser::Poll() {
       requantization_applied_ = requantization_requests_;
       if ((requantization_ != nullptr) !=
           (requested_requantization_ != nullptr)) {
-        spectrum_.Reset();
+        if (spectrum_corrected) {
+          spectrum_.Reset();
+        }
+        noise_spectrum_.Reset();
       }
       requantization_ = requested_requantization_;
       requantizer_settings_ = requested_requantizer_settings_;
@@ -138,10 +159,6 @@ void SnapshotAnalyser::Poll() {
 
   const size_t sample_count = wire_.size() / capture::kBytesPerSample;
   codes_.resize(sample_count);
-  if (requantizing) {
-    samples_.resize(sample_count);
-  }
-
   for (size_t index = 0; index < sample_count; ++index) {
     // Assembled from bytes rather than reinterpreted as uint16_t: the wire
     // format is little-endian regardless of what this machine is, and a cast
@@ -151,38 +168,62 @@ void SnapshotAnalyser::Poll() {
         static_cast<uint16_t>(
             static_cast<uint16_t>(wire_[(index * capture::kBytesPerSample) + 1])
             << 8);
-    const uint16_t code = capture::SampleValueFromWord(word);
-
-    // Requantised below, in the signed 16-bit the requantiser takes.
-    if (requantizing) {
-      samples_[index] = capture::ToConvertedSigned16Bit(code, conversion);
-      continue;
-    }
-
-    // What the capture would write, in the codes every display is drawn in:
-    // the scope, the spectrum and its spectrogram all see the same thing.
-    codes_[index] = converting
-                        ? static_cast<uint16_t>(
-                              capture::ConvertedTenBitCode(code, conversion))
-                        : code;
+    codes_[index] = capture::SampleValueFromWord(word);
   }
 
-  // Rounded as the file is, by the decision's own quantiser, from a fresh
-  // start — a snapshot is not continuous with the one before it — and drawn in
-  // codes again. Every requantised sample is a whole number of codes.
-  if (requantizing) {
-    quantizer_.Reset();
-    quantizer_.QuantizeInPlace(samples_.data(), sample_count);
+  // The signal as the capture writes it, in the codes every display is drawn
+  // in, made only when a panel is showing it: converted, then rounded as the
+  // file is by the decision's own quantiser, from a fresh start — a snapshot
+  // is not continuous with the one before it. What the rounding added is kept
+  // as well, for the spectrum to show on its own.
+  const bool correcting = scope_corrected || spectrum_corrected;
+  const bool showing_noise = requantizing && spectrum_corrected;
+  if (correcting) {
+    corrected_codes_.resize(sample_count);
+    samples_.resize(sample_count);
     for (size_t index = 0; index < sample_count; ++index) {
-      codes_[index] = static_cast<uint16_t>(capture::ToTenBit(samples_[index]));
+      samples_[index] =
+          capture::ToConvertedSigned16Bit(codes_[index], conversion);
+      corrected_codes_[index] =
+          static_cast<uint16_t>(capture::ToTenBit(samples_[index]));
+    }
+    if (requantizing) {
+      quantizer_.Reset();
+      quantizer_.QuantizeInPlace(samples_.data(), sample_count);
+      if (showing_noise) {
+        noise_codes_.resize(sample_count);
+      }
+      for (size_t index = 0; index < sample_count; ++index) {
+        const int32_t rounded = capture::ToTenBit(samples_[index]);
+        if (showing_noise) {
+          // Centred on mid-scale, where the analyser expects a signal to sit.
+          noise_codes_[index] = static_cast<uint16_t>(std::clamp(
+              rounded - static_cast<int32_t>(corrected_codes_[index]) +
+                  capture::kSampleZeroOffset,
+              static_cast<int32_t>(capture::kMinimumSampleValue),
+              static_cast<int32_t>(capture::kMaximumSampleValue)));
+        }
+        corrected_codes_[index] = static_cast<uint16_t>(rounded);
+      }
     }
   }
 
-  emit WaveformReady(codes_);
+  emit WaveformReady(scope_corrected ? corrected_codes_ : codes_);
 
-  if (spectrum_.Analyse(codes_.data(), codes_.size())) {
+  const std::vector<uint16_t>& analysed =
+      spectrum_corrected ? corrected_codes_ : codes_;
+  if (spectrum_.Analyse(analysed.data(), analysed.size())) {
     emit SpectrumReady(spectrum_.magnitudes_db(), spectrum_.peak_hold_db(),
                        spectrum_.snapshot_db(), spectrum_.segment_count());
+
+    // The requantiser's added noise on its own, on the same scale, or nothing
+    // when there is none to show.
+    if (showing_noise &&
+        noise_spectrum_.Analyse(noise_codes_.data(), noise_codes_.size())) {
+      emit NoiseSpectrumReady(noise_spectrum_.magnitudes_db());
+    } else if (!showing_noise) {
+      emit NoiseSpectrumReady({});
+    }
   }
 }
 
@@ -216,6 +257,8 @@ void AnalysisWorker::Start() {
           &AnalysisWorker::WaveformReady);
   connect(analyser_, &SnapshotAnalyser::SpectrumReady, this,
           &AnalysisWorker::SpectrumReady);
+  connect(analyser_, &SnapshotAnalyser::NoiseSpectrumReady, this,
+          &AnalysisWorker::NoiseSpectrumReady);
 
   analyser_->moveToThread(&thread_);
   connect(&thread_, &QThread::started, analyser_, &SnapshotAnalyser::Begin);
@@ -271,6 +314,12 @@ void AnalysisWorker::SetConversion(
     const capture::SampleConversion& conversion) {
   if (analyser_ != nullptr) {
     analyser_->SetConversion(conversion);
+  }
+}
+
+void AnalysisWorker::SetCorrected(bool scope, bool spectrum) {
+  if (analyser_ != nullptr) {
+    analyser_->SetCorrected(scope, spectrum);
   }
 }
 

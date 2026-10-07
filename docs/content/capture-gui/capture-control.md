@@ -290,7 +290,7 @@ spreading it out afterwards.
 
 ### Requantisation
 
-**Off** (the default), or a margin from **0** to **4**: drop as many of the converter's low
+**Off**, or a margin from **0** to **4**: drop as many of the converter's low
 bits as this capture's own noise hides. It is the one setting that makes a capture
 meaningfully smaller. The low bits are mostly noise, noise does not compress, and so each bit
 dropped saves nearly a bit a sample in a FLAC file. How many can go depends on how noisy the
@@ -322,13 +322,14 @@ highest one, well below the band's median noise floor; the [Statistics](statisti
 line says which. Shaping needs room above the protected band to push its noise into, so a
 higher rate helps: at 75 MHz decimated by 2 (37.5 Msps) there is 14 to 18.75 MHz of it, at
 60 MHz by 2 (30 Msps) only 13.5 to 15. To find out how much of the band a player's RF
-actually needs, the command line's `--requantize-band` protects another band for one run —
-`--requantize-band 0-12`, or several, `0-1.9,2.1-13.5` — and the capture records which.
+actually needs, **Protected bands** protects another band — `0-12`, or several,
+`0-1.9,2.1-13.5`, in MHz; left empty it is the default band, shown greyed in the field — and
+the capture records which. The command line's `--requantize-band` sets it for one run.
 Narrowing the band is rarely the answer, though: the upper FM sidebands above 9 MHz carry
 picture detail, and a capture that leaves them unprotected shows it.
 
-**Adaptive shaping** is the better answer to a sloping floor, and the command line's
-`--requantize-shaping adaptive` turns it on for one run. The default, fixed shaping, adds the
+**Adaptive shaping** is the better answer to a sloping floor: **Adaptive** in **Noise shaping**,
+or `--requantize-shaping adaptive` for one run. The default, fixed shaping, adds the
 same noise everywhere in the protected band, so the band's quietest slice decides for all of
 it. Adaptive shaping designs its filter again for every segment from the floor just measured,
 so that the added noise follows the floor — more where the band is already noisy, less where
@@ -337,13 +338,36 @@ raised by about the same proportion, and the band's typical floor decides rather
 quietest corner. It also takes out a bias in how the floor is estimated, which made fixed
 shaping about 1.2 dB more careful than its margin says. On a floor falling 7.5 dB across the
 top of the band, as a player's RF does, it drops one or two bits more at the same margin; it
-costs about a third of a processor core at 37.5 Msps. Protecting only what is needed —
-`--requantize-band 2-3,4.5-14` keeps the analog audio and the video and gives up the EFM and
-the quiet space between them — leaves it more room still.
+costs about a third of a processor core at 37.5 Msps.
+
+Whatever is left outside the protected bands is where the shaped noise goes, and the margin
+says nothing about it. Protected bands `2-13.5` gives up only the EFM below 2 MHz, which
+leaves the shaping much more room — less noise in the band at the same bits — while the
+analog audio and the whole video band stay protected. Do not give up the space between the
+audio carriers and the video (3 to 4.5 MHz on NTSC): it looks empty on a spectrum, but the
+lower video sidebands reach into it, and noise pushed there shows in the picture. Giving up
+the EFM is only for a capture whose digital audio is not wanted, or comes from elsewhere.
+
+**The shaping's depth and order** are **Shaping depth** and **Shaping order**, or
+`--requantize-shaping-depth` and `--requantize-shaping-order` for one run; **Default** is the
+mode's own value. The depth (in dB, up to 40; 10 fixed and 20 adaptive by default) is how far
+above the protected bands the noise may be pushed: at the same number of bits, deeper leaves
+less noise in the bands and so a cleaner picture, and puts more outside them, where the FLAC
+encoder has to store it — noise compresses badly, so the file grows a little. Shallower is the
+other way round. The order (2 to 64; 16 fixed and 32 adaptive) is how
+finely the noise can follow the floor, at a processing cost that grows with it. Both are
+recorded in the capture's tags and sidecar. The [Requantisation noise](signal-analysis.md#requantisation-noise)
+trace on the spectrum shows where the noise went, which is the way to choose them.
 
 The analysis runs on a thread of its own and costs a fraction of one core at 30 Msps, so it
 is meant for a capture written at a reduced rate — 60 MHz decimated by 2 is the case it was
 made for — as much as for the full one.
+
+**It starts Off in every session.** The margin last chosen, the protected bands and the
+shaping are remembered, so turning it on again picks up where the last session left off; but
+whether it is on is not, because a capture that quietly drops bits on the strength of a
+choice made days ago, for another disc, is the surprise to avoid. The command line's
+`--requantize` turns it on for one run.
 
 Samples are rounded, not truncated, and rounded about the signal's real zero. A requantised
 file is still the same signed 16-bit format, with zero bits at the bottom of every sample, so
@@ -357,9 +381,9 @@ dropped (8 bit range)`, whether the noise is shaped, how much the worst slice of
 rises, and the noise floor in converter steps — without changing a sample. While capturing
 the same line says what is being done. The [Statistics](statistics.md#requantisation) panel
 shows the same line, and with **Corrected** ticked the scope and the spectrum show the
-decision's effect on the signal (see [Corrected](signal-analysis.md#corrected)). It can be
-changed while monitoring and is locked while
-a capture is being written. It is not applied in test mode, whose ramp has to reach the file
+decision's effect on the signal (see [Corrected](signal-analysis.md#corrected)), the spectrum
+with a trace of the noise added. It and its setup can be changed while monitoring and are
+locked while a capture is being written. It is not applied in test mode, whose ramp has to reach the file
 exactly as the gateware counted it. What it was asked to do is in every file's
 [tags](capture-files.md#what-the-file-says-about-itself); what it did, segment by segment, is in its
 [metadata file](capture-naming.md#requantization).

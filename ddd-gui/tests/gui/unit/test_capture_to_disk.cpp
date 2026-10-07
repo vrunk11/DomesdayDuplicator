@@ -1309,18 +1309,26 @@ TEST_F(CaptureToDiskTest, AShiftIsNotChangedUnderAFileBeingWritten) {
   ASSERT_TRUE(PumpUntil([&] { return !controller_->monitoring(); }));
 }
 
-// One Corrected switch for every panel: set once, said once.
-TEST_F(CaptureToDiskTest, TheCorrectedViewIsOneSwitchForEveryPanel) {
-  EXPECT_FALSE(controller_->show_corrected());
+// A Corrected switch for each panel: the spectrum's set leaves the scope's and
+// the amplitude history's as they were, and is said once, naming the panel.
+TEST_F(CaptureToDiskTest, EachPanelHasItsOwnCorrectedView) {
+  using Panel = CaptureController::SignalPanel;
+  for (const Panel panel :
+       {Panel::kScope, Panel::kSpectrum, Panel::kAmplitude}) {
+    EXPECT_FALSE(controller_->show_corrected(panel));
+  }
 
   QSignalSpy changed(controller_.get(),
                      &CaptureController::ShowCorrectedChanged);
-  controller_->SetShowCorrected(true);
-  controller_->SetShowCorrected(true);
+  controller_->SetShowCorrected(Panel::kSpectrum, true);
+  controller_->SetShowCorrected(Panel::kSpectrum, true);
 
-  EXPECT_TRUE(controller_->show_corrected());
+  EXPECT_TRUE(controller_->show_corrected(Panel::kSpectrum));
+  EXPECT_FALSE(controller_->show_corrected(Panel::kScope));
+  EXPECT_FALSE(controller_->show_corrected(Panel::kAmplitude));
   ASSERT_EQ(changed.count(), 1);
-  EXPECT_TRUE(changed.front().at(0).toBool());
+  EXPECT_EQ(changed.front().at(0).value<Panel>(), Panel::kSpectrum);
+  EXPECT_TRUE(changed.front().at(1).toBool());
 }
 
 // Monitoring with requantisation on previews it: decisions are made and

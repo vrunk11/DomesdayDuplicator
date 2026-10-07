@@ -19,6 +19,7 @@
 #include "usb_device_info.h"
 
 class QComboBox;
+class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -80,6 +81,12 @@ class CapturePanel : public QWidget {
   static constexpr int kRequantizeOff = -1;
   static constexpr const char* kRequantizeStatusLabelName =
       "capture_requantize_status_label";
+  static constexpr const char* kShapingComboName = "capture_shaping_combo";
+  static constexpr const char* kBandsEditName = "capture_bands_edit";
+  static constexpr const char* kShapingDepthSpinName =
+      "capture_shaping_depth_spin";
+  static constexpr const char* kShapingOrderSpinName =
+      "capture_shaping_order_spin";
   static constexpr const char* kBitShiftComboName = "capture_bit_shift_combo";
   static constexpr const char* kDurationSpinName = "capture_duration_spin";
   static constexpr const char* kDurationResetButtonName =
@@ -220,6 +227,10 @@ class CapturePanel : public QWidget {
   QSpinBox* compression_spin_ = nullptr;
   QComboBox* requantize_combo_ = nullptr;
   QLabel* requantize_status_label_ = nullptr;
+  QComboBox* shaping_combo_ = nullptr;
+  QLineEdit* bands_edit_ = nullptr;
+  QDoubleSpinBox* shaping_depth_spin_ = nullptr;
+  QSpinBox* shaping_order_spin_ = nullptr;
   QComboBox* bit_shift_combo_ = nullptr;
   QSpinBox* duration_spin_ = nullptr;
   QPushButton* duration_reset_button_ = nullptr;

@@ -300,11 +300,12 @@ AmplitudePanel::AmplitudePanel(CaptureController* controller, QWidget* parent)
   corrected_->setToolTip(
       tr("Show the levels as they are written to the file: the DC offset "
          "taken out and the bit shift applied. The scope and the spectrum "
-         "follow the same switch. The RMS is scaled by the shift; the clip "
-         "ticks stay the converter's own."));
+         "have switches of their own. The RMS is scaled by the shift; the "
+         "clip ticks stay the converter's own."));
   connect(corrected_, &QCheckBox::toggled, this, [this](bool on) {
     if (controller_ != nullptr) {
-      controller_->SetShowCorrected(on);
+      controller_->SetShowCorrected(CaptureController::SignalPanel::kAmplitude,
+                                    on);
     }
     ShowCorrected(on);
   });
@@ -342,12 +343,16 @@ AmplitudePanel::AmplitudePanel(CaptureController* controller, QWidget* parent)
     connect(controller, &CaptureController::MonitoringChanged, this,
             &AmplitudePanel::OnMonitoringChanged);
     connect(controller, &CaptureController::ShowCorrectedChanged, this,
-            [this](bool show) {
+            [this](CaptureController::SignalPanel panel, bool show) {
+              if (panel != CaptureController::SignalPanel::kAmplitude) {
+                return;
+              }
               const QSignalBlocker blocker(corrected_);
               corrected_->setChecked(show);
               ShowCorrected(show);
             });
-    corrected_->setChecked(controller->show_corrected());
+    corrected_->setChecked(
+        controller->show_corrected(CaptureController::SignalPanel::kAmplitude));
     connect(controller, &CaptureController::SettingsChanged, this,
             [this](const CaptureSettings& settings) {
               SetFrontEndGain(settings.DeclaredGain());

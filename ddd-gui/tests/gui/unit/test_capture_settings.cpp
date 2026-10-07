@@ -19,6 +19,7 @@
 #include "capture_settings.h"
 #include "disk_buffer_ring.h"
 #include "free_space.h"
+#include "rf_requantizer.h"
 #include "sample_format.h"
 
 namespace ddd::gui {
@@ -223,17 +224,45 @@ TEST_F(CaptureSettingsTest, AFirstRunKeepsEveryBitUnshifted) {
   EXPECT_EQ(loaded.requantize_margin, capture::kDefaultMarginLevel);
 }
 
-TEST_F(CaptureSettingsTest, TheBitShiftAndTheRequantisationSurviveARestart) {
+// How the requantiser is set up survives a restart; whether it is on does
+// not — every session starts with it off.
+TEST_F(CaptureSettingsTest,
+       TheRequantisersSetupSurvivesARestartButNotItsSwitch) {
   CaptureSettings saved;
   saved.bit_shift = 2;
   saved.requantize = true;
   saved.requantize_margin = 4;
+  saved.requantize_bands = {{0.0, 1.9}, {2.1, 13.5}};
+  saved.requantize_adaptive = true;
+  saved.requantize_shaping_depth_db = 27.5;
+  saved.requantize_shaping_order = 48;
   SaveCaptureSettings(saved);
 
   const CaptureSettings loaded = LoadCaptureSettings();
   EXPECT_EQ(loaded.bit_shift, 2);
-  EXPECT_TRUE(loaded.requantize);
+  EXPECT_FALSE(loaded.requantize);
   EXPECT_EQ(loaded.requantize_margin, 4);
+  EXPECT_EQ(loaded.requantize_bands, saved.requantize_bands);
+  EXPECT_TRUE(loaded.requantize_adaptive);
+  EXPECT_DOUBLE_EQ(loaded.requantize_shaping_depth_db, 27.5);
+  EXPECT_EQ(loaded.requantize_shaping_order, 48);
+}
+
+// Out of range, or not bands at all, is held to what the requantiser can do.
+TEST_F(CaptureSettingsTest, AnImpossibleShapingOrBandIsHeldInRange) {
+  QSettings store;
+  store.setValue(QStringLiteral("capture/requantize_shaping_depth_db"), 90.0);
+  store.setValue(QStringLiteral("capture/requantize_shaping_order"), 500);
+  store.setValue(QStringLiteral("capture/requantize_bands"),
+                 QStringLiteral("nonsense"));
+  store.setValue(QStringLiteral("capture/requantize_shaping"),
+                 QStringLiteral("sideways"));
+  const CaptureSettings loaded = LoadCaptureSettings();
+  EXPECT_DOUBLE_EQ(loaded.requantize_shaping_depth_db,
+                   capture::kMaximumShapingDepthDb);
+  EXPECT_EQ(loaded.requantize_shaping_order, capture::kMaximumShapingOrder);
+  EXPECT_TRUE(loaded.requantize_bands.empty());
+  EXPECT_FALSE(loaded.requantize_adaptive);
 }
 
 // A settings file asking for something no writer does is held to what one

@@ -52,6 +52,8 @@ outside: see [Running it from a Flatpak](#running-it-from-a-flatpak) and
 | `--requantize <margin>` | `off`, or `0` to `4` | Drop as many of the converter's low bits as the capture's own noise hides, decided every segment, keeping the noise floor of the LaserDisc's RF band within the margin: `0` lets it rise 1 dB, `4` only 0.05 dB. `off` keeps the saved margin for next time. Applies to `--pipe` too |
 | `--requantize-band <bands>` | bands in MHz, `0-12` or `0-1.9,2.1-13.5` | Protect these instead of the default band. For finding out which part of the band a player's RF actually needs. Applies to `--pipe` too |
 | `--requantize-shaping <shaping>` | `fixed` or `adaptive` | Shape the added noise to follow the measured floor rather than with one fixed filter. Drops more bits at the same margin where the floor slopes. Applies to `--pipe` too |
+| `--requantize-shaping-depth <dB>` | above 0, up to 40 | How far above the bands the shaped noise may go, in place of 10 (fixed) or 20 (adaptive). At the same bits, deeper is a cleaner band and a little more for FLAC to store |
+| `--requantize-shaping-order <order>` | 2 to 64 | The shaping filter's order, in place of 16 (fixed) or 32 (adaptive) |
 | `--pipe` | | Stream the capture to standard output for another program. Needs `--start-capture`. See [Streaming to another program](#streaming-to-another-program) |
 | `--save` | | With `--pipe`, write the capture file as well |
 
