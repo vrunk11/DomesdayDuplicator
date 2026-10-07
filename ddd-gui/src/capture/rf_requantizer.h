@@ -172,6 +172,43 @@ struct RequantizerSettings {
 // sloping floor, and the wider depth what lets it be pushed out of the bands.
 void UseAdaptiveShaping(RequantizerSettings& settings);
 
+// What a person asks of the requantiser, in the terms the capture application
+// and ddd-requantize both offer, before it is turned into RequantizerSettings.
+// One translation, used by both, so that a capture re-requantised offline gets
+// exactly what the capture application would have given it.
+struct RequantizerRequest {
+  // The rate of the samples, after any decimation.
+  double sample_rate_mhz = 40.0;
+
+  int margin_level = kDefaultMarginLevel;
+
+  // As asked for; cut at the Nyquist limit, and the default for the rate where
+  // none is left.
+  std::vector<FrequencyBand> bands;
+
+  int input_bits = 10;
+  bool adaptive = false;
+
+  // Empty for the mode's own depth; one for everywhere outside the bands;
+  // several for each stretch between them (GapShapingZones).
+  std::vector<double> depths_db;
+
+  // 0 for the mode's own.
+  int order = 0;
+};
+
+RequantizerSettings SettingsFor(const RequantizerRequest& request);
+
+// The bands `request` protects: those asked for that are left below the
+// Nyquist limit, or the default for the rate.
+std::vector<FrequencyBand> RequestedBands(const RequantizerRequest& request);
+
+// Why the depths in `request` cannot be used — more of them than there are
+// stretches between the bands at the rate — in a sentence; empty when they
+// can. One depth always can, and fewer than the stretches can too: the last
+// stands for the rest.
+std::string ShapingDepthsProblem(const RequantizerRequest& request);
+
 // The range a shaping filter's order and depth may be set to by hand, to try
 // them. The order is the length of the error feedback every sample pays for,
 // so it is held to what a stream can afford; the depth is how far above the
@@ -240,6 +277,12 @@ struct RequantizationRecord {
   uint64_t clipped_samples = 0;
   std::vector<RequantizationChange> changes;
 };
+
+// The settings half of a record: what a requantiser set up with `settings` is
+// recorded as having been asked to do. The capture application and
+// ddd-requantize both record through this, so a file says the same of itself
+// whichever of them wrote it.
+RequantizationRecord RecordFor(const RequantizerSettings& settings);
 
 // The noise transfer function A(z), minimum phase, coefficients a[0..order]
 // with a[0] = 1, whose |A(f)|^2 is low in `bands` and high outside them by

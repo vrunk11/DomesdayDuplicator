@@ -41,6 +41,7 @@
 #include "free_space.h"
 #include "requantizing_sink.h"
 #include "rf_requantizer.h"
+#include "sample_format.h"
 #include "statistics_presenter.h"
 #include "theme_color_tokens.h"
 #include "update_text.h"
@@ -608,20 +609,16 @@ void CapturePanel::ShowShapingDepths(const CaptureSettings& settings) {
   shaping_depth_edit_->setPlaceholderText(
       tr("Default: %1 dB").arg(mode.shaping_depth_db));
 
-  // Where they land, worked out as the controller works it out: the bands
-  // protected at this rate, and the stretches between them from DC up.
-  const double rate_mhz = static_cast<double>(settings.SampleRateHz()) / 1.0e6;
-  std::vector<capture::FrequencyBand> bands =
-      capture::BandsWithin(settings.requantize_bands, rate_mhz);
-  if (bands.empty()) {
-    bands = capture::DefaultProtectedBands(rate_mhz);
-  }
-  const std::vector<capture::ShapingZone> zones =
-      capture::GapShapingZones(bands,
-                               settings.requantize_shaping_depths_db.empty()
-                                   ? std::vector<double>{mode.shaping_depth_db}
-                                   : settings.requantize_shaping_depths_db,
-                               rate_mhz);
+  // Where they land, worked out from the request the controller works from:
+  // the bands protected at this rate, and the stretches between them from DC
+  // up.
+  const capture::RequantizerRequest request =
+      RequantizerRequestFor(settings, capture::kConverterBits);
+  const std::vector<capture::ShapingZone> zones = capture::GapShapingZones(
+      capture::RequestedBands(request),
+      request.depths_db.empty() ? std::vector<double>{mode.shaping_depth_db}
+                                : request.depths_db,
+      request.sample_rate_mhz);
   const QString problem = ShapingDepthsProblem(settings);
   if (!shaping_depth_refusal_.isEmpty()) {
     shaping_plan_label_->setText(

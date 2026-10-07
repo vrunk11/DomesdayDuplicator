@@ -380,6 +380,10 @@ decoder's filters let some of it into the picture: the margin was met, and the p
 visibly noisier. The margin only measures inside the bands. With the band's edge moved to 14
 MHz, it looked better.
 
+To try several settings on one capture rather than a capture each, see
+[Comparing requantisation settings](requantizing-offline.md): `ddd-requantize` requantises a capture
+written with requantisation off exactly as a capture would have been.
+
 The analysis runs on a thread of its own and costs a fraction of one core at 30 Msps, so it
 is meant for a capture written at a reduced rate — 60 MHz decimated by 2 is the case it was
 made for — as much as for the full one.

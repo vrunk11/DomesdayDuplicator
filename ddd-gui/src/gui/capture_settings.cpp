@@ -516,46 +516,25 @@ QString DescribeRequantizationMargin(int level) {
       .arg(capture::MarginLimitDb(clamped), 0, 'f', 2);
 }
 
-std::vector<capture::FrequencyBand> RequantizedBands(
-    const CaptureSettings& settings) {
-  const double rate_mhz = static_cast<double>(settings.SampleRateHz()) / 1.0e6;
-  std::vector<capture::FrequencyBand> bands =
-      capture::BandsWithin(settings.requantize_bands, rate_mhz);
-  return bands.empty() ? capture::DefaultProtectedBands(rate_mhz) : bands;
+capture::RequantizerRequest RequantizerRequestFor(
+    const CaptureSettings& settings, int input_bits) {
+  capture::RequantizerRequest request;
+  // The rate of the samples it is given, which under decimation is the file's
+  // and not the converter's: the bands and the hold are in hertz and seconds.
+  request.sample_rate_mhz =
+      static_cast<double>(settings.SampleRateHz()) / 1.0e6;
+  request.margin_level = settings.requantize_margin;
+  request.bands = settings.requantize_bands;
+  request.input_bits = input_bits;
+  request.adaptive = settings.requantize_adaptive;
+  request.depths_db = settings.requantize_shaping_depths_db;
+  request.order = settings.requantize_shaping_order;
+  return request;
 }
 
 QString ShapingDepthsProblem(const CaptureSettings& settings) {
-  const size_t depths = settings.requantize_shaping_depths_db.size();
-  if (depths <= 1) {
-    return {};
-  }
-  const double rate_mhz = static_cast<double>(settings.SampleRateHz()) / 1.0e6;
-  const std::vector<capture::ShapingZone> stretches =
-      capture::GapShapingZones(RequantizedBands(settings), {0.0}, rate_mhz);
-  if (depths <= stretches.size()) {
-    return {};
-  }
-
-  std::vector<capture::FrequencyBand> where;
-  for (const capture::ShapingZone& stretch : stretches) {
-    where.push_back({stretch.low_mhz, stretch.high_mhz});
-  }
-  const QString rate = QString::number(rate_mhz);
-  if (stretches.empty()) {
-    return QStringLiteral(
-               "%1 shaping depths, but at %2 Msps the protected bands leave "
-               "nothing outside them: give one depth.")
-        .arg(depths)
-        .arg(rate);
-  }
-  return QStringLiteral(
-             "%1 shaping depths, but at %2 Msps the protected bands leave %3 "
-             "stretch%4 outside them (%5): give at most %3.")
-      .arg(depths)
-      .arg(rate)
-      .arg(stretches.size())
-      .arg(stretches.size() == 1 ? QString() : QStringLiteral("es"))
-      .arg(QString::fromStdString(capture::DescribeBands(where)));
+  return QString::fromStdString(capture::ShapingDepthsProblem(
+      RequantizerRequestFor(settings, capture::kConverterBits)));
 }
 
 }  // namespace ddd::gui

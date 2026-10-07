@@ -324,16 +324,15 @@ void SaveCaptureSettings(const CaptureSettings& settings);
 // 0.20 dB)". See capture::MarginLevelName.
 QString DescribeRequantizationMargin(int level);
 
-// The bands the requantiser protects with `settings`: those asked for, cut at
-// the Nyquist limit of the rate, or the default for the rate.
-std::vector<capture::FrequencyBand> RequantizedBands(
-    const CaptureSettings& settings);
+// What `settings` ask of the requantiser, for a capture whose samples carry
+// `input_bits` — the converter's ten less the bit shift. The controller turns
+// this into the requantiser's settings with capture::SettingsFor(), as
+// ddd-requantize does with what it is given, so that both decide alike.
+capture::RequantizerRequest RequantizerRequestFor(
+    const CaptureSettings& settings, int input_bits);
 
-// Why the shaping depths cannot be used as `settings` stand — more of them
-// than there are stretches between the protected bands at the rate, one depth
-// with nowhere to go — in a sentence; empty when they can. One depth always
-// can: it is the depth everywhere outside the bands. Fewer depths than
-// stretches is not a problem either, the last standing for the rest.
+// capture::ShapingDepthsProblem() for `settings`: why the shaping depths
+// cannot be used as they stand, or empty when they can.
 QString ShapingDepthsProblem(const CaptureSettings& settings);
 
 }  // namespace ddd::gui

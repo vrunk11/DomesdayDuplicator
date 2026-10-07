@@ -14,7 +14,7 @@ Describe the problem clearly.
 
 Which part of the project is affected?
 
-- [ ] Capture application (`ddd-gui`, `ddd-update`, `ddd-jtag`)
+- [ ] Capture application (`ddd-gui`, `ddd-update`, `ddd-jtag`, `ddd-requantize`)
 - [ ] FX3 firmware (`fx3/firmware`)
 - [ ] FX3 programmer (`fx3/programmer`)
 - [ ] FPGA gateware (`fpga/`)

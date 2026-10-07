@@ -283,6 +283,7 @@ The application lives in [`ddd-gui/`](https://github.com/Domesday86/DomesdayDupl
 | `src/gui/` | `ddd::gui` — the Qt layer, built as a static library, plus `main()` |
 | `src/update-cli/` | `ddd-update` — a `main()` over the engine that links no Qt, deliberately: it stops linking the moment a Qt dependency reaches the update path |
 | `src/jtag-cli/` | `ddd-jtag` — the same, for the JTAG programming path |
+| `src/requantize-cli/` | `ddd-requantize` — the same, requantising a capture offline exactly as a capture would be, to compare settings on one capture |
 | `src/vendor/` | The only third-party sources here: SHA-256 and Ed25519. Never edited in place — see [`src/vendor/VENDOR.md`](https://github.com/Domesday86/DomesdayDuplicator/blob/main/ddd-gui/src/vendor/VENDOR.md) |
 
 The full layout, including the test binaries and what each of them is allowed to link, is in [`ddd-gui/README.md`](https://github.com/Domesday86/DomesdayDuplicator/blob/main/ddd-gui/README.md).

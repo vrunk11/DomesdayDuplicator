@@ -147,6 +147,11 @@ stdenv.mkDerivation (finalAttrs: {
     "$out/bin/ddd-update" --help > /dev/null
     echo "ddd-update: present"
 
+    # ddd-requantize requantises a capture offline with the engine a capture uses. Its
+    # usage text proves it was built and linked; its behaviour is the unit tests'.
+    "$out/bin/ddd-requantize" --help > /dev/null
+    echo "ddd-requantize: present"
+
     runHook postInstallCheck
   '';
 

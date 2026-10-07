@@ -224,6 +224,13 @@ struct CaptureProvenance {
 std::vector<FlacWriter::Tag> BuildProvenanceTags(
     const CaptureProvenance& provenance);
 
+// The requantisation's four tags — or the one that says it was off — for
+// `requantization`, appended to `tags`. Part of BuildProvenanceTags(), and on
+// its own for ddd-requantize, which re-stamps a capture it requantises with
+// exactly what the capture application would have written.
+void AppendRequantizationTags(const RequantizationRecord& requantization,
+                              std::vector<FlacWriter::Tag>& tags);
+
 // An ISO 8601 date, which is what DATE is defined to hold, or empty where the
 // clock could not be read and there is therefore no date to state.
 std::string FormatProvenanceDate(std::time_t when);

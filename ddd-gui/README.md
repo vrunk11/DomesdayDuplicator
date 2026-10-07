@@ -234,6 +234,7 @@ src/gui/          ddd::gui — the Qt layer, built as a static library, plus mai
 src/gui/resources/ the application's graphics, compiled in (a local copy, AGENTS.md §2)
 src/update-cli/   ddd-update — a main() over the engine. Links no Qt, deliberately.
 src/jtag-cli/     ddd-jtag — the same, for the JTAG programming path.
+src/requantize-cli/ ddd-requantize — the same, requantising a capture offline as a capture would.
 src/vendor/       the only third-party sources here: SHA-256 and Ed25519. See VENDOR.md.
 cmake/            FindFLAC.cmake, a component-local copy (AGENTS.md §2)
 tests/unit/       T1, engine. Links no Qt at all.

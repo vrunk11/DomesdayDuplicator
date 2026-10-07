@@ -175,6 +175,69 @@ TEST(RfRequantizerTest, TheLastDepthRepeatsAndExtraDepthsAreUnused) {
   EXPECT_TRUE(GapShapingZones({{2.0, 14.0}}, {}, 35.0).empty());
 }
 
+// The one translation from what is asked to what the requantiser is set up
+// with, which the capture application and ddd-requantize both go through.
+TEST(RfRequantizerTest, ARequestBecomesTheSettingsItAsksFor) {
+  RequantizerRequest request;
+  request.sample_rate_mhz = 30.0;
+  request.margin_level = 0;
+  request.input_bits = 9;
+
+  // Nothing asked for: the fixed filter, its own depth and order, and the
+  // default band for the rate.
+  const RequantizerSettings plain = SettingsFor(request);
+  EXPECT_EQ(plain.shaping, RequantizerSettings::Shaping::kFixed);
+  EXPECT_DOUBLE_EQ(plain.shaping_depth_db, 10.0);
+  EXPECT_EQ(plain.shaping_order, 16);
+  EXPECT_EQ(plain.protected_bands, DefaultProtectedBands(30.0));
+  EXPECT_EQ(plain.input_bits, 9);
+  EXPECT_TRUE(plain.shaping_zones.empty());
+
+  // Adaptive with a depth for each stretch and an order out of range.
+  request.adaptive = true;
+  request.bands = {{2.0, 14.0}};
+  request.depths_db = {10.0, 40.0};
+  request.order = 99;
+  const RequantizerSettings asked = SettingsFor(request);
+  EXPECT_EQ(asked.shaping, RequantizerSettings::Shaping::kAdaptive);
+  EXPECT_DOUBLE_EQ(asked.shaping_depth_db, 40.0);
+  EXPECT_EQ(asked.shaping_order, kMaximumShapingOrder);
+  ASSERT_EQ(asked.shaping_zones.size(), 2U);
+  EXPECT_EQ(asked.shaping_zones[0], (ShapingZone{0.0, 2.0, 10.0}));
+  EXPECT_EQ(asked.shaping_zones[1], (ShapingZone{14.0, 15.0, 40.0}));
+
+  // And it is recorded as asked.
+  const RequantizationRecord record = RecordFor(asked);
+  EXPECT_TRUE(record.enabled);
+  EXPECT_EQ(record.margin_level, 0);
+  EXPECT_TRUE(record.adaptive_shaping);
+  EXPECT_EQ(record.protected_bands, asked.protected_bands);
+  EXPECT_EQ(record.shaping_zones, asked.shaping_zones);
+
+  // Bands entirely above the Nyquist limit leave the default.
+  request.bands = {{16.0, 18.0}};
+  EXPECT_EQ(SettingsFor(request).protected_bands, DefaultProtectedBands(30.0));
+}
+
+TEST(RfRequantizerTest, MoreDepthsThanStretchesIsSaidWhy) {
+  RequantizerRequest request;
+  request.sample_rate_mhz = 30.0;
+  request.bands = {{2.0, 14.0}};
+  request.depths_db = {10.0, 40.0};
+  EXPECT_TRUE(ShapingDepthsProblem(request).empty());
+
+  request.depths_db = {10.0, 20.0, 40.0};
+  EXPECT_EQ(ShapingDepthsProblem(request),
+            "3 shaping depths, but at 30 Msps the protected bands leave 2 "
+            "stretches outside them (0-2, 14-15 MHz): give at most 2.");
+
+  request.bands = {{0.0, 15.0}};
+  request.depths_db = {10.0, 40.0};
+  EXPECT_EQ(ShapingDepthsProblem(request),
+            "2 shaping depths, but at 30 Msps the protected bands leave "
+            "nothing outside them: give one depth.");
+}
+
 // The mean of |A|^2 over a stretch, in dB.
 double MeanGainDb(const std::vector<double>& a, double low_mhz, double high_mhz,
                   double rate_mhz) {

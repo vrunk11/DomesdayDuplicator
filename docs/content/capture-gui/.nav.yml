@@ -22,3 +22,4 @@ nav:
   - If a capture fails: if-a-capture-fails.md
   - Command line: command-line.md
   - Scripting captures: scripting.md
+  - Comparing requantisation settings: requantizing-offline.md

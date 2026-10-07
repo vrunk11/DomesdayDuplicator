@@ -544,45 +544,12 @@ bool CaptureController::RunRequantizes() const {
 }
 
 capture::RequantizerSettings CaptureController::RunRequantizerSettings() const {
-  capture::RequantizerSettings requantizer;
-
-  // The rate of the samples it is given, which under decimation is the file's
-  // and not the converter's: the bands and the hold are in hertz and seconds.
-  requantizer.sample_rate_mhz =
-      static_cast<double>(settings_.SampleRateHz()) / 1.0e6;
-  requantizer.margin_level = settings_.requantize_margin;
-  // The bands asked for on the command line, where they leave anything below
-  // the Nyquist limit; the default for the rate otherwise.
-  requantizer.protected_bands = capture::BandsWithin(
-      settings_.requantize_bands, requantizer.sample_rate_mhz);
-  if (requantizer.protected_bands.empty()) {
-    requantizer.protected_bands =
-        capture::DefaultProtectedBands(requantizer.sample_rate_mhz);
-  }
-  requantizer.input_bits =
-      capture::kConverterBits - capture::BitShift(run_conversion_);
-  if (settings_.requantize_adaptive) {
-    capture::UseAdaptiveShaping(requantizer);
-  }
-
-  // A depth or an order asked for, in place of the mode's own. One depth is
-  // the depth everywhere outside the bands; several are one for each stretch
-  // between them, from DC up, the last of them standing for the rest.
-  const std::vector<double>& depths = settings_.requantize_shaping_depths_db;
-  if (!depths.empty()) {
-    requantizer.shaping_depth_db =
-        std::clamp(depths.back(), 0.0, capture::kMaximumShapingDepthDb);
-  }
-  if (depths.size() > 1) {
-    requantizer.shaping_zones = capture::GapShapingZones(
-        requantizer.protected_bands, depths, requantizer.sample_rate_mhz);
-  }
-  if (settings_.requantize_shaping_order > 0) {
-    requantizer.shaping_order = std::clamp(settings_.requantize_shaping_order,
-                                           capture::kMinimumShapingOrder,
-                                           capture::kMaximumShapingOrder);
-  }
-  return requantizer;
+  // Through the one translation ddd-requantize uses too, so that a capture
+  // re-requantised offline is decided exactly as it would have been here. The
+  // input carries the converter's ten bits less the bit shift: a shifted
+  // sample's low bits are zero already.
+  return capture::SettingsFor(RequantizerRequestFor(
+      settings_, capture::kConverterBits - capture::BitShift(run_conversion_)));
 }
 
 capture::RequantizationRecord CaptureController::RequantizationSettingsRecord()
@@ -591,17 +558,7 @@ capture::RequantizationRecord CaptureController::RequantizationSettingsRecord()
   if (!RunRequantizes()) {
     return record;
   }
-  const capture::RequantizerSettings requantizer = RunRequantizerSettings();
-  record.enabled = true;
-  record.margin_level = requantizer.margin_level;
-  record.protected_bands = requantizer.protected_bands;
-  record.input_bits = requantizer.input_bits;
-  record.adaptive_shaping =
-      requantizer.shaping == capture::RequantizerSettings::Shaping::kAdaptive;
-  record.shaping_order = requantizer.shaping_order;
-  record.shaping_depth_db = requantizer.shaping_depth_db;
-  record.shaping_zones = requantizer.shaping_zones;
-  return record;
+  return capture::RecordFor(RunRequantizerSettings());
 }
 
 CaptureController::IdleSinkKey CaptureController::CurrentIdleSinkKey() const {

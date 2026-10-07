@@ -71,6 +71,14 @@ class CaptureReader {
   bool Read(std::vector<uint16_t>& samples, size_t max_samples,
             bool& end_of_file);
 
+  // The same, but the signed 16-bit samples as the file holds them: DC offset
+  // and bit shift already applied, nothing taken back to the 10-bit domain. For
+  // whatever processes a capture's samples rather than the converter's codes —
+  // re-requantising a capture offline — where a bit-shifted capture's range
+  // would not survive the trip to ten bits.
+  bool ReadSigned(std::vector<int16_t>& samples, size_t max_samples,
+                  bool& end_of_file);
+
   // Total samples in the file, where that is knowable — from the file size for
   // the uncompressed format, and from STREAMINFO for FLAC. A stream whose
   // header was never patched reports nothing, and callers show indeterminate

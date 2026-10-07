@@ -122,8 +122,8 @@ nix develop                          # every component's tools in one shell
 nix flake check                      # build everything and run the whole T1–T4 test suite
 ```
 
-The capture application installs three binaries: `ddd-gui`, plus `ddd-update` and `ddd-jtag`,
-which drive the same engine from a shell.
+The capture application installs four binaries: `ddd-gui`, plus `ddd-update`, `ddd-jtag` and
+`ddd-requantize`, which drive the same engine from a shell.
 
 Components deliberately carry no flake of their own: an earlier layout gave each one a thin
 flake for the `cd ddd-gui && nix develop` shorthand, and every one of those resolved

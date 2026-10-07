@@ -136,6 +136,7 @@ jobs:
           rm -rf stage && mkdir -p stage
           cp build/bin/ddd-gui.exe stage/
           cp build/bin/ddd-update.exe stage/
+          cp build/bin/ddd-requantize.exe stage/
 
           # The bundled update file, if this build carries one. It goes beside the
           # executable, which is where the MSI's harvest puts everything in stage and is

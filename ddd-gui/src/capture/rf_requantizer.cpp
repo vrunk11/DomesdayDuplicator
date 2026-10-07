@@ -368,6 +368,84 @@ std::vector<ShapingZone> GapShapingZones(
   return zones;
 }
 
+std::vector<FrequencyBand> RequestedBands(const RequantizerRequest& request) {
+  std::vector<FrequencyBand> bands =
+      BandsWithin(request.bands, request.sample_rate_mhz);
+  return bands.empty() ? DefaultProtectedBands(request.sample_rate_mhz) : bands;
+}
+
+RequantizerSettings SettingsFor(const RequantizerRequest& request) {
+  RequantizerSettings settings;
+  settings.sample_rate_mhz = request.sample_rate_mhz;
+  settings.margin_level = request.margin_level;
+  settings.protected_bands = RequestedBands(request);
+  settings.input_bits = request.input_bits;
+  if (request.adaptive) {
+    UseAdaptiveShaping(settings);
+  }
+
+  // A depth or an order asked for, in place of the mode's own. One depth is
+  // the depth everywhere outside the bands; several are one for each stretch
+  // between them, from DC up, the last of them standing for the rest.
+  const std::vector<double>& depths = request.depths_db;
+  if (!depths.empty()) {
+    settings.shaping_depth_db =
+        std::clamp(depths.back(), 0.0, kMaximumShapingDepthDb);
+  }
+  if (depths.size() > 1) {
+    settings.shaping_zones = GapShapingZones(settings.protected_bands, depths,
+                                             settings.sample_rate_mhz);
+  }
+  if (request.order > 0) {
+    settings.shaping_order =
+        std::clamp(request.order, kMinimumShapingOrder, kMaximumShapingOrder);
+  }
+  return settings;
+}
+
+RequantizationRecord RecordFor(const RequantizerSettings& settings) {
+  RequantizationRecord record;
+  record.enabled = true;
+  record.margin_level = settings.margin_level;
+  record.protected_bands = settings.protected_bands;
+  record.input_bits = settings.input_bits;
+  record.adaptive_shaping =
+      settings.shaping == RequantizerSettings::Shaping::kAdaptive;
+  record.shaping_order = settings.shaping_order;
+  record.shaping_depth_db = settings.shaping_depth_db;
+  record.shaping_zones = settings.shaping_zones;
+  return record;
+}
+
+std::string ShapingDepthsProblem(const RequantizerRequest& request) {
+  const size_t depths = request.depths_db.size();
+  if (depths <= 1) {
+    return {};
+  }
+  const std::vector<ShapingZone> stretches =
+      GapShapingZones(RequestedBands(request), {0.0}, request.sample_rate_mhz);
+  if (depths <= stretches.size()) {
+    return {};
+  }
+
+  const std::string rate = ShortDecimal(request.sample_rate_mhz);
+  if (stretches.empty()) {
+    return std::to_string(depths) + " shaping depths, but at " + rate +
+           " Msps the protected bands leave nothing outside them: give one "
+           "depth.";
+  }
+  std::vector<FrequencyBand> where;
+  for (const ShapingZone& stretch : stretches) {
+    where.push_back({stretch.low_mhz, stretch.high_mhz});
+  }
+  const std::string most = std::to_string(stretches.size());
+  return std::to_string(depths) + " shaping depths, but at " + rate +
+         " Msps the protected bands leave " + most +
+         (stretches.size() == 1 ? " stretch" : " stretches") +
+         " outside them (" + DescribeBands(where) + "): give at most " + most +
+         ".";
+}
+
 std::vector<double> DesignNoiseTransferFunction(
     const std::vector<FrequencyBand>& bands, double sample_rate_mhz,
     double depth_db, int order) {

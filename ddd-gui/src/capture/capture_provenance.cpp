@@ -35,6 +35,32 @@ std::string FormatProvenanceDate(std::time_t when) {
   return timestamp.substr(0, timestamp.find('_'));
 }
 
+void AppendRequantizationTags(const RequantizationRecord& requantization,
+                              std::vector<FlacWriter::Tag>& tags) {
+  if (!requantization.enabled) {
+    tags.push_back({kTagRequantization, "off"});
+    return;
+  }
+  const int level = requantization.margin_level;
+  tags.push_back({kTagRequantization, "dynamic"});
+  tags.push_back({kTagRequantizationMargin,
+                  std::to_string(level) + " (" + MarginLevelName(level) + ", " +
+                      FormatDecimal(MarginLimitDb(level), 2) + " dB)"});
+  if (!requantization.protected_bands.empty()) {
+    tags.push_back({kTagRequantizationBands,
+                    DescribeBands(requantization.protected_bands)});
+  }
+  tags.push_back(
+      {kTagRequantizationShaping,
+       std::string(requantization.adaptive_shaping ? "adaptive" : "fixed") +
+           ", order " + std::to_string(requantization.shaping_order) + ", " +
+           FormatDecimal(requantization.shaping_depth_db, 1) + " dB" +
+           (requantization.shaping_zones.empty()
+                ? std::string()
+                : "; zones " +
+                      DescribeShapingZones(requantization.shaping_zones))});
+}
+
 std::vector<FlacWriter::Tag> BuildProvenanceTags(
     const CaptureProvenance& provenance) {
   std::vector<FlacWriter::Tag> tags;
@@ -80,30 +106,7 @@ std::vector<FlacWriter::Tag> BuildProvenanceTags(
 
   tags.push_back({kTagBitShift, std::to_string(provenance.bit_shift)});
 
-  const RequantizationRecord& requantization = provenance.requantization;
-  if (requantization.enabled) {
-    const int level = requantization.margin_level;
-    tags.push_back({kTagRequantization, "dynamic"});
-    tags.push_back({kTagRequantizationMargin,
-                    std::to_string(level) + " (" + MarginLevelName(level) +
-                        ", " + FormatDecimal(MarginLimitDb(level), 2) +
-                        " dB)"});
-    if (!requantization.protected_bands.empty()) {
-      tags.push_back({kTagRequantizationBands,
-                      DescribeBands(requantization.protected_bands)});
-    }
-    tags.push_back(
-        {kTagRequantizationShaping,
-         std::string(requantization.adaptive_shaping ? "adaptive" : "fixed") +
-             ", order " + std::to_string(requantization.shaping_order) + ", " +
-             FormatDecimal(requantization.shaping_depth_db, 1) + " dB" +
-             (requantization.shaping_zones.empty()
-                  ? std::string()
-                  : "; zones " +
-                        DescribeShapingZones(requantization.shaping_zones))});
-  } else {
-    tags.push_back({kTagRequantization, "off"});
-  }
+  AppendRequantizationTags(provenance.requantization, tags);
 
   if (!provenance.board_adc.empty()) {
     if (!provenance.board_setup.empty()) {

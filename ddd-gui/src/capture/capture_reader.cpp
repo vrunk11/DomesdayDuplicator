@@ -45,7 +45,11 @@ struct CaptureReader::Impl {
 
   // FLAC
   FLAC__StreamDecoder* decoder = nullptr;
-  std::deque<uint16_t> decoded;
+  std::deque<int16_t> decoded;
+
+  // What Read() converts from, kept between calls so that reading a capture
+  // does not allocate for every block.
+  std::vector<int16_t> stored;
   bool decoder_end_of_stream = false;
   bool decoder_failed = false;
 
@@ -69,11 +73,9 @@ struct CaptureReader::Impl {
     }
 
     for (uint32_t i = 0; i < frame->header.blocksize; ++i) {
-      // Back to the 10-bit domain the test pattern counts in. No rounding is
-      // needed: every value the encoder wrote came from a 10-bit sample scaled
-      // by 64.
-      impl->decoded.push_back(
-          static_cast<uint16_t>(ToTenBit(static_cast<int16_t>(buffer[0][i]))));
+      // As stored. Read() takes these back to the 10-bit domain; ReadSigned()
+      // hands them on as they are.
+      impl->decoded.push_back(static_cast<int16_t>(buffer[0][i]));
     }
 
     return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
@@ -212,6 +214,23 @@ bool CaptureReader::Open(const std::filesystem::path& file_path, Format format,
 bool CaptureReader::Read(std::vector<uint16_t>& samples, size_t max_samples,
                          bool& end_of_file) {
   samples.clear();
+  if (!ReadSigned(impl_->stored, max_samples, end_of_file)) {
+    return false;
+  }
+
+  // Back to the 10-bit domain the test pattern counts in. No rounding is
+  // needed: every value a capture holds came from a 10-bit sample scaled by
+  // 64.
+  samples.resize(impl_->stored.size());
+  for (size_t i = 0; i < impl_->stored.size(); ++i) {
+    samples[i] = static_cast<uint16_t>(ToTenBit(impl_->stored[i]));
+  }
+  return true;
+}
+
+bool CaptureReader::ReadSigned(std::vector<int16_t>& samples,
+                               size_t max_samples, bool& end_of_file) {
+  samples.clear();
   end_of_file = false;
 
   if (impl_->format == Format::kFlac) {
@@ -263,7 +282,7 @@ bool CaptureReader::Read(std::vector<uint16_t>& samples, size_t max_samples,
         static_cast<uint16_t>(
             static_cast<uint16_t>(impl_->read_buffer[(i * kBytesPerSample) + 1])
             << 8));
-    samples[i] = static_cast<uint16_t>(ToTenBit(value));
+    samples[i] = value;
   }
 
   end_of_file = bytes_read < (samples_wanted * kBytesPerSample);
