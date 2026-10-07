@@ -109,6 +109,19 @@ bool InBands(const std::vector<FrequencyBand>& bands, double frequency_mhz) {
       });
 }
 
+// The depth outside the bands at `frequency_mhz`: the shallowest of the zones
+// that hold it, or `depth_db` where none does.
+double DepthAt(const std::vector<ShapingZone>& zones, double depth_db,
+               double frequency_mhz) {
+  std::optional<double> zoned;
+  for (const ShapingZone& zone : zones) {
+    if (frequency_mhz >= zone.low_mhz && frequency_mhz <= zone.high_mhz) {
+      zoned = std::min(zoned.value_or(zone.depth_db), zone.depth_db);
+    }
+  }
+  return zoned.value_or(depth_db);
+}
+
 // A(z), minimum phase with a[0] = 1, from the autocorrelation of the wanted
 // noise weighting, by Levinson-Durbin: |A|^2 comes out proportional to
 // 1/weight.
@@ -154,28 +167,64 @@ std::vector<FrequencyBand> DefaultProtectedBands(double sample_rate_mhz) {
   return {{0.0, std::min(14.0, (sample_rate_mhz / 2.0) - 1.5)}};
 }
 
-std::string DescribeBands(const std::vector<FrequencyBand>& bands) {
-  // To the hundredth of a megahertz, without the zeros: "0-13.5 MHz".
-  const auto megahertz = [](double value) {
-    std::string text = FormatDecimal(value, 2);
-    while (text.find('.') != std::string::npos &&
-           (text.back() == '0' || text.back() == '.')) {
-      text.pop_back();
-    }
-    return text;
-  };
+namespace {
 
+// To the hundredth, without the zeros: "13.5", "2".
+std::string ShortDecimal(double value) {
+  std::string text = FormatDecimal(value, 2);
+  while (text.find('.') != std::string::npos &&
+         (text.back() == '0' || text.back() == '.')) {
+    text.pop_back();
+  }
+  return text;
+}
+
+}  // namespace
+
+std::string DescribeBands(const std::vector<FrequencyBand>& bands) {
   std::string text;
   for (const FrequencyBand& band : bands) {
     if (!text.empty()) {
       text += ", ";
     }
-    text += megahertz(band.low_mhz) + "-" + megahertz(band.high_mhz);
+    text += ShortDecimal(band.low_mhz) + "-" + ShortDecimal(band.high_mhz);
   }
   return text.empty() ? text : text + " MHz";
 }
 
+std::string DescribeShapingZones(const std::vector<ShapingZone>& zones) {
+  std::string text;
+  for (const ShapingZone& zone : zones) {
+    if (!text.empty()) {
+      text += ", ";
+    }
+    text += ShortDecimal(zone.low_mhz) + "-" + ShortDecimal(zone.high_mhz) +
+            " MHz @ " + ShortDecimal(zone.depth_db) + " dB";
+  }
+  return text;
+}
+
 namespace {
+
+// `text` without its blanks, in lower case: what both parsers read.
+std::string Compact(std::string_view text) {
+  std::string compact;
+  for (const char character : text) {
+    if (character != ' ' && character != '\t') {
+      compact.push_back(static_cast<char>(
+          std::tolower(static_cast<unsigned char>(character))));
+    }
+  }
+  return compact;
+}
+
+// A unit after a number, which says nothing the position does not: taken off
+// `text` when it is there.
+void SkipUnit(std::string_view& text, std::string_view unit) {
+  if (text.starts_with(unit)) {
+    text.remove_prefix(unit.size());
+  }
+}
 
 // A plain decimal at the front of `text` — digits, and optionally a point and
 // more digits — taken off it. By hand rather than through strtod, which reads
@@ -213,13 +262,7 @@ std::optional<double> TakeDecimal(std::string_view& text) {
 }  // namespace
 
 std::vector<FrequencyBand> ParseBands(std::string_view text) {
-  std::string compact;
-  for (const char character : text) {
-    if (character != ' ' && character != '\t') {
-      compact.push_back(static_cast<char>(
-          std::tolower(static_cast<unsigned char>(character))));
-    }
-  }
+  std::string compact = Compact(text);
   if (compact.ends_with("mhz")) {
     compact.resize(compact.size() - 3);
   }
@@ -262,14 +305,96 @@ std::vector<FrequencyBand> BandsWithin(const std::vector<FrequencyBand>& bands,
   return usable;
 }
 
+std::vector<double> ParseShapingDepths(std::string_view text) {
+  const std::string compact = Compact(text);
+  std::string_view rest = compact;
+  std::vector<double> depths;
+  for (;;) {
+    const std::optional<double> depth = TakeDecimal(rest);
+    if (!depth.has_value() || *depth > kMaximumShapingDepthDb) {
+      return {};
+    }
+    SkipUnit(rest, "db");
+    depths.push_back(*depth);
+
+    if (rest.empty()) {
+      return depths;
+    }
+    if (rest.front() != ',') {
+      return {};
+    }
+    rest.remove_prefix(1);
+  }
+}
+
+std::string DescribeShapingDepths(const std::vector<double>& depths) {
+  std::string text;
+  for (const double depth : depths) {
+    if (!text.empty()) {
+      text += ", ";
+    }
+    text += ShortDecimal(depth);
+  }
+  return text.empty() ? text : text + " dB";
+}
+
+std::vector<ShapingZone> GapShapingZones(
+    const std::vector<FrequencyBand>& bands, const std::vector<double>& depths,
+    double sample_rate_mhz) {
+  if (depths.empty()) {
+    return {};
+  }
+  std::vector<FrequencyBand> sorted = BandsWithin(bands, sample_rate_mhz);
+  std::sort(sorted.begin(), sorted.end(),
+            [](const FrequencyBand& left, const FrequencyBand& right) {
+              return left.low_mhz < right.low_mhz;
+            });
+
+  // Each stretch nothing protects, from DC up, takes the next depth.
+  std::vector<ShapingZone> zones;
+  const auto add = [&zones, &depths](double low, double high) {
+    if (high > low) {
+      const size_t index = std::min(zones.size(), depths.size() - 1);
+      zones.push_back(
+          {low, high, std::clamp(depths[index], 0.0, kMaximumShapingDepthDb)});
+    }
+  };
+  double edge = 0.0;
+  for (const FrequencyBand& band : sorted) {
+    add(edge, band.low_mhz);
+    edge = std::max(edge, band.high_mhz);
+  }
+  add(edge, sample_rate_mhz / 2.0);
+  return zones;
+}
+
 std::vector<double> DesignNoiseTransferFunction(
     const std::vector<FrequencyBand>& bands, double sample_rate_mhz,
     double depth_db, int order) {
-  const auto size = static_cast<size_t>(std::max(order, 0));
-  const double outside = std::pow(10.0, -depth_db / 10.0);
+  return DesignNoiseTransferFunction(bands, {}, sample_rate_mhz, depth_db,
+                                     order);
+}
 
-  // The autocorrelation of the wanted noise weighting: 1 in the bands, the
-  // depth below it outside them.
+std::vector<double> DesignNoiseTransferFunction(
+    const std::vector<FrequencyBand>& bands,
+    const std::vector<ShapingZone>& zones, double sample_rate_mhz,
+    double depth_db, int order) {
+  const auto size = static_cast<size_t>(std::max(order, 0));
+
+  // The weighting on the design grid: 1 in the bands, the depth below it
+  // outside them — a zone's own, or the one given.
+  std::vector<double> weights(kDesignGrid);
+  for (size_t index = 0; index < kDesignGrid; ++index) {
+    const double frequency = (static_cast<double>(index) + 0.5) *
+                             (sample_rate_mhz / 2.0) /
+                             static_cast<double>(kDesignGrid);
+    weights[index] =
+        InBands(bands, frequency)
+            ? 1.0
+            : std::pow(10.0, -DepthAt(zones, depth_db, frequency) / 10.0);
+  }
+
+  // Its autocorrelation.
   std::vector<double> correlation(size + 1, 0.0);
   for (size_t lag = 0; lag <= size; ++lag) {
     double sum = 0.0;
@@ -277,7 +402,7 @@ std::vector<double> DesignNoiseTransferFunction(
       const double frequency = (static_cast<double>(index) + 0.5) *
                                (sample_rate_mhz / 2.0) /
                                static_cast<double>(kDesignGrid);
-      const double weight = InBands(bands, frequency) ? 1.0 : outside;
+      const double weight = weights[index];
       sum += weight * std::cos(2.0 * std::numbers::pi * frequency /
                                sample_rate_mhz * static_cast<double>(lag));
     }
@@ -417,8 +542,8 @@ RfRequantizer::RfRequantizer(const RequantizerSettings& settings)
   // The candidates, most aggressive first; at equal bits the unshaped one
   // first, because it is the smaller file and is taken whenever it passes.
   const std::vector<double> shaping = DesignNoiseTransferFunction(
-      bands_, settings_.sample_rate_mhz, settings_.shaping_depth_db,
-      settings_.shaping_order);
+      bands_, settings_.shaping_zones, settings_.sample_rate_mhz,
+      settings_.shaping_depth_db, settings_.shaping_order);
   const double bin_width =
       settings_.sample_rate_mhz / static_cast<double>(kTransformSize);
   for (int bits =
@@ -464,6 +589,13 @@ RfRequantizer::RfRequantizer(const RequantizerSettings& settings)
         lag_cos_[(lag * kBinCount) + bin] = std::cos(angle);
         lag_sin_[(lag * kBinCount) + bin] = std::sin(angle);
       }
+    }
+    outside_scale_.resize(kBinCount);
+    for (size_t bin = 0; bin < kBinCount; ++bin) {
+      outside_scale_[bin] = std::pow(
+          10.0, DepthAt(settings_.shaping_zones, settings_.shaping_depth_db,
+                        static_cast<double>(bin) * bin_width) /
+                    10.0);
     }
   }
 
@@ -725,7 +857,8 @@ void RfRequantizer::RedesignShaping() {
 
   // The wanted noise: the floor itself in the bands, so that every slice of
   // them is raised by the same proportion; and outside them, the depth above
-  // the bands' highest floor, so that as much as can go there does.
+  // the bands' highest floor — a zone's own where one is set — so that as
+  // much as can go there does.
   double highest = 0.0;
   for (size_t bin = 0; bin < kBinCount; ++bin) {
     if (InBand(static_cast<double>(bin) * bin_width)) {
@@ -735,8 +868,6 @@ void RfRequantizer::RedesignShaping() {
   if (highest <= kSmallestPower) {
     return;
   }
-  const double outside =
-      highest * std::pow(10.0, settings_.shaping_depth_db / 10.0);
 
   // Its weighting's autocorrelation, and A(z) from that as the fixed design
   // does it — over the analysis bins rather than a finer grid, because the
@@ -746,7 +877,7 @@ void RfRequantizer::RedesignShaping() {
   for (size_t bin = 0; bin < kBinCount; ++bin) {
     const double target = InBand(static_cast<double>(bin) * bin_width)
                               ? std::max(floor_[bin], kSmallestPower)
-                              : outside;
+                              : highest * outside_scale_[bin];
     const double weight = 1.0 / target;
     for (size_t lag = 0; lag < lags; ++lag) {
       correlation[lag] += weight * lag_cos_[(lag * kBinCount) + bin];

@@ -15,7 +15,6 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCommandLineParser>
-#include <QDoubleSpinBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -172,9 +171,13 @@ class CapturePanelTest : public ::testing::Test {
     return panel_->findChild<QLineEdit*>(
         QLatin1String(CapturePanel::kBandsEditName));
   }
-  QDoubleSpinBox* ShapingDepthSpin() const {
-    return panel_->findChild<QDoubleSpinBox*>(
-        QLatin1String(CapturePanel::kShapingDepthSpinName));
+  QLineEdit* ShapingDepthEdit() const {
+    return panel_->findChild<QLineEdit*>(
+        QLatin1String(CapturePanel::kShapingDepthEditName));
+  }
+  QLabel* ShapingPlanLabel() const {
+    return panel_->findChild<QLabel*>(
+        QLatin1String(CapturePanel::kShapingPlanLabelName));
   }
   QSpinBox* ShapingOrderSpin() const {
     return panel_->findChild<QSpinBox*>(
@@ -239,7 +242,8 @@ TEST_F(CapturePanelTest, EveryControlIsPresentAndFindable) {
   EXPECT_NE(FreeSpaceLabel(), nullptr);
   EXPECT_NE(ShapingCombo(), nullptr);
   EXPECT_NE(BandsEdit(), nullptr);
-  EXPECT_NE(ShapingDepthSpin(), nullptr);
+  EXPECT_NE(ShapingDepthEdit(), nullptr);
+  EXPECT_NE(ShapingPlanLabel(), nullptr);
   EXPECT_NE(ShapingOrderSpin(), nullptr);
 }
 
@@ -652,11 +656,6 @@ TEST_F(CapturePanelTest, TheShapingSetupReachesTheController) {
   ShapingCombo()->setCurrentIndex(ShapingCombo()->findData(true));
   EXPECT_TRUE(controller_->settings().requantize_adaptive);
 
-  ShapingDepthSpin()->setValue(25.0);
-  EXPECT_DOUBLE_EQ(controller_->settings().requantize_shaping_depth_db, 25.0);
-  ShapingDepthSpin()->setValue(ShapingDepthSpin()->minimum());
-  EXPECT_DOUBLE_EQ(controller_->settings().requantize_shaping_depth_db, 0.0);
-
   ShapingOrderSpin()->setValue(48);
   EXPECT_EQ(controller_->settings().requantize_shaping_order, 48);
   ShapingOrderSpin()->setValue(ShapingOrderSpin()->minimum());
@@ -681,6 +680,64 @@ TEST_F(CapturePanelTest, TheProtectedBandsAreTakenOnlyWhenTheyReadAsBands) {
   Q_EMIT BandsEdit()->editingFinished();
   EXPECT_TRUE(controller_->settings().requantize_bands.empty());
   EXPECT_FALSE(BandsEdit()->placeholderText().isEmpty());
+}
+
+// Depths the same way: taken when they read as depths, put back when they do
+// not, and the mode's own when the field is empty — with the line under it
+// saying in megahertz where each one went.
+TEST_F(CapturePanelTest, TheShapingDepthsAreTakenAndSaidWhereTheyGo) {
+  BandsEdit()->setText(QStringLiteral("2-14"));
+  Q_EMIT BandsEdit()->editingFinished();
+
+  ShapingDepthEdit()->setText(QStringLiteral("10, 40"));
+  Q_EMIT ShapingDepthEdit()->editingFinished();
+  const std::vector<double> expected{10.0, 40.0};
+  EXPECT_EQ(controller_->settings().requantize_shaping_depths_db, expected);
+  const QString plan = ShapingPlanLabel()->text();
+  EXPECT_TRUE(plan.contains(QStringLiteral("0-2 MHz @ 10 dB")))
+      << plan.toStdString();
+  EXPECT_TRUE(plan.contains(QStringLiteral("@ 40 dB"))) << plan.toStdString();
+
+  ShapingDepthEdit()->setText(QStringLiteral("10, 90"));
+  Q_EMIT ShapingDepthEdit()->editingFinished();
+  EXPECT_EQ(controller_->settings().requantize_shaping_depths_db, expected);
+  EXPECT_EQ(
+      capture::ParseShapingDepths(ShapingDepthEdit()->text().toStdString()),
+      expected);
+
+  ShapingDepthEdit()->clear();
+  Q_EMIT ShapingDepthEdit()->editingFinished();
+  EXPECT_TRUE(controller_->settings().requantize_shaping_depths_db.empty());
+  EXPECT_FALSE(ShapingDepthEdit()->placeholderText().isEmpty());
+}
+
+// Bands 2-14 leave two stretches, so a third depth has nowhere to go: it is
+// not taken, and the line under the field says why rather than leaving the
+// field to change back unexplained.
+TEST_F(CapturePanelTest, MoreDepthsThanStretchesAreRefusedAndSaidWhy) {
+  BandsEdit()->setText(QStringLiteral("2-14"));
+  Q_EMIT BandsEdit()->editingFinished();
+  ShapingDepthEdit()->setText(QStringLiteral("10, 40"));
+  Q_EMIT ShapingDepthEdit()->editingFinished();
+  const std::vector<double> kept{10.0, 40.0};
+  ASSERT_EQ(controller_->settings().requantize_shaping_depths_db, kept);
+
+  ShapingDepthEdit()->setText(QStringLiteral("10, 20, 40"));
+  Q_EMIT ShapingDepthEdit()->editingFinished();
+  EXPECT_EQ(controller_->settings().requantize_shaping_depths_db, kept);
+  EXPECT_EQ(
+      capture::ParseShapingDepths(ShapingDepthEdit()->text().toStdString()),
+      kept);
+  const QString said = ShapingPlanLabel()->text();
+  EXPECT_TRUE(said.contains(QStringLiteral("at most 2"))) << said.toStdString();
+
+  // Bands that leave fewer stretches afterwards keep the depths, and the line
+  // says they no longer fit.
+  BandsEdit()->setText(QStringLiteral("0-14"));
+  Q_EMIT BandsEdit()->editingFinished();
+  EXPECT_EQ(controller_->settings().requantize_shaping_depths_db, kept);
+  EXPECT_TRUE(ShapingPlanLabel()->text().contains(QStringLiteral("at most 1")))
+      << ShapingPlanLabel()->text().toStdString();
 }
 
 // Nothing to compress in the uncompressed format, so the level stops being a

@@ -14,6 +14,7 @@
 #include <QCoreApplication>
 #include <QSettings>
 #include <QString>
+#include <vector>
 
 #include "capture_format.h"
 #include "capture_settings.h"
@@ -234,7 +235,7 @@ TEST_F(CaptureSettingsTest,
   saved.requantize_margin = 4;
   saved.requantize_bands = {{0.0, 1.9}, {2.1, 13.5}};
   saved.requantize_adaptive = true;
-  saved.requantize_shaping_depth_db = 27.5;
+  saved.requantize_shaping_depths_db = {10.0, 37.5};
   saved.requantize_shaping_order = 48;
   SaveCaptureSettings(saved);
 
@@ -244,25 +245,65 @@ TEST_F(CaptureSettingsTest,
   EXPECT_EQ(loaded.requantize_margin, 4);
   EXPECT_EQ(loaded.requantize_bands, saved.requantize_bands);
   EXPECT_TRUE(loaded.requantize_adaptive);
-  EXPECT_DOUBLE_EQ(loaded.requantize_shaping_depth_db, 27.5);
+  EXPECT_EQ(loaded.requantize_shaping_depths_db,
+            saved.requantize_shaping_depths_db);
   EXPECT_EQ(loaded.requantize_shaping_order, 48);
 }
 
 // Out of range, or not bands at all, is held to what the requantiser can do.
 TEST_F(CaptureSettingsTest, AnImpossibleShapingOrBandIsHeldInRange) {
   QSettings store;
-  store.setValue(QStringLiteral("capture/requantize_shaping_depth_db"), 90.0);
+  store.setValue(QStringLiteral("capture/requantize_shaping_depths_db"),
+                 QStringLiteral("10, 90"));
   store.setValue(QStringLiteral("capture/requantize_shaping_order"), 500);
   store.setValue(QStringLiteral("capture/requantize_bands"),
                  QStringLiteral("nonsense"));
   store.setValue(QStringLiteral("capture/requantize_shaping"),
                  QStringLiteral("sideways"));
   const CaptureSettings loaded = LoadCaptureSettings();
-  EXPECT_DOUBLE_EQ(loaded.requantize_shaping_depth_db,
-                   capture::kMaximumShapingDepthDb);
+  EXPECT_TRUE(loaded.requantize_shaping_depths_db.empty());
   EXPECT_EQ(loaded.requantize_shaping_order, capture::kMaximumShapingOrder);
   EXPECT_TRUE(loaded.requantize_bands.empty());
   EXPECT_FALSE(loaded.requantize_adaptive);
+}
+
+// Bands 2-14 leave two stretches — the EFM below and everything above — at any
+// rate that reaches past 14 MHz: two depths fit, three do not, fewer always
+// do, and one is always the depth everywhere.
+TEST_F(CaptureSettingsTest, MoreShapingDepthsThanStretchesIsAProblem) {
+  CaptureSettings settings;
+  settings.requantize_bands = {{2.0, 14.0}};
+
+  settings.requantize_shaping_depths_db = {10.0, 40.0};
+  EXPECT_TRUE(ShapingDepthsProblem(settings).isEmpty());
+  settings.requantize_shaping_depths_db = {10.0};
+  EXPECT_TRUE(ShapingDepthsProblem(settings).isEmpty());
+
+  settings.requantize_shaping_depths_db = {10.0, 20.0, 40.0};
+  const QString problem = ShapingDepthsProblem(settings);
+  EXPECT_TRUE(problem.contains(QStringLiteral("3 shaping depths")))
+      << problem.toStdString();
+  EXPECT_TRUE(problem.contains(QStringLiteral("at most 2")))
+      << problem.toStdString();
+
+  // From DC up, the band leaves one stretch, above it.
+  settings.requantize_bands = {{0.0, 14.0}};
+  settings.requantize_shaping_depths_db = {10.0, 40.0};
+  EXPECT_FALSE(ShapingDepthsProblem(settings).isEmpty());
+  settings.requantize_shaping_depths_db = {40.0};
+  EXPECT_TRUE(ShapingDepthsProblem(settings).isEmpty());
+}
+
+// A setup saved when there could be only one depth, under the key that held
+// it, is read as that one depth — and 0, which meant the mode's own, as none.
+TEST_F(CaptureSettingsTest, ASingleDepthSavedBeforeIsKept) {
+  QSettings store;
+  store.setValue(QStringLiteral("capture/requantize_shaping_depth_db"), 90.0);
+  EXPECT_EQ(LoadCaptureSettings().requantize_shaping_depths_db,
+            std::vector<double>{capture::kMaximumShapingDepthDb});
+
+  store.setValue(QStringLiteral("capture/requantize_shaping_depth_db"), 0.0);
+  EXPECT_TRUE(LoadCaptureSettings().requantize_shaping_depths_db.empty());
 }
 
 // A settings file asking for something no writer does is held to what one

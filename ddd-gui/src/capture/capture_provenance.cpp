@@ -96,7 +96,11 @@ std::vector<FlacWriter::Tag> BuildProvenanceTags(
         {kTagRequantizationShaping,
          std::string(requantization.adaptive_shaping ? "adaptive" : "fixed") +
              ", order " + std::to_string(requantization.shaping_order) + ", " +
-             FormatDecimal(requantization.shaping_depth_db, 1) + " dB"});
+             FormatDecimal(requantization.shaping_depth_db, 1) + " dB" +
+             (requantization.shaping_zones.empty()
+                  ? std::string()
+                  : "; zones " +
+                        DescribeShapingZones(requantization.shaping_zones))});
   } else {
     tags.push_back({kTagRequantization, "off"});
   }

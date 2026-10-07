@@ -526,18 +526,33 @@ TEST(CaptureCliTest, TheShapingDepthAndOrderAreTakenAsGiven) {
       {QStringLiteral("--requantize-shaping-depth"), QStringLiteral("12.5"),
        QStringLiteral("--requantize-shaping-order"), QStringLiteral("24")});
   ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
-  EXPECT_EQ(parsed.options.requantize_shaping_depth_db,
-            std::optional<double>(12.5));
+  EXPECT_EQ(parsed.options.requantize_shaping_depths_db,
+            std::optional(std::vector<double>{12.5}));
   EXPECT_EQ(parsed.options.requantize_shaping_order, std::optional<int>(24));
 
   CaptureSettings settings;
   ApplyCliOverrides(settings, parsed.options);
-  EXPECT_DOUBLE_EQ(settings.requantize_shaping_depth_db, 12.5);
+  EXPECT_EQ(settings.requantize_shaping_depths_db, std::vector<double>{12.5});
   EXPECT_EQ(settings.requantize_shaping_order, 24);
 }
 
+// One depth for each stretch between the bands, from DC up.
+TEST(CaptureCliTest, ADepthForEachStretchIsTakenAsGiven) {
+  const Parsed parsed = Parse(
+      {QStringLiteral("--requantize-shaping-depth"), QStringLiteral("10,40")});
+  ASSERT_TRUE(parsed.ok()) << parsed.error.toStdString();
+  const std::vector<double> expected{10.0, 40.0};
+  EXPECT_EQ(parsed.options.requantize_shaping_depths_db,
+            std::optional(expected));
+  EXPECT_TRUE(parsed.options.HasAttributeOverrides());
+
+  CaptureSettings settings;
+  ApplyCliOverrides(settings, parsed.options);
+  EXPECT_EQ(settings.requantize_shaping_depths_db, expected);
+}
+
 TEST(CaptureCliTest, AShapingDepthOrOrderOutOfRangeIsRefused) {
-  for (const char* depth : {"0", "-3", "41", "deep", ""}) {
+  for (const char* depth : {"-3", "41", "10,41", "10;40", "deep", ""}) {
     const Parsed parsed = Parse(
         {QStringLiteral("--requantize-shaping-depth"), QLatin1String(depth)});
     EXPECT_TRUE(parsed.accepted) << depth;

@@ -365,9 +365,17 @@ TEST_F(CaptureMetadataTest, ARequantisedCaptureRecordsEveryChange) {
                        "    \"0\": \"1\"\n"
                        "    \"2097152\": \"3 shaped\"\n"));
 
+  // Zones only when there are some.
+  EXPECT_FALSE(Contains(document, "shaping_zones"));
+
   record.adaptive_shaping = true;
   EXPECT_TRUE(Contains(BuildCaptureMetadataYaml(metadata),
                        "\"shaping\": \"adaptive\""));
+
+  record.shaping_zones = {{0.0, 2.0, 10.0}, {14.0, 17.5, 40.0}};
+  EXPECT_TRUE(
+      Contains(BuildCaptureMetadataYaml(metadata),
+               "\"shaping_zones\": \"0-2 MHz @ 10 dB, 14-17.5 MHz @ 40 dB\""));
 }
 
 TEST_F(CaptureMetadataTest, NoBoardSetupWritesNoBoardBlock) {

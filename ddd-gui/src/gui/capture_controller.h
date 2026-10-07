@@ -485,10 +485,10 @@ class CaptureController : public QObject {
   void UpdateIdleSink();
 
   // What the idle sink is built from, as it would be built now: on or off,
-  // margin, bit shift, bands, and the shaping with its order and depth. See
-  // idle_key_.
+  // margin, bit shift, bands, and the shaping with its order, depth and zones.
+  // See idle_key_.
   using IdleSinkKey =
-      std::tuple<bool, int, int, std::string, bool, int, double>;
+      std::tuple<bool, int, int, std::string, bool, int, double, std::string>;
   IdleSinkKey CurrentIdleSinkKey() const;
 
   // Bring run_conversion() up to the settings while monitoring and not

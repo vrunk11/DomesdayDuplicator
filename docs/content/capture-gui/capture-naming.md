@@ -253,6 +253,7 @@ capture has `mode: dynamic` and:
 | `input_bits` | The bits the requantiser was given: the converter's ten, less the bit shift |
 | `shaping` | `fixed`, one filter designed from the bands, or `adaptive`, designed again for every segment from the measured floor |
 | `shaping_order`, `shaping_depth_db` | The noise-shaping filter it could use: 16 and 10 dB fixed, 32 and 20 dB adaptive |
+| `shaping_zones` | The stretches between the bands each with its own depth, when several depths were given: `0-2 MHz @ 10 dB, 14-17.5 MHz @ 40 dB` |
 | `segment_samples` | `1048576` — one decision per this many samples |
 | `shaped_samples` | How many samples were noise shaped |
 | `worst_degradation_db` | The most the floor of any slice rose, over the whole file |

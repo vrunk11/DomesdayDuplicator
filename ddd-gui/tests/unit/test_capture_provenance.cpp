@@ -238,6 +238,10 @@ TEST_F(CaptureProvenanceTest,
   facts.requantization.shaping_depth_db = 20.0;
   EXPECT_EQ(Value(BuildProvenanceTags(facts), kTagRequantizationShaping),
             "adaptive, order 32, 20.0 dB");
+
+  facts.requantization.shaping_zones = {{0.0, 2.0, 10.0}};
+  EXPECT_EQ(Value(BuildProvenanceTags(facts), kTagRequantizationShaping),
+            "adaptive, order 32, 20.0 dB; zones 0-2 MHz @ 10 dB");
 }
 
 TEST_F(CaptureProvenanceTest, TheDateIsIso8601) {

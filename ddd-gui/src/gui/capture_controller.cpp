@@ -565,11 +565,17 @@ capture::RequantizerSettings CaptureController::RunRequantizerSettings() const {
     capture::UseAdaptiveShaping(requantizer);
   }
 
-  // A depth or an order asked for on the command line, in place of the
-  // mode's own.
-  if (settings_.requantize_shaping_depth_db > 0.0) {
-    requantizer.shaping_depth_db = std::min(
-        settings_.requantize_shaping_depth_db, capture::kMaximumShapingDepthDb);
+  // A depth or an order asked for, in place of the mode's own. One depth is
+  // the depth everywhere outside the bands; several are one for each stretch
+  // between them, from DC up, the last of them standing for the rest.
+  const std::vector<double>& depths = settings_.requantize_shaping_depths_db;
+  if (!depths.empty()) {
+    requantizer.shaping_depth_db =
+        std::clamp(depths.back(), 0.0, capture::kMaximumShapingDepthDb);
+  }
+  if (depths.size() > 1) {
+    requantizer.shaping_zones = capture::GapShapingZones(
+        requantizer.protected_bands, depths, requantizer.sample_rate_mhz);
   }
   if (settings_.requantize_shaping_order > 0) {
     requantizer.shaping_order = std::clamp(settings_.requantize_shaping_order,
@@ -594,6 +600,7 @@ capture::RequantizationRecord CaptureController::RequantizationSettingsRecord()
       requantizer.shaping == capture::RequantizerSettings::Shaping::kAdaptive;
   record.shaping_order = requantizer.shaping_order;
   record.shaping_depth_db = requantizer.shaping_depth_db;
+  record.shaping_zones = requantizer.shaping_zones;
   return record;
 }
 
@@ -605,7 +612,8 @@ CaptureController::IdleSinkKey CaptureController::CurrentIdleSinkKey() const {
           capture::DescribeBands(requantizer.protected_bands),
           settings_.requantize_adaptive,
           requantizer.shaping_order,
-          requantizer.shaping_depth_db};
+          requantizer.shaping_depth_db,
+          capture::DescribeShapingZones(requantizer.shaping_zones)};
 }
 
 std::unique_ptr<capture::ISampleSink> CaptureController::MakeIdleSink() {
@@ -1390,7 +1398,11 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenCaptureFile() {
                    " over " +
                    capture::DescribeBands(requantization.protected_bands) +
                    (requantization.adaptive_shaping ? ", adaptive shaping"
-                                                    : ", fixed shaping")
+                                                    : ", fixed shaping") +
+                   (requantization.shaping_zones.empty()
+                        ? std::string()
+                        : " with zones " + capture::DescribeShapingZones(
+                                               requantization.shaping_zones))
              : std::string("off")) +
         ", duration limit " +
         (settings_.duration_limit_seconds > 0
@@ -1463,6 +1475,18 @@ std::unique_ptr<capture::ISampleSink> CaptureController::OpenPipeOnlyCapture() {
 void CaptureController::StartCapture() {
   if (capturing_ || measuring_dc_offset()) {
     return;
+  }
+
+  // Shaping depths the bands have no room for — the bands or the rate changed
+  // after they were given — are a setup that cannot be what was meant, and a
+  // capture is not started on a guess at which of them to drop. Asked of the
+  // settings rather than of the run, which is not set up until monitoring is.
+  if (settings_.requantize && !settings_.test_mode) {
+    const QString problem = ShapingDepthsProblem(settings_);
+    if (!problem.isEmpty()) {
+      emit Failed(tr("The shaping depths do not fit the bands"), problem);
+      return;
+    }
   }
 
   // One action rather than two. Someone who has not been monitoring and presses

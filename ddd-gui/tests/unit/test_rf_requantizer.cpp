@@ -121,6 +121,121 @@ TEST(RfRequantizerTest, BandsAreCutAtTheNyquistLimit) {
   EXPECT_TRUE(BandsWithin({{16.0, 18.0}}, 30.0).empty());
 }
 
+TEST(RfRequantizerTest, ShapingDepthsAreReadAsTypedAndRecordedAsRead) {
+  EXPECT_EQ(ParseShapingDepths("40"), (std::vector<double>{40.0}));
+  const std::vector<double> two = ParseShapingDepths(" 10 dB, 37.5");
+  EXPECT_EQ(two, (std::vector<double>{10.0, 37.5}));
+  EXPECT_EQ(DescribeShapingDepths(two), "10, 37.5 dB");
+  EXPECT_EQ(ParseShapingDepths(DescribeShapingDepths(two)), two);
+  EXPECT_EQ(DescribeShapingDepths({}), "");
+
+  EXPECT_EQ(DescribeShapingZones({{0.0, 2.0, 10.0}, {14.0, 17.5, 40.0}}),
+            "0-2 MHz @ 10 dB, 14-17.5 MHz @ 40 dB");
+  EXPECT_EQ(DescribeShapingZones({}), "");
+}
+
+TEST(RfRequantizerTest, ShapingDepthsThatAreNotDepthsAreRefused) {
+  for (const char* text :
+       {"", "41", "-1", "10,", ",10", "10;40", "1e1", "10x", "deep"}) {
+    EXPECT_TRUE(ParseShapingDepths(text).empty()) << text;
+  }
+}
+
+// The depths go to the stretches between the bands in order, from DC up:
+// with bands 2-14 at 35 Msps, the first to the EFM below 2 MHz and the second
+// to everything above 14.
+TEST(RfRequantizerTest, EachStretchBetweenTheBandsTakesTheNextDepth) {
+  const std::vector<ShapingZone> zones =
+      GapShapingZones({{2.0, 14.0}}, {10.0, 40.0}, 35.0);
+  ASSERT_EQ(zones.size(), 2U);
+  EXPECT_EQ(zones[0], (ShapingZone{0.0, 2.0, 10.0}));
+  EXPECT_EQ(zones[1], (ShapingZone{14.0, 17.5, 40.0}));
+
+  // Bands given in any order, and one that starts at DC leaves nothing below
+  // it to take a depth.
+  const std::vector<ShapingZone> three =
+      GapShapingZones({{2.1, 13.5}, {0.0, 1.9}}, {5.0, 30.0}, 30.0);
+  ASSERT_EQ(three.size(), 2U);
+  EXPECT_EQ(three[0], (ShapingZone{1.9, 2.1, 5.0}));
+  EXPECT_EQ(three[1], (ShapingZone{13.5, 15.0, 30.0}));
+}
+
+TEST(RfRequantizerTest, TheLastDepthRepeatsAndExtraDepthsAreUnused) {
+  const std::vector<ShapingZone> repeated =
+      GapShapingZones({{2.0, 14.0}}, {25.0}, 35.0);
+  ASSERT_EQ(repeated.size(), 2U);
+  EXPECT_DOUBLE_EQ(repeated[0].depth_db, 25.0);
+  EXPECT_DOUBLE_EQ(repeated[1].depth_db, 25.0);
+
+  const std::vector<ShapingZone> one_stretch =
+      GapShapingZones({{0.0, 14.0}}, {10.0, 40.0}, 35.0);
+  ASSERT_EQ(one_stretch.size(), 1U);
+  EXPECT_EQ(one_stretch[0], (ShapingZone{14.0, 17.5, 10.0}));
+
+  EXPECT_TRUE(GapShapingZones({{2.0, 14.0}}, {}, 35.0).empty());
+}
+
+// The mean of |A|^2 over a stretch, in dB.
+double MeanGainDb(const std::vector<double>& a, double low_mhz, double high_mhz,
+                  double rate_mhz) {
+  constexpr int kSteps = 64;
+  double sum = 0.0;
+  for (int step = 0; step <= kSteps; ++step) {
+    const double frequency =
+        low_mhz + ((high_mhz - low_mhz) * static_cast<double>(step) / kSteps);
+    sum += NoiseTransferGainSquared(a, frequency, rate_mhz);
+  }
+  return 10.0 * std::log10(sum / (kSteps + 1));
+}
+
+// With no zones the filter is the one it always was, so a capture set up
+// before zones existed decides exactly as it did; with a shallow zone over the
+// EFM, the noise there falls and what it is spared goes elsewhere.
+TEST(RfRequantizerTest, AShallowZoneKeepsTheNoiseOffIt) {
+  constexpr double kZonedRateMhz = 35.0;
+  const std::vector<FrequencyBand> bands = {{2.0, 14.0}};
+  EXPECT_EQ(DesignNoiseTransferFunction(bands, {}, kZonedRateMhz, 40.0, 32),
+            DesignNoiseTransferFunction(bands, kZonedRateMhz, 40.0, 32));
+
+  const std::vector<double> one_depth =
+      DesignNoiseTransferFunction(bands, kZonedRateMhz, 40.0, 32);
+  const std::vector<double> zoned = DesignNoiseTransferFunction(
+      bands, {{0.0, 2.0, 10.0}}, kZonedRateMhz, 40.0, 32);
+  EXPECT_LT(MeanGainDb(zoned, 0.2, 1.8, kZonedRateMhz),
+            MeanGainDb(one_depth, 0.2, 1.8, kZonedRateMhz) - 10.0);
+  EXPECT_GT(MeanGainDb(zoned, 14.5, 17.4, kZonedRateMhz),
+            MeanGainDb(one_depth, 14.5, 17.4, kZonedRateMhz));
+}
+
+// The same holds for the filter adaptive shaping designs from the floor.
+TEST(RfRequantizerTest, AdaptiveShapingHonoursAZone) {
+  constexpr double kZonedRateMhz = 35.0;
+  const auto decide = [&](const std::vector<ShapingZone>& zones) {
+    RequantizerSettings settings = Settings(0);
+    settings.sample_rate_mhz = kZonedRateMhz;
+    settings.protected_bands = {{2.0, 14.0}};
+    UseAdaptiveShaping(settings);
+    settings.shaping_depth_db = 40.0;
+    settings.shaping_zones = zones;
+    RfRequantizer requantizer(settings);
+    std::mt19937 generator = Seeded(5);
+    RequantizerDecision decision;
+    for (int segment = 0; segment < 4; ++segment) {
+      std::vector<int16_t> samples = NoiseSegment(generator, 6.0);
+      decision = requantizer.Process(samples.data(), samples.size(), true);
+    }
+    return decision;
+  };
+
+  const RequantizerDecision one_depth = decide({});
+  const RequantizerDecision zoned = decide({{0.0, 2.0, 10.0}});
+  ASSERT_TRUE(one_depth.shaped);
+  ASSERT_TRUE(zoned.shaped);
+  EXPECT_LT(MeanGainDb(zoned.coefficients, 0.2, 1.8, kZonedRateMhz),
+            MeanGainDb(one_depth.coefficients, 0.2, 1.8, kZonedRateMhz) - 10.0);
+  EXPECT_LE(zoned.degradation_db, MarginLimitDb(0));
+}
+
 // The shaping filter puts the noise where the bands are not.
 TEST(RfRequantizerTest, TheShapingFilterIsQuietInTheBand) {
   const std::vector<FrequencyBand> bands = {{0.0, 12.0}};

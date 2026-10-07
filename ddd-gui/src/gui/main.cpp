@@ -294,6 +294,21 @@ int main(int argc, char* argv[]) {
     return ddd::gui::RunStopCapture(out_stream, error_stream);
   }
 
+  // Shaping depths are checked against the bands and the rate they will be
+  // used with, which the command line may name or leave to the saved
+  // settings — so here, once both are known, and as an argument error: more
+  // depths than the bands leave stretches for is a mistake in what was typed.
+  if (capture_cli.options.HasAttributeOverrides()) {
+    ddd::gui::CaptureSettings merged = ddd::gui::LoadCaptureSettings();
+    ddd::gui::ApplyCliOverrides(merged, capture_cli.options);
+    const QString problem = ddd::gui::ShapingDepthsProblem(merged);
+    if (merged.requantize && !problem.isEmpty()) {
+      error_stream << "--requantize-shaping-depth: " << problem << "\n";
+      error_stream.flush();
+      return ddd::gui::kExitBadArguments;
+    }
+  }
+
   // Before a device, a window or a log is opened. A terminal would be sent
   // megabytes of binary a second, and standard output going nowhere would lose
   // every sample — neither is a capture anybody meant to start.

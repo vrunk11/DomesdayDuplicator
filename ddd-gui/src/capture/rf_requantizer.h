@@ -86,6 +86,42 @@ std::vector<FrequencyBand> ParseBands(std::string_view text);
 std::vector<FrequencyBand> BandsWithin(const std::vector<FrequencyBand>& bands,
                                        double sample_rate_mhz);
 
+// A stretch outside the protected bands with a shaping depth of its own: how
+// far above the bands the added noise may be pushed there, in place of the
+// one depth everywhere else. Outside the bands is not all alike — the EFM
+// below the video is still read, and the top of the spectrum is not — so a
+// shallow zone over the one keeps the noise off it, and a deep one over the
+// other takes what it is spared.
+struct ShapingZone {
+  double low_mhz = 0.0;
+  double high_mhz = 0.0;
+  double depth_db = 0.0;
+
+  bool operator==(const ShapingZone& other) const = default;
+};
+
+// The zones as a capture records them: "0-2 MHz @ 10 dB", comma separated.
+std::string DescribeShapingZones(const std::vector<ShapingZone>& zones);
+
+// Shaping depths as a person types them, in dB: one, "40", or one for each
+// stretch between the bands, low to high, "10, 40". Plain decimals, 0 to
+// kMaximumShapingDepthDb, each with an optional "dB". Empty for anything else.
+std::vector<double> ParseShapingDepths(std::string_view text);
+
+// The depths as they were read back: "10, 40 dB". Empty for none.
+std::string DescribeShapingDepths(const std::vector<double>& depths);
+
+// The stretches outside `bands`, from DC to the Nyquist limit of
+// `sample_rate_mhz`, low to high, each with the depth at the same place in
+// `depths` — the first below the lowest band, the next between it and the
+// one after — the last repeated where there are more stretches than depths,
+// and any beyond the stretches unused here: more depths than stretches is
+// refused before a capture gets this far. With bands 2-14 MHz at 35 Msps,
+// "10, 40" puts 10 dB on the EFM below 2 MHz and 40 dB above 14 MHz.
+std::vector<ShapingZone> GapShapingZones(
+    const std::vector<FrequencyBand>& bands, const std::vector<double>& depths,
+    double sample_rate_mhz);
+
 struct RequantizerSettings {
   // The rate of the samples this is given, after any decimation.
   double sample_rate_mhz = 40.0;
@@ -121,6 +157,11 @@ struct RequantizerSettings {
   Shaping shaping = Shaping::kFixed;
   int shaping_order = 16;
   double shaping_depth_db = 10.0;
+
+  // Stretches outside the bands with a depth of their own, in place of
+  // shaping_depth_db; see ShapingZone. Where one overlaps a band the band wins,
+  // and where two overlap the shallower does.
+  std::vector<ShapingZone> shaping_zones;
 
   // How far back the noise floor is estimated from.
   double history_seconds = 0.5;
@@ -190,6 +231,7 @@ struct RequantizationRecord {
   bool adaptive_shaping = false;
   int shaping_order = 0;
   double shaping_depth_db = 0.0;
+  std::vector<ShapingZone> shaping_zones;
 
   // Samples by bits dropped, index 0 for none.
   std::vector<uint64_t> samples_by_drop;
@@ -204,6 +246,13 @@ struct RequantizationRecord {
 // about `depth_db`.
 std::vector<double> DesignNoiseTransferFunction(
     const std::vector<FrequencyBand>& bands, double sample_rate_mhz,
+    double depth_db, int order);
+
+// The same, high outside the bands by each zone's own depth where `zones` set
+// one, and by `depth_db` everywhere else.
+std::vector<double> DesignNoiseTransferFunction(
+    const std::vector<FrequencyBand>& bands,
+    const std::vector<ShapingZone>& zones, double sample_rate_mhz,
     double depth_db, int order);
 
 // |A(f)|^2.
@@ -364,6 +413,9 @@ class RfRequantizer {
   // sums over them.
   std::vector<double> lag_cos_;
   std::vector<double> lag_sin_;
+  // And how far above the bands' highest floor each bin outside them may be
+  // pushed, as a power ratio: the depth there, a zone's or the setting's.
+  std::vector<double> outside_scale_;
   // The fixed transform: bit-reversal order, twiddles and the Hann window,
   // worked out once.
   std::vector<size_t> bit_reverse_;

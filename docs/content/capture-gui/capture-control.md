@@ -350,7 +350,7 @@ the EFM is only for a capture whose digital audio is not wanted, or comes from e
 
 **The shaping's depth and order** are **Shaping depth** and **Shaping order**, or
 `--requantize-shaping-depth` and `--requantize-shaping-order` for one run; **Default** is the
-mode's own value. The depth (in dB, up to 40; 10 fixed and 20 adaptive by default) is how far
+mode's own value, and an empty depth the same. The depth (in dB, up to 40; 10 fixed and 20 adaptive by default) is how far
 above the protected bands the noise may be pushed: at the same number of bits, deeper leaves
 less noise in the bands and so a cleaner picture, and puts more outside them, where the FLAC
 encoder has to store it — noise compresses badly, so the file grows a little. Shallower is the
@@ -358,6 +358,27 @@ other way round. The order (2 to 64; 16 fixed and 32 adaptive) is how
 finely the noise can follow the floor, at a processing cost that grows with it. Both are
 recorded in the capture's tags and sidecar. The [Requantisation noise](signal-analysis.md#requantisation-noise)
 trace on the spectrum shows where the noise went, which is the way to choose them.
+
+**One depth for each stretch between the bands.** Outside the bands is not all alike: with
+bands `2-14`, the EFM below 2 MHz is still read while nothing is read above 14 MHz, and one
+depth fills both alike. **Shaping depth** therefore takes several depths as well as one, in
+order from DC up, one for each stretch the protected bands leave between them: with bands
+`2-14`, `10, 40` keeps the EFM's share of the noise to 10 dB and lets everything above 14 MHz
+take 40. The line under the field says in megahertz where each depth went, worked out for the
+bands and the rate as they are set. Where there are more stretches than depths the last one
+repeats. More depths than stretches is refused: typed in the field, it is not taken and the
+line says why; on the command line, it is an argument error; and where the bands or the rate
+were changed afterwards so that the depths no longer fit, the line says so and a requantised
+capture will not start until they do. What the EFM is spared is not free: the
+shaping has less room to work with, so the band keeps a little more of the noise, and a capture
+may keep a bit more. The stretches, each with its depth, are recorded in the capture's tags and
+sidecar.
+
+Keep the deep part of the noise away from the edge of the band, too. On a capture with bands
+ending at 13.5 MHz and a depth of 40 dB, the noise rose so steeply just above 13.5 MHz that the
+decoder's filters let some of it into the picture: the margin was met, and the picture was
+visibly noisier. The margin only measures inside the bands. With the band's edge moved to 14
+MHz, it looked better.
 
 The analysis runs on a thread of its own and costs a fraction of one core at 30 Msps, so it
 is meant for a capture written at a reduced rate — 60 MHz decimated by 2 is the case it was

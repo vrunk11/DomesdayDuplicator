@@ -184,11 +184,16 @@ struct CaptureSettings {
   bool requantize_adaptive = false;
 
   // The shaping filter's depth in dB and its order, in place of the mode's
-  // own (capture::UseAdaptiveShaping, or the fixed filter's 10 dB and 16); 0
-  // for those. The depth decides, at a given number of bits, how much of the
-  // added noise stays in the protected bands and how much goes outside them,
-  // where it costs the FLAC encoder instead of the picture.
-  double requantize_shaping_depth_db = 0.0;
+  // own (capture::UseAdaptiveShaping, or the fixed filter's 10 dB and 16):
+  // empty and 0 for those. The depth decides, at a given number of bits, how
+  // much of the added noise stays in the protected bands and how much goes
+  // outside them, where it costs the FLAC encoder instead of the picture.
+  //
+  // One depth applies everywhere outside the bands. Several are one for each
+  // stretch between them, from DC up (capture::GapShapingZones): with bands
+  // 2-14, "10, 40" keeps the EFM below 2 MHz to 10 dB, since it is still
+  // read, and lets everything above 14 MHz take 40.
+  std::vector<double> requantize_shaping_depths_db;
   int requantize_shaping_order = 0;
 
   // Stop the capture automatically after this long. 0 means run until stopped,
@@ -232,7 +237,7 @@ struct CaptureSettings {
            requantize_margin == other.requantize_margin &&
            requantize_bands == other.requantize_bands &&
            requantize_adaptive == other.requantize_adaptive &&
-           requantize_shaping_depth_db == other.requantize_shaping_depth_db &&
+           requantize_shaping_depths_db == other.requantize_shaping_depths_db &&
            requantize_shaping_order == other.requantize_shaping_order &&
            duration_limit_seconds == other.duration_limit_seconds &&
            low_space_warning_minutes == other.low_space_warning_minutes;
@@ -318,5 +323,17 @@ void SaveCaptureSettings(const CaptureSettings& settings);
 // its name and the limit it holds the protected band to — "2 (safe,
 // 0.20 dB)". See capture::MarginLevelName.
 QString DescribeRequantizationMargin(int level);
+
+// The bands the requantiser protects with `settings`: those asked for, cut at
+// the Nyquist limit of the rate, or the default for the rate.
+std::vector<capture::FrequencyBand> RequantizedBands(
+    const CaptureSettings& settings);
+
+// Why the shaping depths cannot be used as `settings` stand — more of them
+// than there are stretches between the protected bands at the rate, one depth
+// with nowhere to go — in a sentence; empty when they can. One depth always
+// can: it is the depth everywhere outside the bands. Fewer depths than
+// stretches is not a problem either, the last standing for the rest.
+QString ShapingDepthsProblem(const CaptureSettings& settings);
 
 }  // namespace ddd::gui

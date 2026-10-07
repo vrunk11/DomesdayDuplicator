@@ -12,7 +12,6 @@
 #include "capture_panel.h"
 
 #include <QComboBox>
-#include <QDoubleSpinBox>
 #include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -38,6 +37,7 @@
 #include "capture_failure_presenter.h"
 #include "capture_format.h"
 #include "capture_naming.h"
+#include "capture_settings.h"
 #include "free_space.h"
 #include "requantizing_sink.h"
 #include "rf_requantizer.h"
@@ -309,25 +309,31 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
       tr("The bands, in MHz, whose noise floor the margin protects: 0-13.5, "
          "or several, 2-13.5 or 0-1.9,2.1-13.5. Empty for the default, DC "
          "to 14 MHz or short of the Nyquist limit. What is outside them is "
-         "where the shaping puts the noise, with no limit: leave out only "
-         "what nothing uses — the EFM below 2 MHz if its digital audio is "
-         "not wanted — and never the space between the audio carriers and "
-         "the video, which the lower video sidebands reach into."));
+         "where the shaping puts the noise, held only by the shaping depth: "
+         "leave out only what can take it — the EFM below 2 MHz, with a "
+         "shallow depth of its own if its digital audio is wanted — and "
+         "never the space between the audio carriers and the video, which "
+         "the lower video sidebands reach into."));
   form->addRow(tr("Protected bands"), bands_edit_);
 
-  shaping_depth_spin_ = new QDoubleSpinBox(contents);
-  shaping_depth_spin_->setObjectName(QLatin1String(kShapingDepthSpinName));
-  shaping_depth_spin_->setRange(0.0, capture::kMaximumShapingDepthDb);
-  shaping_depth_spin_->setDecimals(1);
-  shaping_depth_spin_->setSingleStep(1.0);
-  shaping_depth_spin_->setSuffix(tr(" dB"));
-  shaping_depth_spin_->setSpecialValueText(tr("Default"));
-  shaping_depth_spin_->setToolTip(
-      tr("How far above the protected bands the shaped noise may be pushed. "
-         "At the same number of bits, deeper leaves less noise in the bands "
-         "and puts more outside them, where the FLAC encoder has to store it "
-         "and the file grows a little. Default is 10 dB fixed, 20 adaptive."));
-  form->addRow(tr("Shaping depth"), shaping_depth_spin_);
+  shaping_depth_edit_ = new QLineEdit(contents);
+  shaping_depth_edit_->setObjectName(QLatin1String(kShapingDepthEditName));
+  shaping_depth_edit_->setToolTip(
+      tr("How far above the protected bands the shaped noise may be pushed, "
+         "in dB, 0 to 40. At the same number of bits, deeper leaves less "
+         "noise in the bands and puts more outside them, where the FLAC "
+         "encoder has to store it and the file grows a little. One depth for "
+         "everywhere outside the bands, or one for each stretch between them "
+         "from DC up: with bands 2-14, \"10, 40\" keeps the EFM below 2 MHz "
+         "to 10 dB and lets everything above 14 MHz take 40. Empty for the "
+         "default, 10 dB fixed and 20 adaptive."));
+  form->addRow(tr("Shaping depth"), shaping_depth_edit_);
+
+  // The depths as frequencies, so that which went where is never a guess.
+  shaping_plan_label_ = new QLabel(contents);
+  shaping_plan_label_->setObjectName(QLatin1String(kShapingPlanLabelName));
+  shaping_plan_label_->setWordWrap(true);
+  form->addRow(QString(), shaping_plan_label_);
 
   shaping_order_spin_ = new QSpinBox(contents);
   shaping_order_spin_->setObjectName(QLatin1String(kShapingOrderSpinName));
@@ -461,13 +467,13 @@ CapturePanel::CapturePanel(CaptureController* controller, QWidget* parent)
           [this](int) { ApplySettingsFromWidgets(); });
   connect(shaping_combo_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
-  connect(shaping_depth_spin_, &QDoubleSpinBox::valueChanged, this,
-          [this](double) { ApplySettingsFromWidgets(); });
   connect(shaping_order_spin_, &QSpinBox::valueChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
   // Read when the typing is done, not at every keystroke: "0-1" on the way to
   // "0-13.5" is a band, and not the one meant.
   connect(bands_edit_, &QLineEdit::editingFinished, this,
+          [this] { ApplySettingsFromWidgets(); });
+  connect(shaping_depth_edit_, &QLineEdit::editingFinished, this,
           [this] { ApplySettingsFromWidgets(); });
   connect(bit_shift_combo_, &QComboBox::currentIndexChanged, this,
           [this](int) { ApplySettingsFromWidgets(); });
@@ -572,7 +578,7 @@ void CapturePanel::ShowSettings() {
           .arg(QString::fromStdString(
               capture::DescribeBands(capture::DefaultProtectedBands(
                   static_cast<double>(settings.SampleRateHz()) / 1.0e6)))));
-  shaping_depth_spin_->setValue(settings.requantize_shaping_depth_db);
+  ShowShapingDepths(settings);
   // 0 is the shaping's own order, shown at the bottom of the range as
   // "Default".
   shaping_order_spin_->setValue(settings.requantize_shaping_order > 0
@@ -589,6 +595,47 @@ void CapturePanel::ShowSettings() {
   UpdateNamePlaceholder();
   UpdateEnabledState();
   RefreshFreeSpace();
+}
+
+void CapturePanel::ShowShapingDepths(const CaptureSettings& settings) {
+  // The mode's own depth, which stands in when none is given.
+  capture::RequantizerSettings mode;
+  if (settings.requantize_adaptive) {
+    capture::UseAdaptiveShaping(mode);
+  }
+  shaping_depth_edit_->setText(QString::fromStdString(
+      capture::DescribeShapingDepths(settings.requantize_shaping_depths_db)));
+  shaping_depth_edit_->setPlaceholderText(
+      tr("Default: %1 dB").arg(mode.shaping_depth_db));
+
+  // Where they land, worked out as the controller works it out: the bands
+  // protected at this rate, and the stretches between them from DC up.
+  const double rate_mhz = static_cast<double>(settings.SampleRateHz()) / 1.0e6;
+  std::vector<capture::FrequencyBand> bands =
+      capture::BandsWithin(settings.requantize_bands, rate_mhz);
+  if (bands.empty()) {
+    bands = capture::DefaultProtectedBands(rate_mhz);
+  }
+  const std::vector<capture::ShapingZone> zones =
+      capture::GapShapingZones(bands,
+                               settings.requantize_shaping_depths_db.empty()
+                                   ? std::vector<double>{mode.shaping_depth_db}
+                                   : settings.requantize_shaping_depths_db,
+                               rate_mhz);
+  const QString problem = ShapingDepthsProblem(settings);
+  if (!shaping_depth_refusal_.isEmpty()) {
+    shaping_plan_label_->setText(
+        tr("Not taken: %1").arg(shaping_depth_refusal_));
+    shaping_depth_refusal_.clear();
+  } else if (!problem.isEmpty()) {
+    shaping_plan_label_->setText(problem);
+  } else {
+    shaping_plan_label_->setText(
+        zones.empty() ? tr("Nothing is left outside the protected bands.")
+                      : tr("Outside the bands: %1")
+                            .arg(QString::fromStdString(
+                                capture::DescribeShapingZones(zones))));
+  }
 }
 
 void CapturePanel::RefreshBoardSummary() {
@@ -716,7 +763,6 @@ void CapturePanel::ApplySettingsFromWidgets() {
     settings.requantize_margin = requantize;
   }
   settings.requantize_adaptive = shaping_combo_->currentData().toBool();
-  settings.requantize_shaping_depth_db = shaping_depth_spin_->value();
   settings.requantize_shaping_order =
       shaping_order_spin_->value() == shaping_order_spin_->minimum()
           ? 0
@@ -738,12 +784,42 @@ void CapturePanel::ApplySettingsFromWidgets() {
       settings.requantize_bands = std::move(bands);
     }
   }
+
+  // The same for the depths.
+  const QString depths_text = shaping_depth_edit_->text().trimmed();
+  if (depths_text.isEmpty()) {
+    settings.requantize_shaping_depths_db.clear();
+  } else {
+    std::vector<double> depths =
+        capture::ParseShapingDepths(depths_text.toStdString());
+    // More depths than the bands leave stretches for is refused as well, and
+    // said why — but only as they are typed: depths that stopped fitting when
+    // the bands or the rate changed are kept, and the line under them says so.
+    CaptureSettings proposed = settings;
+    proposed.requantize_shaping_depths_db = depths;
+    const QString problem = ShapingDepthsProblem(proposed);
+    const bool typed =
+        depths != controller_->settings().requantize_shaping_depths_db;
+    if (depths.empty() || (typed && !problem.isEmpty())) {
+      shaping_depth_refusal_ = problem;
+      const QSignalBlocker blocker(shaping_depth_edit_);
+      shaping_depth_edit_->setText(
+          QString::fromStdString(capture::DescribeShapingDepths(
+              controller_->settings().requantize_shaping_depths_db)));
+    } else {
+      settings.requantize_shaping_depths_db = std::move(depths);
+    }
+  }
   settings.bit_shift = bit_shift_combo_->currentData().toInt();
   settings.duration_limit_seconds = duration_spin_->value() * 60;
   settings.low_space_warning_minutes = low_space_spin_->value();
 
   if (settings != controller_->settings()) {
     controller_->SetSettings(settings);
+  }
+  // A refusal with nothing else changed brings no settings back to show it.
+  if (!shaping_depth_refusal_.isEmpty()) {
+    ShowShapingDepths(controller_->settings());
   }
 
   // The format and the rate both change what a capture costs on disk, and the
@@ -1173,7 +1249,7 @@ void CapturePanel::UpdateEnabledState() {
   requantize_combo_->setEnabled(!capturing_);
   shaping_combo_->setEnabled(!capturing_);
   bands_edit_->setEnabled(!capturing_);
-  shaping_depth_spin_->setEnabled(!capturing_);
+  shaping_depth_edit_->setEnabled(!capturing_);
   shaping_order_spin_->setEnabled(!capturing_);
   bit_shift_combo_->setEnabled(!capturing_);
 

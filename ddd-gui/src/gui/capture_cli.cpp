@@ -143,7 +143,7 @@ bool CaptureCliOptions::HasAttributeOverrides() const {
          range_select_2vpp.has_value() || duration_limit_seconds.has_value() ||
          output_format.has_value() || requantize.has_value() ||
          requantize_bands.has_value() || requantize_adaptive.has_value() ||
-         requantize_shaping_depth_db.has_value() ||
+         requantize_shaping_depths_db.has_value() ||
          requantize_shaping_order.has_value() || bit_shift.has_value();
 }
 
@@ -243,10 +243,14 @@ CaptureCliOptionSet AddCaptureCliOptions(QCommandLineParser& parser) {
           QLatin1String(kRequantizeShapingDepthName),
           QStringLiteral(
               "How far above the protected bands the shaped noise may be "
-              "pushed, in dB, up to %1, in place of the shaping's own (10 "
+              "pushed, in dB, 0 to %1, in place of the shaping's own (10 "
               "fixed, 20 adaptive). Deeper leaves less noise in the bands at "
               "the same bits and puts more outside them, where it costs FLAC "
-              "instead. For this run only; recorded in the capture.")
+              "instead. One depth for everywhere outside the bands, or one "
+              "for each stretch between them from DC up: with bands 2-14, "
+              "10,40 keeps the EFM below 2 MHz to 10 dB and lets everything "
+              "above 14 MHz take 40. For this run only; recorded in the "
+              "capture.")
               .arg(capture::kMaximumShapingDepthDb),
           QStringLiteral("dB")),
       QCommandLineOption(
@@ -474,19 +478,19 @@ CaptureCliParseResult ParseCaptureCliOptions(const QCommandLineParser& parser,
   }
 
   if (parser.isSet(set.requantize_shaping_depth)) {
-    const QString text = parser.value(set.requantize_shaping_depth).trimmed();
-    bool numeric = false;
-    const double depth = text.toDouble(&numeric);
-    if (!numeric || depth <= 0.0 || depth > capture::kMaximumShapingDepthDb) {
+    const QString text = parser.value(set.requantize_shaping_depth);
+    std::vector<double> depths =
+        capture::ParseShapingDepths(text.toStdString());
+    if (depths.empty()) {
       result.error =
           QStringLiteral(
-              "Unknown --requantize-shaping-depth '%1'. Give a depth in dB "
-              "above 0 and up to %2.")
+              "Unknown --requantize-shaping-depth '%1'. Give a depth in dB, 0 "
+              "to %2, or one for each stretch between the bands: 10,40.")
               .arg(text)
               .arg(capture::kMaximumShapingDepthDb);
       return result;
     }
-    options.requantize_shaping_depth_db = depth;
+    options.requantize_shaping_depths_db = std::move(depths);
   }
 
   if (parser.isSet(set.requantize_shaping_order)) {
@@ -626,8 +630,9 @@ void ApplyCliOverrides(CaptureSettings& settings,
   if (options.requantize_adaptive.has_value()) {
     settings.requantize_adaptive = *options.requantize_adaptive;
   }
-  if (options.requantize_shaping_depth_db.has_value()) {
-    settings.requantize_shaping_depth_db = *options.requantize_shaping_depth_db;
+  if (options.requantize_shaping_depths_db.has_value()) {
+    settings.requantize_shaping_depths_db =
+        *options.requantize_shaping_depths_db;
   }
   if (options.requantize_shaping_order.has_value()) {
     settings.requantize_shaping_order = *options.requantize_shaping_order;

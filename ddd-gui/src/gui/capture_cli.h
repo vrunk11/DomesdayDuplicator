@@ -143,9 +143,9 @@ struct CaptureCliOptions {
   // CaptureSettings::requantize_adaptive.
   std::optional<bool> requantize_adaptive;
 
-  // The shaping filter's depth and order, in place of the mode's own. See
-  // CaptureSettings::requantize_shaping_depth_db.
-  std::optional<double> requantize_shaping_depth_db;
+  // The shaping filter's depths and order, in place of the mode's own. See
+  // CaptureSettings::requantize_shaping_depths_db.
+  std::optional<std::vector<double>> requantize_shaping_depths_db;
   std::optional<int> requantize_shaping_order;
 
   // Whether anything about the capture itself was named. An attribute given

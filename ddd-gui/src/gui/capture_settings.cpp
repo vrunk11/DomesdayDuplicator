@@ -38,6 +38,10 @@ constexpr const char* kCompressionLevelKey = "capture/compression_level";
 constexpr const char* kRequantizeMarginKey = "capture/requantize_margin";
 constexpr const char* kRequantizeBandsKey = "capture/requantize_bands";
 constexpr const char* kRequantizeShapingKey = "capture/requantize_shaping";
+constexpr const char* kRequantizeShapingDepthsKey =
+    "capture/requantize_shaping_depths_db";
+// Where one depth was kept before there could be several: read when nothing
+// is under the key above, so a setup saved then is not lost.
 constexpr const char* kRequantizeShapingDepthKey =
     "capture/requantize_shaping_depth_db";
 constexpr const char* kRequantizeShapingOrderKey =
@@ -421,9 +425,20 @@ CaptureSettings LoadCaptureSettings() {
   loaded.requantize_adaptive =
       settings.value(QLatin1String(kRequantizeShapingKey)).toString() ==
       QLatin1String(kAdaptiveShapingName);
-  loaded.requantize_shaping_depth_db = std::clamp(
-      settings.value(QLatin1String(kRequantizeShapingDepthKey), 0.0).toDouble(),
-      0.0, capture::kMaximumShapingDepthDb);
+  if (settings.contains(QLatin1String(kRequantizeShapingDepthsKey))) {
+    loaded.requantize_shaping_depths_db = capture::ParseShapingDepths(
+        settings.value(QLatin1String(kRequantizeShapingDepthsKey))
+            .toString()
+            .toStdString());
+  } else {
+    const double depth =
+        settings.value(QLatin1String(kRequantizeShapingDepthKey), 0.0)
+            .toDouble();
+    if (depth > 0.0) {
+      loaded.requantize_shaping_depths_db = {
+          std::min(depth, capture::kMaximumShapingDepthDb)};
+    }
+  }
   loaded.requantize_shaping_order =
       settings.value(QLatin1String(kRequantizeShapingOrderKey), 0).toInt();
   if (loaded.requantize_shaping_order != 0) {
@@ -480,8 +495,10 @@ void SaveCaptureSettings(const CaptureSettings& settings) {
       QLatin1String(kRequantizeShapingKey),
       QLatin1String(settings.requantize_adaptive ? kAdaptiveShapingName
                                                  : kFixedShapingName));
-  store.setValue(QLatin1String(kRequantizeShapingDepthKey),
-                 settings.requantize_shaping_depth_db);
+  store.setValue(QLatin1String(kRequantizeShapingDepthsKey),
+                 QString::fromStdString(capture::DescribeShapingDepths(
+                     settings.requantize_shaping_depths_db)));
+  store.remove(QLatin1String(kRequantizeShapingDepthKey));
   store.setValue(QLatin1String(kRequantizeShapingOrderKey),
                  settings.requantize_shaping_order);
   store.setValue(QLatin1String(kDurationLimitKey),
@@ -497,6 +514,48 @@ QString DescribeRequantizationMargin(int level) {
       .arg(clamped)
       .arg(QString::fromUtf8(capture::MarginLevelName(clamped)))
       .arg(capture::MarginLimitDb(clamped), 0, 'f', 2);
+}
+
+std::vector<capture::FrequencyBand> RequantizedBands(
+    const CaptureSettings& settings) {
+  const double rate_mhz = static_cast<double>(settings.SampleRateHz()) / 1.0e6;
+  std::vector<capture::FrequencyBand> bands =
+      capture::BandsWithin(settings.requantize_bands, rate_mhz);
+  return bands.empty() ? capture::DefaultProtectedBands(rate_mhz) : bands;
+}
+
+QString ShapingDepthsProblem(const CaptureSettings& settings) {
+  const size_t depths = settings.requantize_shaping_depths_db.size();
+  if (depths <= 1) {
+    return {};
+  }
+  const double rate_mhz = static_cast<double>(settings.SampleRateHz()) / 1.0e6;
+  const std::vector<capture::ShapingZone> stretches =
+      capture::GapShapingZones(RequantizedBands(settings), {0.0}, rate_mhz);
+  if (depths <= stretches.size()) {
+    return {};
+  }
+
+  std::vector<capture::FrequencyBand> where;
+  for (const capture::ShapingZone& stretch : stretches) {
+    where.push_back({stretch.low_mhz, stretch.high_mhz});
+  }
+  const QString rate = QString::number(rate_mhz);
+  if (stretches.empty()) {
+    return QStringLiteral(
+               "%1 shaping depths, but at %2 Msps the protected bands leave "
+               "nothing outside them: give one depth.")
+        .arg(depths)
+        .arg(rate);
+  }
+  return QStringLiteral(
+             "%1 shaping depths, but at %2 Msps the protected bands leave %3 "
+             "stretch%4 outside them (%5): give at most %3.")
+      .arg(depths)
+      .arg(rate)
+      .arg(stretches.size())
+      .arg(stretches.size() == 1 ? QString() : QStringLiteral("es"))
+      .arg(QString::fromStdString(capture::DescribeBands(where)));
 }
 
 }  // namespace ddd::gui

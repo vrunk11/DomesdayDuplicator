@@ -155,6 +155,8 @@ void WriteRequantization(YamlWriter& yaml,
               requantization.adaptive_shaping ? "adaptive" : "fixed");
   yaml.Integer("shaping_order", requantization.shaping_order);
   yaml.Number("shaping_depth_db", requantization.shaping_depth_db, 1);
+  yaml.StringIfPresent("shaping_zones",
+                       DescribeShapingZones(requantization.shaping_zones));
   yaml.Unsigned("segment_samples", RfRequantizer::kSegmentSamples);
   yaml.Unsigned("shaped_samples", requantization.shaped_samples);
   yaml.Number("worst_degradation_db", requantization.worst_degradation_db, 3);

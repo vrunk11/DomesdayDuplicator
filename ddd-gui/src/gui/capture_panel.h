@@ -19,7 +19,6 @@
 #include "usb_device_info.h"
 
 class QComboBox;
-class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -30,6 +29,7 @@ class QTimer;
 namespace ddd::gui {
 
 class CaptureController;
+struct CaptureSettings;
 
 // The panel a capture is driven from: which device, where the file goes, and
 // the two buttons that start and stop.
@@ -83,8 +83,10 @@ class CapturePanel : public QWidget {
       "capture_requantize_status_label";
   static constexpr const char* kShapingComboName = "capture_shaping_combo";
   static constexpr const char* kBandsEditName = "capture_bands_edit";
-  static constexpr const char* kShapingDepthSpinName =
-      "capture_shaping_depth_spin";
+  static constexpr const char* kShapingDepthEditName =
+      "capture_shaping_depth_edit";
+  static constexpr const char* kShapingPlanLabelName =
+      "capture_shaping_plan_label";
   static constexpr const char* kShapingOrderSpinName =
       "capture_shaping_order_spin";
   static constexpr const char* kBitShiftComboName = "capture_bit_shift_combo";
@@ -194,6 +196,10 @@ class CapturePanel : public QWidget {
   void ApplySettingsFromWidgets();
   void ShowSettings();
 
+  // The shaping depths as typed, and under them where each one lands: the
+  // stretches between the bands the requantiser will protect at this rate.
+  void ShowShapingDepths(const CaptureSettings& settings);
+
   // Rebuilds pll_preset_combo_'s items from the connected device's
   // MAX_ADC_RATE_MHZ, preserving the current selection where it is still
   // offered. Called whenever the device might have changed rather than only
@@ -229,7 +235,11 @@ class CapturePanel : public QWidget {
   QLabel* requantize_status_label_ = nullptr;
   QComboBox* shaping_combo_ = nullptr;
   QLineEdit* bands_edit_ = nullptr;
-  QDoubleSpinBox* shaping_depth_spin_ = nullptr;
+  QLineEdit* shaping_depth_edit_ = nullptr;
+  QLabel* shaping_plan_label_ = nullptr;
+  // Why the depths just typed were not taken, until shaping_plan_label_ has
+  // said it once.
+  QString shaping_depth_refusal_;
   QSpinBox* shaping_order_spin_ = nullptr;
   QComboBox* bit_shift_combo_ = nullptr;
   QSpinBox* duration_spin_ = nullptr;
