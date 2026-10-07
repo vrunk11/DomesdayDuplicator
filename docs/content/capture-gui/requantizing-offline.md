@@ -52,6 +52,7 @@ done, as the capture panel's preview does.
 | `--input-bits <5-16>` | The bits the input carries. A FLAC capture says, through its bit shift; otherwise they are found from the samples |
 | `--compression <0-8>` | The FLAC level for a `.flac` output, as flac's `-0` to `-8`. Default 8, as a capture's |
 | `--log <file.csv>` | One line per segment: what was decided, the noise floor it was decided against, and the slice of the bands that held it back |
+| `--realtime` | Hand the samples on no faster than their rate, as a capture does. See [Piping](#piping) |
 
 The options are the same settings as the capture panel's, under shorter names. The command
 line of `ddd-gui` spells them `--requantize`, `--requantize-band`, `--requantize-shaping`,
@@ -100,6 +101,26 @@ A capture is decided segment by segment from its start, so a short extract of a 
 is not decided exactly as that stretch was within the whole: the floor the first segments
 are measured against is the extract's own. Compare whole captures, or extracts against
 extracts.
+
+## Piping
+
+`-` reads signed 16-bit samples from standard input and writes them to standard output, so
+the tool fits between two programs. Standard input has no rate to say, so `--rate` is needed
+there. When standard output carries the samples, the report goes to standard error, and
+nothing but samples reaches the pipe.
+
+```bash
+ddd-requantize --rate 30 --margin 0 --shaping adaptive --band 2-14 --depth 10,40 disc.s16 - | decoder
+```
+
+A file is read as fast as it can be, and a pipe normally holds the writer back to the
+reader's pace. A program downstream that expects a live stream — paced at the sample rate, as
+a capture delivers it — is given one with `--realtime`: each segment is handed on no sooner
+than the moment its last sample would have been taken. The report says if the run fell behind
+real time, which is what a live capture with the same settings would have met too.
+
+On Windows, pipe from `cmd.exe`, Git Bash or PowerShell 7.4 and later. Windows PowerShell 5.1
+re-encodes what passes between two programs as text, which corrupts samples.
 
 ## What it writes
 

@@ -90,6 +90,11 @@ struct RequantizeCliOptions {
   // A CSV file to write one line per segment to: what was decided and why.
   std::string log_path;
 
+  // Hand the samples on no faster than their rate, as a capture does, for
+  // whatever downstream expects a live stream rather than a file's worth as
+  // fast as it can be read.
+  bool realtime = false;
+
   bool show_help = false;
 
   // Set when parsing failed; already written for a human.

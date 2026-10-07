@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -342,6 +343,34 @@ TEST_F(RequantizeCliTest, OffWritesTheSamplesAsTheyAre) {
       << out_.str();
   EXPECT_NE(out_.str().find("DDD_REQUANTIZATION: off"), std::string::npos)
       << out_.str();
+}
+
+// Paced, the samples are the same and take at least as long as they last:
+// two and a half segments at 10 Msps are about a quarter of a second.
+TEST_F(RequantizeCliTest, RealTimeHandsTheSameSamplesOnAtTheirRate) {
+  EXPECT_TRUE(ParseRequantizeCliOptions({"--realtime", "in.s16"}).realtime);
+  EXPECT_FALSE(
+      ParseRequantizeCliOptions({"--realtime=yes", "in.s16"}).problem.empty());
+
+  const std::vector<uint8_t> stored = StoredBytes(Converted(Codes()));
+  WriteAll(Path("in.s16"), stored);
+  ASSERT_EQ(Run({"--rate", "10", Path("in.s16"), Path("fast.s16")}),
+            kRequantizeCliSuccess)
+      << error_.str();
+
+  const auto started = std::chrono::steady_clock::now();
+  ASSERT_EQ(
+      Run({"--rate", "10", "--realtime", Path("in.s16"), Path("paced.s16")}),
+      kRequantizeCliSuccess)
+      << error_.str();
+  const double took =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - started)
+          .count();
+
+  const size_t samples = stored.size() / kBytesPerSample;
+  const double lasts = static_cast<double>(samples) / 10.0e6;
+  EXPECT_GE(took, lasts * 0.95) << took << " s for " << lasts << " s";
+  EXPECT_EQ(ReadAll(Path("paced.s16")), ReadAll(Path("fast.s16")));
 }
 
 // Without an output it decides and reports, and writes nothing.

@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -24,6 +25,7 @@
 #include <ostream>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -46,6 +48,10 @@ constexpr int kFewestInputBits = 5;
 constexpr int kMostInputBits = 16;
 
 constexpr double kMegahertz = 1.0e6;
+
+// How far a paced run may fall behind the samples it carries before the report
+// says so: a little slack for the last segment and the encoder's finish.
+constexpr double kBehindRealTimeSeconds = 0.5;
 
 // The width of a sample as a capture stores it.
 constexpr int kStoredSampleBits = 16;
@@ -359,6 +365,11 @@ std::string RequantizeCliUsage() {
          "  --log <file.csv>         One line per segment: what was decided, "
          "and the\n"
          "                           slice that held it back\n"
+         "  --realtime               Hand the samples on no faster than their "
+         "rate, as\n"
+         "                           a capture does, for a decoder downstream "
+         "that\n"
+         "                           expects a live stream\n"
          "  --help                   Show this text\n"
          "\n"
          "The samples written are those the capture application writes with "
@@ -514,6 +525,12 @@ RequantizeCliOptions ParseRequantizeCliOptions(
         return options;
       }
       options.log_path = value;
+    } else if (argument == "--realtime") {
+      if (has_value) {
+        options.problem = "--realtime takes no value.";
+        return options;
+      }
+      options.realtime = true;
     } else {
       options.problem = "Unknown option: " + argument;
       return options;
@@ -702,6 +719,8 @@ int RunRequantizeCli(const std::vector<std::string>& args,
   uint64_t segments = 0;
   const std::optional<uint64_t> total = input.TotalSamples();
   int last_percent = -1;
+  const double samples_per_second = *rate_mhz * kMegahertz;
+  const auto started = std::chrono::steady_clock::now();
   while (!segment.empty()) {
     const RequantizerDecision decision =
         options.requantize
@@ -733,6 +752,18 @@ int RunRequantizeCli(const std::vector<std::string>& args,
 
     position += segment.size();
     ++segments;
+
+    // A segment at a time, as the capture application's own pipe hands them
+    // on: no sooner than the moment the last of its samples would have been
+    // taken.
+    if (options.realtime) {
+      std::this_thread::sleep_until(
+          started +
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              std::chrono::duration<double>(static_cast<double>(position) /
+                                            samples_per_second)));
+    }
+
     if (total.has_value() && *total > 0) {
       const auto percent = static_cast<int>((position * 100) / *total);
       if (percent != last_percent) {
@@ -750,6 +781,20 @@ int RunRequantizeCli(const std::vector<std::string>& args,
   if (writing && !output.Finish(problem)) {
     error << problem << "\n";
     return kRequantizeCliOutput;
+  }
+
+  // Paced, it should have taken as long as the samples last. Much longer is
+  // a requantiser — or a reader downstream — that could not keep up, which is
+  // what a live capture with these settings would have run into too.
+  if (options.realtime) {
+    const double took = std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - started)
+                            .count();
+    const double lasts = static_cast<double>(position) / samples_per_second;
+    if (took > lasts + kBehindRealTimeSeconds) {
+      report << "Behind real time: " << FormatDecimal(took, 1) << " s for "
+             << FormatDecimal(lasts, 1) << " s of samples\n";
+    }
   }
   if (log.is_open()) {
     log.close();
